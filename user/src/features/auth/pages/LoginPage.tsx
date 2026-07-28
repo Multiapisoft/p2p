@@ -31,7 +31,7 @@ function LoginForm() {
   }, [searchParams]);
 
   const login = useMutation({
-    mutationFn: () => loginApi(email, password),
+    mutationFn: () => loginApi(email.trim(), password),
     onSuccess: (data) => {
       if (data.user.role !== 'user') {
         setError('User account access only');
@@ -40,11 +40,18 @@ function LoginForm() {
       }
       setAuth(data.accessToken, data.user);
       toast.success('Welcome back');
-      router.replace('/');
+      const next = searchParams.get('next') || searchParams.get('redirect') || '/';
+      router.replace(next.startsWith('/') ? next : '/');
     },
-    onError: () => {
-      setError('Invalid credentials');
-      toast.error('Login failed', 'Invalid email or password');
+    onError: (err: unknown) => {
+      const msg =
+        err && typeof err === 'object' && 'response' in err
+          ? (err as { response?: { data?: { message?: string | string[] } } }).response?.data
+              ?.message
+          : undefined;
+      const text = Array.isArray(msg) ? msg.join(', ') : msg || 'Invalid email or password';
+      setError(text);
+      toast.error('Login failed', text);
     },
   });
 

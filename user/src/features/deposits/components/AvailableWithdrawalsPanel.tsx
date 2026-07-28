@@ -210,11 +210,13 @@ export function AvailableWithdrawalsPanel({
   const openPay = (w: AvailableWithdrawal) => {
     setTarget(w);
     resetForm();
+    const maxPay =
+      w.maxPayable != null ? Math.min(w.maxPayable, w.remainingAmount) : w.remainingAmount;
     const pref =
       preferredAmount && preferredAmount >= 1
-        ? Math.min(preferredAmount, w.remainingAmount)
-        : w.remainingAmount;
-    setPayAmount(String(pref));
+        ? Math.min(preferredAmount, maxPay)
+        : maxPay;
+    setPayAmount(String(pref > 0 ? pref : maxPay));
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -225,8 +227,16 @@ export function AvailableWithdrawalsPanel({
       setFormError('Enter a valid amount');
       return;
     }
-    if (num > target.remainingAmount) {
-      setFormError(`Max open amount is ${formatCurrency(target.remainingAmount, moneyCurrency(target))}`);
+    const maxPay =
+      target.maxPayable != null
+        ? Math.min(target.maxPayable, target.remainingAmount)
+        : target.remainingAmount;
+    if (num > maxPay) {
+      setFormError(
+        target.p2pPayRemainingInr != null
+          ? `Max payable is ${formatCurrency(maxPay, moneyCurrency(target))} (limit remaining ₹${target.p2pPayRemainingInr})`
+          : `Max open amount is ${formatCurrency(maxPay, moneyCurrency(target))}`,
+      );
       return;
     }
     if (!utr || utr.length < 6) {
@@ -398,12 +408,23 @@ export function AvailableWithdrawalsPanel({
                 </p>
               </div>
               <div>
-                <p className="text-secondary">Open</p>
+                <p className="text-secondary">Pay up to</p>
                 <p className="font-bold text-secondary">
-                  {formatCurrency(target.remainingAmount, moneyCurrency(target))}
+                  {formatCurrency(
+                    target.maxPayable != null
+                      ? Math.min(target.maxPayable, target.remainingAmount)
+                      : target.remainingAmount,
+                    moneyCurrency(target),
+                  )}
                 </p>
               </div>
             </div>
+
+            {target.p2pPayRemainingInr != null && (
+              <p className="text-[11px] text-amber-700">
+                Business P2P limit remaining: ₹{target.p2pPayRemainingInr}
+              </p>
+            )}
 
             <PaymentDetails w={target} />
 
@@ -411,7 +432,11 @@ export function AvailableWithdrawalsPanel({
               label={moneyCurrency(target) === 'USDT' ? 'Amount (USDT)' : 'Amount (₹)'}
               type="number"
               min={1}
-              max={target.remainingAmount}
+              max={
+                target.maxPayable != null
+                  ? Math.min(target.maxPayable, target.remainingAmount)
+                  : target.remainingAmount
+              }
               value={payAmount}
               onChange={(e) => setPayAmount(e.target.value)}
               required

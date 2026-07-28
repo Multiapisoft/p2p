@@ -234,7 +234,9 @@ export function InvestWithdrawalsList() {
   const openPay = (w: AvailableWithdrawal) => {
     setTarget(w);
     resetForm();
-    setPayAmount(String(w.remainingAmount));
+    const maxPay =
+      w.maxPayable != null ? Math.min(w.maxPayable, w.remainingAmount) : w.remainingAmount;
+    setPayAmount(String(maxPay > 0 ? maxPay : w.remainingAmount));
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -245,8 +247,16 @@ export function InvestWithdrawalsList() {
       setFormError('Please enter a valid amount');
       return;
     }
-    if (num > target.remainingAmount) {
-      setFormError(`Maximum remaining amount is ${formatCurrency(target.remainingAmount, moneyCurrency(target))}`);
+    const maxPay =
+      target.maxPayable != null
+        ? Math.min(target.maxPayable, target.remainingAmount)
+        : target.remainingAmount;
+    if (num > maxPay) {
+      setFormError(
+        target.p2pPayRemainingInr != null
+          ? `Max payable is ${formatCurrency(maxPay, moneyCurrency(target))} (business limit remaining ₹${target.p2pPayRemainingInr})`
+          : `Maximum remaining amount is ${formatCurrency(maxPay, moneyCurrency(target))}`,
+      );
       return;
     }
     if (!utr || utr.length < 6) {
@@ -450,6 +460,11 @@ export function InvestWithdrawalsList() {
                             )}
                             <span className="text-secondary">
                               Open {formatCurrency(w.remainingAmount, moneyCurrency(w))}
+                              {w.maxPayable != null &&
+                              w.p2pPayRemainingInr != null &&
+                              w.maxPayable < w.remainingAmount
+                                ? ` · Pay up to ${formatCurrency(w.maxPayable, moneyCurrency(w))} (limit ₹${w.p2pPayRemainingInr})`
+                                : ''}
                             </span>
                           </div>
                           {w.creditIfPayFull && w.remainingAmount > 0 && (
@@ -476,7 +491,9 @@ export function InvestWithdrawalsList() {
                       size="sm"
                       className="shrink-0 self-end sm:self-center"
                       onClick={() => openPay(w)}
-                      disabled={w.remainingAmount <= 0}
+                      disabled={
+                        w.remainingAmount <= 0 || (w.maxPayable != null && w.maxPayable <= 0)
+                      }
                     >
                       Pay
                     </Button>
@@ -532,10 +549,24 @@ export function InvestWithdrawalsList() {
               <div>
                 <p className="text-[10px] text-secondary">Pay up to</p>
                 <p className="text-sm font-bold text-secondary">
-                  {formatCurrency(target.remainingAmount, moneyCurrency(target))}
+                  {formatCurrency(
+                    target.maxPayable != null
+                      ? Math.min(target.maxPayable, target.remainingAmount)
+                      : target.remainingAmount,
+                    moneyCurrency(target),
+                  )}
                 </p>
               </div>
             </div>
+
+            {target.p2pPayRemainingInr != null && (
+              <p className="text-[11px] text-amber-700">
+                Business P2P limit remaining: ₹{target.p2pPayRemainingInr}
+                {target.maxPayable != null && target.maxPayable < target.remainingAmount
+                  ? ` · capped from open ${formatCurrency(target.remainingAmount, moneyCurrency(target))}`
+                  : ''}
+              </p>
+            )}
 
             <PaymentDetailsPanel w={target} full />
 
@@ -553,7 +584,11 @@ export function InvestWithdrawalsList() {
               }
               type="number"
               min={1}
-              max={target.remainingAmount}
+              max={
+                target.maxPayable != null
+                  ? Math.min(target.maxPayable, target.remainingAmount)
+                  : target.remainingAmount
+              }
               value={payAmount}
               onChange={(e) => setPayAmount(e.target.value)}
               required

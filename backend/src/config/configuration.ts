@@ -31,6 +31,10 @@ export default () => ({
     apiPrefix: process.env.API_PREFIX || 'api/v1',
     webhookSecret: process.env.WEBHOOK_SECRET || 'webhook-signing-secret',
     userAppUrl: process.env.USER_APP_URL || 'http://localhost:5174',
+    corsOrigins: (process.env.CORS_ORIGINS || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean),
   },
   exchange: {
     /** INR per 1 USDT — used when partner wallet is USDT but payout is UPI/Bank */

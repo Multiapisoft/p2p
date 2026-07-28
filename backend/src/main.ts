@@ -4,16 +4,67 @@ import { ConfigService } from '@nestjs/config';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 
+const DEFAULT_PROD_ORIGINS = [
+  'https://dev.app.fairplayofficial.com',
+  'https://dev.dashboard.fairplayofficial.com',
+  'https://dev.paysecure247.com',
+  'https://dev.invespro.xyz',
+  'http://dev.app.fairplayofficial.com',
+  'http://dev.dashboard.fairplayofficial.com',
+  'http://dev.paysecure247.com',
+  'http://dev.invespro.xyz',
+];
+
+function normalizeOrigin(origin: string) {
+  return origin.trim().replace(/\/$/, '');
+}
+
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
   const config = app.get(ConfigService);
   const apiPrefix = config.get<string>('app.apiPrefix') || 'api/v1';
+  const nodeEnv = config.get<string>('nodeEnv');
+  const configured = (config.get<string[]>('app.corsOrigins') || []).map(normalizeOrigin);
+  const allowedOrigins = new Set(
+    [...configured, ...(nodeEnv === 'production' ? DEFAULT_PROD_ORIGINS : [])].map(
+      normalizeOrigin,
+    ),
+  );
 
   app.setGlobalPrefix(apiPrefix);
   app.enableCors({
-    origin: config.get<string>('nodeEnv') === 'production' ? false : true,
+    origin: (
+      origin: string | undefined,
+      callback: (err: Error | null, allow?: boolean) => void,
+    ) => {
+      // Non-browser / same-origin proxy / curl — no Origin header
+      if (!origin) {
+        callback(null, true);
+        return;
+      }
+      if (nodeEnv !== 'production') {
+        callback(null, true);
+        return;
+      }
+      const normalized = normalizeOrigin(origin);
+      if (allowedOrigins.has(normalized)) {
+        callback(null, true);
+        return;
+      }
+      callback(null, false);
+    },
     credentials: true,
+    methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'X-Api-Key',
+      'X-Api-Secret',
+      'X-Internal-Secret',
+      'Accept',
+      'Origin',
+    ],
   });
 
   app.useGlobalPipes(

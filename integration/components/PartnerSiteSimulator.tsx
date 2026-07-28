@@ -7,7 +7,7 @@ import type { ApiCredentials } from '@/lib/types';
 interface PartnerSiteSimulatorProps {
   creds: ApiCredentials;
   onLog: (step: string, status: 'success' | 'error', message: string, data?: unknown) => void;
-  loading: boolean;
+  loading: string | null;
   setLoading: (v: string | null) => void;
 }
 
@@ -36,8 +36,8 @@ export function PartnerSiteSimulator({ creds, onLog, loading, setLoading }: Part
   const handleLogin = () =>
     run('Partner Login', async () => {
       if (!email.trim()) throw new P2pApiError('Enter user email');
-      const res = await p2pApi.lookupUser(creds, email.trim());
-      const userId = String((res.user as { _id?: string; id?: string })._id || res.user.id || '');
+      const res = await p2pApi.lookupUser(creds, { email: email.trim() });
+      const userId = res.user.userId || res.user._id;
       setLoggedIn({
         userId,
         name: res.user.name,

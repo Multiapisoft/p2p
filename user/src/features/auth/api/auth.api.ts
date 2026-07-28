@@ -7,7 +7,10 @@ interface AuthResponse {
 }
 
 export async function loginApi(email: string, password: string) {
-  return apiPost<AuthResponse>('/auth/login', { email, password });
+  return apiPost<AuthResponse>('/auth/login', {
+    email: email.trim().toLowerCase(),
+    password,
+  });
 }
 
 export async function registerApi(payload: {

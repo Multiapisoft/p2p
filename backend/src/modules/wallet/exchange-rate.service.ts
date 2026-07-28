@@ -35,6 +35,13 @@ export class ExchangeRateService {
     return Math.ceil((inrAmount / rate) * 1e6) / 1e6;
   }
 
+  /** Convert INR budget → max USDT pay that still fits under remaining limit. */
+  inrBudgetToUsdt(inrAmount: number): number {
+    const rate = this.getUsdtInrRate();
+    if (!Number.isFinite(inrAmount) || inrAmount <= 0) return 0;
+    return Math.floor((inrAmount / rate) * 1e6) / 1e6;
+  }
+
   usdtToInr(usdtAmount: number): number {
     const rate = this.getUsdtInrRate();
     return Math.round(usdtAmount * rate * 100) / 100;

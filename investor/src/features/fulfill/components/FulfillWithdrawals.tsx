@@ -332,7 +332,9 @@ export function FulfillWithdrawals({
   const openPay = (w: AvailableWithdrawal) => {
     setTarget(w);
     resetForm();
-    setAmount(String(w.remainingAmount));
+    const maxPay =
+      w.maxPayable != null ? Math.min(w.maxPayable, w.remainingAmount) : w.remainingAmount;
+    setAmount(String(maxPay > 0 ? maxPay : w.remainingAmount));
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -343,8 +345,16 @@ export function FulfillWithdrawals({
       setFormError('Please enter a valid amount');
       return;
     }
-    if (num > target.remainingAmount) {
-      setFormError(`Maximum remaining amount is ${target.remainingAmount}`);
+    const maxPay =
+      target.maxPayable != null
+        ? Math.min(target.maxPayable, target.remainingAmount)
+        : target.remainingAmount;
+    if (num > maxPay) {
+      setFormError(
+        target.p2pPayRemainingInr != null
+          ? `Max payable is ${maxPay} (business limit remaining ₹${target.p2pPayRemainingInr})`
+          : `Maximum remaining amount is ${maxPay}`,
+      );
       return;
     }
     if (!utr || utr.length < 6) {
@@ -650,9 +660,25 @@ export function FulfillWithdrawals({
             <div className="rounded-lg bg-surface-container-low p-3 text-sm">
               <p>Total: {formatCurrency(target.amount, target.currency)}</p>
               <p>
-                Remaining:{' '}
+                Open:{' '}
                 <strong>{formatCurrency(target.remainingAmount, target.currency)}</strong>
               </p>
+              <p>
+                Pay up to:{' '}
+                <strong>
+                  {formatCurrency(
+                    target.maxPayable != null
+                      ? Math.min(target.maxPayable, target.remainingAmount)
+                      : target.remainingAmount,
+                    target.currency,
+                  )}
+                </strong>
+              </p>
+              {target.p2pPayRemainingInr != null && (
+                <p className="mt-1 text-xs text-amber-700">
+                  Business P2P limit remaining: ₹{target.p2pPayRemainingInr}
+                </p>
+              )}
             </div>
 
             <DestinationInfo w={target} />
@@ -661,7 +687,11 @@ export function FulfillWithdrawals({
               label={labels.amountLabel}
               type="number"
               min={1}
-              max={target.remainingAmount}
+              max={
+                target.maxPayable != null
+                  ? Math.min(target.maxPayable, target.remainingAmount)
+                  : target.remainingAmount
+              }
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               required

@@ -108,6 +108,7 @@ export class WithdrawalPaymentService {
     let method: PaymentMethod | undefined;
     let payCurrency = Currency.INR;
     let businessId = payer.referredByBusiness?.toString();
+    let withdrawalRemaining: number | null = null;
     if (withdrawalId) {
       const withdrawal = await this.withdrawalModel.findById(withdrawalId).exec();
       if (!withdrawal) throw new NotFoundException('Withdrawal not found');
@@ -116,15 +117,45 @@ export class WithdrawalPaymentService {
       if (withdrawal.businessId) {
         businessId = withdrawal.businessId.toString();
       }
-      if (amount > this.getRemaining(withdrawal)) {
+      withdrawalRemaining = this.getRemaining(withdrawal);
+      if (amount > withdrawalRemaining) {
         throw new BadRequestException(
-          `Amount exceeds remaining ${this.getRemaining(withdrawal)}`,
+          `Amount exceeds remaining ${withdrawalRemaining}`,
         );
       }
     }
 
     const isInvestor = payer.role === UserRole.INVESTOR;
-    return this.computeCreditBreakdown(amount, businessId, method, isInvestor, payCurrency);
+    const { maxPayable, p2pPayRemainingInr } =
+      await this.businessService.getMaxPayableAmount(
+        businessId,
+        withdrawalRemaining ?? amount,
+        payCurrency,
+        method,
+        (inr) => this.exchangeRateService.inrBudgetToUsdt(inr),
+      );
+
+    if (amount > maxPayable) {
+      throw new BadRequestException(
+        p2pPayRemainingInr != null
+          ? `Amount exceeds business P2P pay limit. Max payable ${maxPayable} (limit remaining ₹${p2pPayRemainingInr})`
+          : `Amount exceeds max payable ${maxPayable}`,
+      );
+    }
+
+    const breakdown = await this.computeCreditBreakdown(
+      amount,
+      businessId,
+      method,
+      isInvestor,
+      payCurrency,
+    );
+    return {
+      ...breakdown,
+      maxPayable,
+      p2pPayRemainingInr,
+      withdrawalRemaining,
+    };
   }
 
   private async computeCreditBreakdown(
@@ -304,11 +335,34 @@ export class WithdrawalPaymentService {
         const view = this.toAvailableView(w);
         const remaining = view.remainingAmount;
         if (remaining <= 0) {
-          return { ...view, creditIfPayFull: null };
+          return {
+            ...view,
+            maxPayable: 0,
+            p2pPayRemainingInr: null,
+            creditIfPayFull: null,
+          };
         }
         const businessId = w.businessId?.toString() || payerBusinessId;
+        const { maxPayable, p2pPayRemainingInr } =
+          await this.businessService.getMaxPayableAmount(
+            businessId,
+            remaining,
+            w.currency,
+            w.method,
+            (inr) => this.exchangeRateService.inrBudgetToUsdt(inr),
+          );
+
+        if (maxPayable <= 0) {
+          return {
+            ...view,
+            maxPayable: 0,
+            p2pPayRemainingInr,
+            creditIfPayFull: null,
+          };
+        }
+
         const credit = await this.computeCreditBreakdown(
-          remaining,
+          maxPayable,
           businessId,
           w.method,
           !!isInvestor,
@@ -316,6 +370,8 @@ export class WithdrawalPaymentService {
         );
         return {
           ...view,
+          maxPayable,
+          p2pPayRemainingInr,
           creditIfPayFull: {
             payAmount: credit.payAmount,
             payCurrency: credit.payCurrency,
@@ -419,6 +475,23 @@ export class WithdrawalPaymentService {
     const businessId =
       withdrawal.businessId?.toString() || payer?.referredByBusiness?.toString();
     const isInvestor = payer?.role === UserRole.INVESTOR;
+
+    const { maxPayable, p2pPayRemainingInr } =
+      await this.businessService.getMaxPayableAmount(
+        businessId,
+        remaining,
+        withdrawal.currency,
+        withdrawal.method,
+        (inr) => this.exchangeRateService.inrBudgetToUsdt(inr),
+      );
+    if (dto.amount > maxPayable) {
+      throw new BadRequestException(
+        p2pPayRemainingInr != null
+          ? `Amount exceeds business P2P pay limit. Max payable ${maxPayable} (limit remaining ₹${p2pPayRemainingInr})`
+          : `Amount exceeds max payable ${maxPayable}`,
+      );
+    }
+
     const estimate = await this.computeCreditBreakdown(
       dto.amount,
       businessId,
@@ -428,7 +501,7 @@ export class WithdrawalPaymentService {
     );
 
     // Business P2P limit is INR — convert USDT pays to INR for limit accounting
-    const limitConsumeAmount = estimate.payAmountInr;
+    const limitConsumeAmount = Math.round(estimate.payAmountInr * 100) / 100;
 
     if (businessId) {
       await this.businessService.reserveP2pPay(businessId, limitConsumeAmount);

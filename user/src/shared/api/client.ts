@@ -20,8 +20,14 @@ apiClient.interceptors.response.use(
   (res) => res,
   (error) => {
     if (error.response?.status === 401 && typeof window !== 'undefined') {
-      useAuthStore.getState().logout();
-      window.location.href = '/login';
+      const url = String(error.config?.url || '');
+      // Don't bounce the login/register screen on bad credentials
+      const isAuthAttempt =
+        url.includes('/auth/login') || url.includes('/auth/register');
+      if (!isAuthAttempt) {
+        useAuthStore.getState().logout();
+        window.location.href = '/login';
+      }
     }
     return Promise.reject(error);
   },

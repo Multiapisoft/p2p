@@ -19,9 +19,14 @@ apiClient.interceptors.request.use((config) => {
 apiClient.interceptors.response.use(
   (res) => res,
   (error) => {
-    if (error.response?.status === 401) {
-      useAuthStore.getState().logout();
-      window.location.href = '/login';
+    if (error.response?.status === 401 && typeof window !== 'undefined') {
+      const url = String(error.config?.url || '');
+      const isAuthAttempt =
+        url.includes('/auth/login') || url.includes('/auth/register');
+      if (!isAuthAttempt) {
+        useAuthStore.getState().logout();
+        window.location.href = '/login';
+      }
     }
     return Promise.reject(error);
   },

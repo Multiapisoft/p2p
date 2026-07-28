@@ -17,6 +17,9 @@ export interface CreditPreview {
   exchangeRate?: number | null;
   isInvestor: boolean;
   businessId: string | null;
+  maxPayable?: number;
+  p2pPayRemainingInr?: number | null;
+  withdrawalRemaining?: number | null;
 }
 
 export interface AvailableWithdrawal {
@@ -29,6 +32,10 @@ export interface AvailableWithdrawal {
   /** Pending verify — shown as Locked. */
   reservedAmount?: number;
   remainingAmount: number;
+  /** Cap by business P2P pay limit (and open amount). */
+  maxPayable?: number;
+  /** Business P2P INR quota left (null = unlimited). */
+  p2pPayRemainingInr?: number | null;
   currency: string;
   method: PaymentMethod;
   status: TransactionStatus;
@@ -41,7 +48,7 @@ export interface AvailableWithdrawal {
   };
   usdtDetails?: { walletAddress?: string; network?: string };
   createdAt: string;
-  /** If you pay the full open amount, estimated wallet credit after verify (INR points) */
+  /** Estimated wallet credit if you pay maxPayable (after verify, INR points) */
   creditIfPayFull?: {
     payAmount: number;
     payCurrency?: string;

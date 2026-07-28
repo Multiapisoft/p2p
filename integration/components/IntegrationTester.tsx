@@ -21,7 +21,7 @@ function loadCreds(): ApiCredentials {
     if (raw) {
       const parsed = JSON.parse(raw) as ApiCredentials & { internalKey?: string };
       const { internalKey: _removed, ...rest } = parsed;
-      return { internalSecret: '', ...rest };
+      return { ...rest, internalSecret: rest.internalSecret || '' };
     }
   } catch {
     /* ignore */
@@ -273,7 +273,11 @@ export function IntegrationTester() {
       const amount = Number(redirectAmount);
       if (!amount || amount < 1) throw new P2pApiError('Invalid amount');
       const res = await p2pApi.creditUser(creds, selectedUserId, { amount });
-      setUserBalance(res);
+      setUserBalance((prev) => ({
+        availableBalance: res.availableBalance,
+        balance: res.balance,
+        lockedBalance: prev?.lockedBalance ?? 0,
+      }));
       addLog('Credit User', 'success', `Credited ₹${amount}`, res);
     });
 
@@ -283,7 +287,11 @@ export function IntegrationTester() {
       const amount = Number(redirectAmount);
       if (!amount || amount < 1) throw new P2pApiError('Invalid amount');
       const res = await p2pApi.debitUser(creds, selectedUserId, { amount });
-      setUserBalance(res);
+      setUserBalance((prev) => ({
+        availableBalance: res.availableBalance,
+        balance: res.balance,
+        lockedBalance: prev?.lockedBalance ?? 0,
+      }));
       addLog('Debit User', 'success', `Debited ₹${amount}`, res);
     });
 

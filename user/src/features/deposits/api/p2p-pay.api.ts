@@ -16,6 +16,9 @@ export interface CreditPreview {
   exchangeRate?: number | null;
   isInvestor: boolean;
   businessId: string | null;
+  maxPayable?: number;
+  p2pPayRemainingInr?: number | null;
+  withdrawalRemaining?: number | null;
 }
 
 export interface AvailableWithdrawal {
@@ -25,6 +28,8 @@ export interface AvailableWithdrawal {
   paidAmount: number;
   reservedAmount?: number;
   remainingAmount: number;
+  maxPayable?: number;
+  p2pPayRemainingInr?: number | null;
   currency: string;
   method: PaymentMethod;
   status: TransactionStatus;

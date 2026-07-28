@@ -332,7 +332,46 @@ export class BusinessService {
     if (!business) throw new NotFoundException('Business not found');
     const limit = business.p2pPayLimit || 0;
     if (limit <= 0) return null;
-    return Math.max(0, limit - (business.p2pPayUsed || 0));
+    return Math.round(Math.max(0, limit - (business.p2pPayUsed || 0)) * 100) / 100;
+  }
+
+  /**
+   * Cap a withdrawal pay amount by business P2P INR remaining.
+   * `payCurrency` / method decide whether remaining INR is converted to USDT.
+   */
+  async getMaxPayableAmount(
+    businessId: string | undefined,
+    withdrawalRemaining: number,
+    payCurrency: string,
+    method?: string,
+    inrToPayCurrency?: (inr: number) => number,
+  ): Promise<{ maxPayable: number; p2pPayRemainingInr: number | null }> {
+    const open = Math.max(0, withdrawalRemaining);
+    if (!businessId || open <= 0) {
+      return { maxPayable: open, p2pPayRemainingInr: null };
+    }
+    const remInr = await this.getP2pPayRemaining(businessId);
+    if (remInr == null) {
+      return { maxPayable: open, p2pPayRemainingInr: null };
+    }
+    if (remInr <= 0) {
+      return { maxPayable: 0, p2pPayRemainingInr: 0 };
+    }
+
+    const payIsUsdt =
+      (payCurrency || '').toUpperCase() === 'USDT' || method === 'usdt';
+    if (payIsUsdt && inrToPayCurrency) {
+      const maxInPay = inrToPayCurrency(remInr);
+      return {
+        maxPayable: Math.min(open, maxInPay),
+        p2pPayRemainingInr: remInr,
+      };
+    }
+
+    return {
+      maxPayable: Math.min(open, remInr),
+      p2pPayRemainingInr: remInr,
+    };
   }
 
   /** Business IDs that still accept investor pays (unlimited or remaining > 0). */
@@ -372,14 +411,15 @@ export class BusinessService {
    * Unlimited when p2pPayLimit <= 0.
    */
   async reserveP2pPay(businessId: string, amount: number) {
-    if (amount <= 0) return;
+    const rounded = Math.round(amount * 100) / 100;
+    if (rounded <= 0) return;
     const business = await this.businessModel.findById(businessId).exec();
     if (!business) throw new NotFoundException('Business not found');
 
     const limit = business.p2pPayLimit || 0;
     if (limit <= 0) {
       await this.businessModel.findByIdAndUpdate(businessId, {
-        $inc: { p2pPayUsed: amount },
+        $inc: { p2pPayUsed: rounded },
       });
       return;
     }
@@ -389,18 +429,30 @@ export class BusinessService {
         {
           _id: businessId,
           $expr: {
-            $lte: [{ $add: [{ $ifNull: ['$p2pPayUsed', 0] }, amount] }, '$p2pPayLimit'],
+            $lte: [
+              {
+                $round: [
+                  {
+                    $add: [{ $ifNull: ['$p2pPayUsed', 0] }, rounded],
+                  },
+                  2,
+                ],
+              },
+              '$p2pPayLimit',
+            ],
           },
         },
-        { $inc: { p2pPayUsed: amount } },
+        { $inc: { p2pPayUsed: rounded } },
         { new: true },
       )
       .exec();
 
     if (!updated) {
-      const remaining = Math.max(0, limit - (business.p2pPayUsed || 0));
+      const remaining = Math.round(
+        Math.max(0, limit - (business.p2pPayUsed || 0)) * 100,
+      ) / 100;
       throw new BadRequestException(
-        `Business P2P pay limit exhausted. Remaining ₹${remaining}`,
+        `Business P2P pay limit exhausted. Remaining ₹${remaining}. Pay at most ₹${remaining}.`,
       );
     }
     await this.redis.del(`business:${businessId}`);
