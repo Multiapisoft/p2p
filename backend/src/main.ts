@@ -5,12 +5,12 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 
 const DEFAULT_PROD_ORIGINS = [
-  'https://dev.app.fairplayofficial.com',
-  'https://dev.dashboard.fairplayofficial.com',
+  'https://dev.app.fairplayoffical.com',
+  'https://dev.dashboard.fairplayoffical.com',
   'https://dev.paysecure247.com',
   'https://dev.invespro.xyz',
-  'http://dev.app.fairplayofficial.com',
-  'http://dev.dashboard.fairplayofficial.com',
+  'http://dev.app.fairplayoffical.com',
+  'http://dev.dashboard.fairplayoffical.com',
   'http://dev.paysecure247.com',
   'http://dev.invespro.xyz',
 ];
