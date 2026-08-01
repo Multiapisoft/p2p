@@ -61,3 +61,9 @@ export class RejectWithdrawalDto {
   @IsString()
   reason!: string;
 }
+
+export class RejectP2pListDto {
+  @IsOptional()
+  @IsString()
+  reason?: string;
+}

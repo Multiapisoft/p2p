@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useMutation } from '@tanstack/react-query';
 import { registerApi } from '@/features/auth/api/auth.api';
@@ -10,10 +10,14 @@ import { Button } from '@/shared/components/ui/Button';
 import { Input } from '@/shared/components/ui/Input';
 import { toast } from '@/shared/ui/toast/toast.store';
 
-export function RegisterPage() {
+function RegisterForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const token = useAuthStore((s) => s.token);
   const setAuth = useAuthStore((s) => s.setAuth);
+
+  const codeFromLink = (searchParams.get('code') || searchParams.get('ref') || '').trim();
+  const lockedFromLink = Boolean(codeFromLink);
 
   useEffect(() => {
     if (token) router.replace('/');
@@ -22,21 +26,37 @@ export function RegisterPage() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
-  const [referralCode, setReferralCode] = useState('');
+  const [referralCode, setReferralCode] = useState(codeFromLink);
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
 
+  useEffect(() => {
+    if (codeFromLink) setReferralCode(codeFromLink);
+  }, [codeFromLink]);
+
   const register = useMutation({
     mutationFn: () =>
-      registerApi({ name, email, password, phone: phone || undefined, referralCode: referralCode || undefined }),
+      registerApi({
+        name,
+        email,
+        password,
+        phone: phone || undefined,
+        referralCode: referralCode.trim(),
+      }),
     onSuccess: (data) => {
       setAuth(data.accessToken, data.user);
       toast.success('Account created', 'Welcome to FinGuard');
       router.replace('/');
     },
-    onError: () => {
-      setError('Registration failed. Email may already be in use.');
-      toast.error('Registration failed', 'Email may already be in use');
+    onError: (err: unknown) => {
+      const msg =
+        err && typeof err === 'object' && 'response' in err
+          ? (err as { response?: { data?: { message?: string | string[] } } }).response?.data
+              ?.message
+          : undefined;
+      const text = Array.isArray(msg) ? msg[0] : msg;
+      setError(text || 'Registration failed. Email may already be in use.');
+      toast.error('Registration failed', text || 'Email may already be in use');
     },
   });
 
@@ -47,7 +67,7 @@ export function RegisterPage() {
         <div className="relative z-10 px-5 text-center text-white sm:px-6 md:px-12 md:text-left">
           <h1 className="font-[family-name:var(--font-headline)] text-2xl font-bold sm:text-3xl md:text-4xl">Join FinGuard</h1>
           <p className="mt-2 text-sm text-surface-container-highest/90 sm:mt-4 sm:text-lg">
-            Create your wallet and start transacting on the P2P platform.
+            Create your wallet with a business invite, or open via their integration portal.
           </p>
         </div>
       </div>
@@ -56,14 +76,27 @@ export function RegisterPage() {
         <div className="w-full max-w-md">
           <header className="mb-6 sm:mb-8">
             <h2 className="font-[family-name:var(--font-headline)] text-xl font-bold sm:text-2xl">Create Account</h2>
-            <p className="mt-1 text-sm text-on-surface-variant sm:mt-2">Register as a platform user.</p>
+            <p className="mt-1 text-sm text-on-surface-variant sm:mt-2">
+              Register with a business code, or use the business integration link.
+            </p>
           </header>
+
+          {lockedFromLink ? (
+            <div className="mb-4 rounded-lg border border-secondary/30 bg-secondary-container/20 px-4 py-3 text-sm text-on-surface">
+              Joining with business code{' '}
+              <code className="font-mono font-semibold">{codeFromLink}</code>
+            </div>
+          ) : null}
 
           <form
             className="space-y-4"
             onSubmit={(e) => {
               e.preventDefault();
               setError('');
+              if (!referralCode.trim()) {
+                setError('Business code is required. Use the invite link from your business.');
+                return;
+              }
               register.mutate();
             }}
           >
@@ -84,12 +117,18 @@ export function RegisterPage() {
               onChange={(e) => setPhone(e.target.value)}
             />
             <Input
-              label="Referral Code (optional)"
+              label="Business code"
               icon="redeem"
               value={referralCode}
               onChange={(e) => setReferralCode(e.target.value)}
-              placeholder="Business referral code"
+              placeholder="Enter business code"
+              required
+              readOnly={lockedFromLink}
             />
+            <p className="-mt-2 text-xs text-on-surface-variant">
+              Required. Get this from your business invite link, or ask them for the code. Partner
+              apps can also register you via integration API keys.
+            </p>
             <Input
               label="Password"
               icon="lock"
@@ -119,5 +158,13 @@ export function RegisterPage() {
         </div>
       </main>
     </div>
+  );
+}
+
+export function RegisterPage() {
+  return (
+    <Suspense fallback={null}>
+      <RegisterForm />
+    </Suspense>
   );
 }

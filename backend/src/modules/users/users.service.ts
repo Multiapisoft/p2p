@@ -40,9 +40,12 @@ export class UsersService {
 
     if (dto.referralCode) {
       const business = await this.businessModel
-        .findOne({ referralCode: dto.referralCode, status: UserStatus.ACTIVE })
+        .findOne({
+          referralCode: dto.referralCode.trim(),
+          status: { $in: [UserStatus.ACTIVE, UserStatus.PENDING] },
+        })
         .exec();
-      if (!business) throw new BadRequestException('Invalid referral code');
+      if (!business) throw new BadRequestException('Invalid business code');
       referredByBusiness = business._id.toString();
     } else if (dto.businessId) {
       const business = await this.businessModel.findById(dto.businessId).exec();
@@ -308,6 +311,37 @@ export class UsersService {
     return this.sanitize(user);
   }
 
+  /** Attach business via referral code after register (only if not already linked). */
+  async attachReferral(userId: string, referralCode: string) {
+    const code = referralCode?.trim();
+    if (!code) throw new BadRequestException('Referral code is required');
+
+    const user = await this.usersRepo.findById(userId);
+    if (!user) throw new NotFoundException('User not found');
+    if (user.role !== UserRole.USER && user.role !== UserRole.INVESTOR) {
+      throw new BadRequestException('Only end users can join via referral code');
+    }
+    if (user.referredByBusiness) {
+      throw new BadRequestException('You are already linked to a business');
+    }
+
+    const business = await this.businessModel
+      .findOne({
+        referralCode: code,
+        status: { $in: [UserStatus.ACTIVE, UserStatus.PENDING] },
+      })
+      .exec();
+    if (!business) throw new BadRequestException('Invalid business code');
+
+    const updated = await this.usersRepo.update(userId, {
+      referredByBusiness: business._id as unknown as Types.ObjectId,
+    });
+    await this.businessModel.findByIdAndUpdate(business._id, {
+      $inc: { totalUsers: 1 },
+    });
+    return this.sanitize(updated);
+  }
+
   async validatePassword(plain: string, hashed: string): Promise<boolean> {
     return bcrypt.compare(plain, hashed);
   }
@@ -329,6 +363,34 @@ export class UsersService {
     }
 
     const hashedPassword = await bcrypt.hash(dto.newPassword, 12);
+    const updated = await this.usersRepo.update(userId, {
+      password: hashedPassword,
+      mustSetPassword: false,
+    });
+    return this.sanitize(updated);
+  }
+
+  /** Business admin resets a linked user's login password (no current password needed). */
+  async setPasswordForBusinessUser(
+    businessId: string,
+    userId: string,
+    newPassword: string,
+  ) {
+    const password = newPassword?.trim();
+    if (!password || password.length < 8) {
+      throw new BadRequestException('Password must be at least 8 characters');
+    }
+
+    const user = await this.usersRepo.findById(userId);
+    if (!user) throw new NotFoundException('User not found');
+    if (user.referredByBusiness?.toString() !== businessId) {
+      throw new ForbiddenException('User does not belong to this business');
+    }
+    if (user.role !== UserRole.USER && user.role !== UserRole.INVESTOR) {
+      throw new BadRequestException('Can only reset password for end users');
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 12);
     const updated = await this.usersRepo.update(userId, {
       password: hashedPassword,
       mustSetPassword: false,

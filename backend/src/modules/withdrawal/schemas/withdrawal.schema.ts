@@ -70,6 +70,17 @@ export class Withdrawal {
   partnerDebited?: boolean;
 
   /**
+   * FinGuard was topped up so a business-linked user can open a P2P withdrawal
+   * without wallet/partner balance. Reversed on cancel/reject.
+   */
+  @Prop({ default: false })
+  p2pAdvanceCredited?: boolean;
+
+  /** Amount credited as P2P advance (shortfall vs lock). */
+  @Prop()
+  p2pAdvanceAmount?: number;
+
+  /**
    * Amount debited from partner wallet (may differ from `amount` when converting
    * USDT balance → INR UPI/Bank payout).
    */
@@ -82,7 +93,24 @@ export class Withdrawal {
   /** INR per 1 USDT at request time (when conversion applied). */
   @Prop()
   exchangeRate?: number;
+
+  /**
+   * Gate for P2P pay list: awaiting → listed (admin/business) → payers can fulfill.
+   * Final wallet settle still uses status + payment approvals.
+   */
+  @Prop({ type: String, enum: ['awaiting', 'listed', 'rejected'], default: 'awaiting', index: true })
+  p2pListStatus!: 'awaiting' | 'listed' | 'rejected';
+
+  @Prop()
+  p2pListedAt?: Date;
+
+  @Prop()
+  p2pListedBy?: string;
+
+  @Prop()
+  p2pListRejectReason?: string;
 }
 
 export const WithdrawalSchema = SchemaFactory.createForClass(Withdrawal);
 WithdrawalSchema.index({ status: 1, createdAt: -1 });
+WithdrawalSchema.index({ p2pListStatus: 1, status: 1, createdAt: -1 });

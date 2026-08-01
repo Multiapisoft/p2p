@@ -4,6 +4,7 @@ import {
   CreateWithdrawalDto,
   ProcessWithdrawalDto,
   RejectWithdrawalDto,
+  RejectP2pListDto,
   WithdrawalListQueryDto,
 } from './dto/withdrawal.dto';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -111,6 +112,30 @@ export class WithdrawalController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.withdrawalService.approve(id, dto, user.email);
+  }
+
+  @Patch(':id/list-for-p2p')
+  @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN, UserRole.BUSINESS)
+  listForP2p(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.withdrawalService.listForP2p(id, {
+      userId: user.userId,
+      email: user.email,
+      role: user.role,
+    });
+  }
+
+  @Patch(':id/unlist-for-p2p')
+  @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN, UserRole.BUSINESS)
+  unlistForP2p(
+    @Param('id') id: string,
+    @Body() dto: RejectP2pListDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.withdrawalService.rejectP2pList(
+      id,
+      { userId: user.userId, email: user.email, role: user.role },
+      dto.reason,
+    );
   }
 
   @Patch(':id/reject')

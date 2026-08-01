@@ -55,3 +55,14 @@ export class UpdateUserDto {
   @IsEnum(UserStatus)
   status?: UserStatus;
 }
+
+export class AttachReferralDto {
+  @IsString()
+  referralCode!: string;
+}
+
+export class BusinessSetUserPasswordDto {
+  @IsString()
+  @MinLength(8)
+  newPassword!: string;
+}

@@ -252,6 +252,7 @@ export class WithdrawalPaymentService {
       {
         userId: { $ne: new Types.ObjectId(userId) },
         status: { $in: [TransactionStatus.PENDING, TransactionStatus.PROCESSING] },
+        p2pListStatus: 'listed',
         $expr: {
           $lt: [
             {
@@ -431,6 +432,12 @@ export class WithdrawalPaymentService {
       withdrawal.status !== TransactionStatus.PROCESSING
     ) {
       throw new BadRequestException('Withdrawal is not open for payments');
+    }
+
+    if (withdrawal.p2pListStatus !== 'listed') {
+      throw new BadRequestException(
+        'Withdrawal is waiting for business/admin approval before it can be paid',
+      );
     }
 
     const remaining = this.getRemaining(withdrawal);
@@ -706,6 +713,14 @@ export class WithdrawalPaymentService {
       payment.businessId?.toString(),
     );
     const balanceBefore = payerWallet.balance;
+
+    // Dispute frees P2P quota so others can pay — reclaim it when admin resolves as approved.
+    if (payment.disputedAt && payment.businessId) {
+      await this.businessService.reserveP2pPay(
+        payment.businessId.toString(),
+        this.paymentLimitInr(payment),
+      );
+    }
 
     if (payment.businessId) {
       await this.businessService.incrementStats(
@@ -1061,7 +1076,15 @@ export class WithdrawalPaymentService {
     payment.notes = `Dispute raised — ticket ${ticket.ticketId}. ${userReason}`;
     await payment.save();
 
-    // Free reserved slot so other / new payments can fill — dispute is handled via support
+    // Free withdrawal open slot AND business P2P quota so new pays can proceed
+    // while support resolves the dispute. Re-reserve on approve; skip on reject.
+    if (payment.businessId) {
+      await this.businessService.releaseP2pPay(
+        payment.businessId.toString(),
+        this.paymentLimitInr(payment),
+      );
+    }
+
     withdrawal.reservedAmount = Math.max(
       0,
       (withdrawal.reservedAmount || 0) - payment.amount,
@@ -1135,29 +1158,28 @@ export class WithdrawalPaymentService {
       throw new BadRequestException('Payment is not pending');
     }
 
+    const wasDisputed = !!payment.disputedAt;
     payment.status = TransactionStatus.REJECTED;
     payment.rejectionReason = dto.reason;
     payment.processedBy = processedBy;
     await payment.save();
 
-    if (payment.businessId) {
-      const payIsUsdt = (payment.currency || '').toUpperCase() === Currency.USDT;
-      const releaseAmount = payIsUsdt
-        ? this.exchangeRateService.usdtToInr(payment.amount)
-        : payment.amount;
+    // Disputed pays already released P2P quota + reservedAmount in raiseDispute
+    if (payment.businessId && !wasDisputed) {
       await this.businessService.releaseP2pPay(
         payment.businessId.toString(),
-        releaseAmount,
+        this.paymentLimitInr(payment),
       );
     }
 
     const withdrawal = await this.withdrawalModel.findById(payment.withdrawalId).exec();
     if (withdrawal) {
-      // Release reserved amount → Open ↑ again
-      withdrawal.reservedAmount = Math.max(
-        0,
-        (withdrawal.reservedAmount || 0) - payment.amount,
-      );
+      if (!wasDisputed) {
+        withdrawal.reservedAmount = Math.max(
+          0,
+          (withdrawal.reservedAmount || 0) - payment.amount,
+        );
+      }
 
       const hasPending = await this.paymentModel.exists({
         withdrawalId: withdrawal._id,
@@ -1382,6 +1404,18 @@ export class WithdrawalPaymentService {
       }
     }
     return results;
+  }
+
+  /** INR amount held against business p2pPayUsed for this payment. */
+  private paymentLimitInr(payment: {
+    amount: number;
+    currency?: string;
+  }): number {
+    const payIsUsdt = (payment.currency || '').toUpperCase() === Currency.USDT;
+    const inr = payIsUsdt
+      ? this.exchangeRateService.usdtToInr(payment.amount)
+      : payment.amount;
+    return Math.round(inr * 100) / 100;
   }
 
   private escapeRegex(value: string) {

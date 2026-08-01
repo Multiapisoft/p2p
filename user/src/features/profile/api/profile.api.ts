@@ -4,6 +4,8 @@ import type { Notification, Paginated, User } from '@/shared/types/api.types';
 export const profileApi = {
   getMe: () => apiGet<User>('/users/me'),
   updateMe: (payload: { name?: string; phone?: string }) => apiPatch<User>('/users/me', payload),
+  attachReferral: (referralCode: string) =>
+    apiPatch<User>('/users/me/referral', { referralCode }),
 };
 
 export type NotificationListQuery = {

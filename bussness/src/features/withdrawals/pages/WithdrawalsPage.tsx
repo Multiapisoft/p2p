@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { withdrawalsApi } from '@/features/withdrawals/api/withdrawals.api';
 import { getApiErrorMessage } from '@/shared/api/client';
 import { Card } from '@/shared/components/ui/Card';
@@ -78,6 +78,8 @@ export function WithdrawalsPage() {
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState('');
+  const qc = useQueryClient();
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -103,6 +105,27 @@ export function WithdrawalsPage() {
     enabled: !!selectedId,
   });
 
+  const listForP2p = useMutation({
+    mutationFn: (id: string) => withdrawalsApi.listForP2p(id),
+    onSuccess: () => {
+      setActionError('');
+      qc.invalidateQueries({ queryKey: ['business-withdrawals'] });
+      qc.invalidateQueries({ queryKey: ['business-withdrawal'] });
+    },
+    onError: (err) => setActionError(getApiErrorMessage(err, 'Failed to list for P2P')),
+  });
+
+  const unlistForP2p = useMutation({
+    mutationFn: (id: string) =>
+      withdrawalsApi.unlistForP2p(id, 'Removed from P2P pay list by business'),
+    onSuccess: () => {
+      setActionError('');
+      qc.invalidateQueries({ queryKey: ['business-withdrawals'] });
+      qc.invalidateQueries({ queryKey: ['business-withdrawal'] });
+    },
+    onError: (err) => setActionError(getApiErrorMessage(err, 'Failed to unlist')),
+  });
+
   const items = data?.items ?? [];
   const total = data?.total ?? 0;
   const totalPages = data?.totalPages ?? 1;
@@ -110,20 +133,37 @@ export function WithdrawalsPage() {
   const pendingOnPage = items.filter(
     (w) => w.status === 'pending' || w.status === 'processing',
   ).length;
+  const awaitingP2p = items.filter(
+    (w) =>
+      (w.status === 'pending' || w.status === 'processing') &&
+      (w.p2pListStatus || 'awaiting') !== 'listed',
+  ).length;
+
+  function p2pLabel(w: Withdrawal) {
+    const s = w.p2pListStatus || 'awaiting';
+    if (s === 'listed') return 'P2P listed';
+    if (s === 'rejected') return 'P2P rejected';
+    return 'Awaiting P2P';
+  }
 
   return (
     <div className="mx-auto max-w-7xl space-y-6">
       <PageHeader
         title="Withdrawals"
-        description="User withdrawal requests under your business"
+        description="Approve withdrawals for the P2P pay list — then any user can pay them"
       />
 
+      {actionError ? (
+        <p className="rounded-lg border border-error/30 bg-error/5 px-3 py-2 text-sm text-error">
+          {actionError}
+        </p>
+      ) : null}
       <div className="grid gap-3 sm:grid-cols-3">
         <div className="rounded-2xl border border-outline-variant bg-surface-container-lowest p-4">
           <p className="text-[11px] font-bold uppercase tracking-wide text-on-surface-variant">
-            Total results
+            Awaiting P2P approval
           </p>
-          <p className="mt-1 text-2xl font-bold">{total}</p>
+          <p className="mt-1 text-2xl font-bold">{awaitingP2p}</p>
         </div>
         <div className="rounded-2xl border border-outline-variant bg-surface-container-lowest p-4">
           <p className="text-[11px] font-bold uppercase tracking-wide text-on-surface-variant">
@@ -239,13 +279,15 @@ export function WithdrawalsPage() {
               {items.map((w) => {
                 const user = resolveUser(w.userId);
                 return (
-                  <button
+                  <div
                     key={w._id}
-                    type="button"
-                    onClick={() => setSelectedId(w._id)}
-                    className="flex w-full flex-wrap items-center justify-between gap-3 rounded-xl border border-outline-variant p-4 text-left transition hover:border-secondary/40 hover:bg-surface-container-low/50"
+                    className="flex w-full flex-wrap items-center justify-between gap-3 rounded-xl border border-outline-variant p-4"
                   >
-                    <div className="min-w-0">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedId(w._id)}
+                      className="min-w-0 flex-1 text-left transition hover:opacity-80"
+                    >
                       <p className="font-semibold">
                         {formatCurrency(w.amount, w.currency)}
                         {(w.paidAmount || 0) > 0 && (
@@ -262,9 +304,51 @@ export function WithdrawalsPage() {
                         {destinationLine(w)} · {formatDate(w.createdAt)}
                         {w.paymentCount ? ` · ${w.paymentCount} payments` : ''}
                       </p>
+                    </button>
+                    <div className="flex flex-col items-end gap-2">
+                      <div className="flex flex-wrap items-center justify-end gap-1.5">
+                        <StatusBadge status={w.status} />
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                            (w.p2pListStatus || 'awaiting') === 'listed'
+                              ? 'bg-secondary/15 text-secondary'
+                              : (w.p2pListStatus || 'awaiting') === 'rejected'
+                                ? 'bg-error/10 text-error'
+                                : 'bg-outline-variant/40 text-on-surface-variant'
+                          }`}
+                        >
+                          {p2pLabel(w)}
+                        </span>
+                      </div>
+                      {(w.status === 'pending' || w.status === 'processing') &&
+                        (w.p2pListStatus || 'awaiting') !== 'listed' && (
+                          <Button
+                            size="sm"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              listForP2p.mutate(w._id);
+                            }}
+                            loading={listForP2p.isPending}
+                          >
+                            Approve for P2P
+                          </Button>
+                        )}
+                      {(w.status === 'pending' || w.status === 'processing') &&
+                        w.p2pListStatus === 'listed' && (
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              unlistForP2p.mutate(w._id);
+                            }}
+                            loading={unlistForP2p.isPending}
+                          >
+                            Unlist
+                          </Button>
+                        )}
                     </div>
-                    <StatusBadge status={w.status} />
-                  </button>
+                  </div>
                 );
               })}
             </div>
@@ -303,6 +387,15 @@ export function WithdrawalsPage() {
                     value={formatCurrency(detail.remainingAmount || 0, detail.currency)}
                   />
                   <DetailRow label="Status" value={<StatusBadge status={detail.status} />} />
+                  <DetailRow
+                    label="P2P list"
+                    value={
+                      <span className="font-semibold">
+                        {p2pLabel(detail)}
+                        {detail.p2pListedBy ? ` · ${detail.p2pListedBy}` : ''}
+                      </span>
+                    }
+                  />
                   <DetailRow label="Method" value={String(detail.method).toUpperCase()} />
                   <DetailRow label="Reference" value={detail.referenceId} />
                   <DetailRow label="User" value={user.name} />
@@ -312,6 +405,28 @@ export function WithdrawalsPage() {
                     <DetailRow label="External ref" value={user.externalRef} />
                   ) : null}
                   <DetailRow label="Destination" value={destinationLine(detail)} />
+                  {(detail.status === 'pending' || detail.status === 'processing') && (
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      {(detail.p2pListStatus || 'awaiting') !== 'listed' ? (
+                        <Button
+                          className="flex-1"
+                          loading={listForP2p.isPending}
+                          onClick={() => listForP2p.mutate(detail._id)}
+                        >
+                          Approve for P2P pay list
+                        </Button>
+                      ) : (
+                        <Button
+                          className="flex-1"
+                          variant="secondary"
+                          loading={unlistForP2p.isPending}
+                          onClick={() => unlistForP2p.mutate(detail._id)}
+                        >
+                          Unlist from P2P
+                        </Button>
+                      )}
+                    </div>
+                  )}
                   {detail.upiDetails?.utr ? (
                     <DetailRow label="UTR" value={detail.upiDetails.utr} />
                   ) : null}

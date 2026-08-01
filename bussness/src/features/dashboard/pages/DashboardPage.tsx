@@ -17,6 +17,11 @@ import { formatCurrency, formatDate } from '@/shared/lib/utils';
 import { getApiErrorMessage, isNotFoundError } from '@/shared/api/client';
 import { resolveUser } from '@/shared/lib/entity-user';
 
+const USER_APP_URL = (process.env.NEXT_PUBLIC_USER_APP_URL || 'http://localhost:5174').replace(
+  /\/$/,
+  '',
+);
+
 const QUICK_LINKS = [
   { href: '/users', icon: 'group', title: 'Users', desc: 'Integrated users' },
   { href: '/deposits', icon: 'south_west', title: 'Deposits', desc: 'Incoming funds' },
@@ -181,6 +186,64 @@ export function DashboardPage() {
           production use. You can still test integration in the meantime.
         </div>
       )}
+
+      {business.referralCode ? (
+        <Card title="Business code">
+          <p className="mb-3 text-sm text-on-surface-variant">
+            Share the code or invite link. Users register with this business code (or via your
+            integration API). Then approve their withdrawals for P2P.
+          </p>
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <code className="rounded-lg border border-outline-variant bg-surface-container-low px-3 py-2 font-mono text-sm">
+              {business.referralCode}
+            </code>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                void navigator.clipboard.writeText(business.referralCode!);
+              }}
+            >
+              Copy code
+            </Button>
+            <Link href="/withdrawals?status=pending">
+              <Button size="sm">Review withdrawals</Button>
+            </Link>
+          </div>
+          <div className="space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-on-surface-variant">
+              User portal invite link
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <code className="max-w-full break-all rounded-lg border border-outline-variant bg-surface-container-low px-3 py-2 font-mono text-xs">
+                {`${USER_APP_URL}/register?code=${encodeURIComponent(business.referralCode)}`}
+              </code>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={() => {
+                  void navigator.clipboard.writeText(
+                    `${USER_APP_URL}/register?code=${encodeURIComponent(business.referralCode!)}`,
+                  );
+                }}
+              >
+                Copy link
+              </Button>
+              <a
+                href={`${USER_APP_URL}/register?code=${encodeURIComponent(business.referralCode)}`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                <Button type="button" size="sm" variant="ghost">
+                  Open
+                </Button>
+              </a>
+            </div>
+          </div>
+        </Card>
+      ) : null}
 
       <div className="grid gap-4 lg:grid-cols-3">
         <Card className="overflow-hidden lg:col-span-2">

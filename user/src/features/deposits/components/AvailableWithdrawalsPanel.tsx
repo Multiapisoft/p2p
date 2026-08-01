@@ -331,7 +331,7 @@ export function AvailableWithdrawalsPanel({
             message={
               search || method !== 'all'
                 ? 'No requests match your filters'
-                : 'No open requests to pay. Your own withdrawals are hidden here — use another account, or wait for other users’ requests.'
+                : 'No approved P2P requests yet. Withdrawals appear here only after business or admin approval.'
             }
             icon="payments"
           />

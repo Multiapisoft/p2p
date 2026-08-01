@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import Link from 'next/link';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { usersApi } from '@/features/users/api/users.api';
 import { integrationApi } from '@/features/integration/api/integration.api';
 import { getApiErrorMessage } from '@/shared/api/client';
@@ -15,6 +15,7 @@ import { LoadingScreen, EmptyState } from '@/shared/components/ui/Icon';
 import { PageHeader } from '@/shared/components/layout/PageHeader';
 import { Modal } from '@/shared/components/ui/Modal';
 import { formatCurrency, formatDate } from '@/shared/lib/utils';
+import type { User } from '@/shared/types/api.types';
 
 const STATUS_FILTERS = [
   { value: 'all', label: 'All' },
@@ -56,6 +57,12 @@ export function UsersPage() {
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [passwordUser, setPasswordUser] = useState<User | null>(null);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+  const [passwordSuccess, setPasswordSuccess] = useState('');
+  const qc = useQueryClient();
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -81,15 +88,53 @@ export function UsersPage() {
     enabled: !!selectedId,
   });
 
+  const resetPassword = useMutation({
+    mutationFn: () => usersApi.setUserPassword(passwordUser!._id, newPassword),
+    onSuccess: () => {
+      setPasswordSuccess('Password updated. Share the new password with the user securely.');
+      setPasswordError('');
+      setNewPassword('');
+      setConfirmPassword('');
+      qc.invalidateQueries({ queryKey: ['business-users'] });
+    },
+    onError: (err) => {
+      setPasswordSuccess('');
+      setPasswordError(getApiErrorMessage(err, 'Could not update password'));
+    },
+  });
+
   const items = data?.items ?? [];
   const total = data?.total ?? 0;
   const totalPages = data?.totalPages ?? 1;
+
+  function openPasswordModal(u: User) {
+    setPasswordUser(u);
+    setNewPassword('');
+    setConfirmPassword('');
+    setPasswordError('');
+    setPasswordSuccess('');
+  }
+
+  function submitPassword(e: FormEvent) {
+    e.preventDefault();
+    setPasswordError('');
+    setPasswordSuccess('');
+    if (newPassword.length < 8) {
+      setPasswordError('Password must be at least 8 characters');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPasswordError('Passwords do not match');
+      return;
+    }
+    resetPassword.mutate();
+  }
 
   return (
     <div className="mx-auto max-w-7xl space-y-6">
       <PageHeader
         title="Integrated Users"
-        description="Users registered via your business API"
+        description="Users linked via referral / API — view details or reset login password"
         action={
           <Link href="/integration?tab=tools">
             <Button variant="secondary" size="sm">
@@ -251,6 +296,13 @@ export function UsersPage() {
                           >
                             Details
                           </button>
+                          <button
+                            type="button"
+                            onClick={() => openPasswordModal(u)}
+                            className="text-sm font-semibold text-on-surface-variant hover:underline"
+                          >
+                            Reset password
+                          </button>
                           <Link
                             href={`/integration?tab=tools&userId=${u._id}`}
                             className="text-sm font-semibold text-on-surface-variant hover:underline"
@@ -348,13 +400,89 @@ export function UsersPage() {
               </div>
             </div>
 
-            <Link href={`/integration?tab=tools&userId=${selectedId}`}>
-              <Button className="w-full" variant="secondary">
-                Open User Tools
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <Button
+                className="flex-1"
+                variant="secondary"
+                onClick={() => {
+                  const u = items.find((x) => x._id === selectedId);
+                  if (u) openPasswordModal(u);
+                  else if (selectedId) {
+                    openPasswordModal({
+                      _id: selectedId,
+                      email: detail.user.email,
+                      name: detail.user.name,
+                      role: 'user',
+                      status: 'active',
+                      createdAt: '',
+                    } as User);
+                  }
+                }}
+              >
+                Reset password
               </Button>
-            </Link>
+              <Link href={`/integration?tab=tools&userId=${selectedId}`} className="flex-1">
+                <Button className="w-full" variant="secondary">
+                  Open User Tools
+                </Button>
+              </Link>
+            </div>
           </div>
         )}
+      </Modal>
+
+      <Modal
+        open={!!passwordUser}
+        onClose={() => {
+          if (resetPassword.isPending) return;
+          setPasswordUser(null);
+          setPasswordError('');
+          setPasswordSuccess('');
+        }}
+        title="Reset user password"
+        className="sm:max-w-md"
+      >
+        {passwordUser ? (
+          <form className="space-y-4" onSubmit={submitPassword}>
+            <p className="text-sm text-on-surface-variant">
+              Set a new login password for{' '}
+              <strong>
+                {passwordUser.name} ({passwordUser.email})
+              </strong>
+              . Share it securely — it will not be shown again.
+            </p>
+            <Input
+              label="New password"
+              type="password"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              placeholder="Min 8 characters"
+              minLength={8}
+              required
+            />
+            <Input
+              label="Confirm password"
+              type="password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              minLength={8}
+              required
+            />
+            {passwordError ? (
+              <p className="rounded-lg border border-error/30 bg-error/5 px-3 py-2 text-sm text-error">
+                {passwordError}
+              </p>
+            ) : null}
+            {passwordSuccess ? (
+              <p className="rounded-lg border border-secondary/30 bg-secondary/5 px-3 py-2 text-sm text-secondary">
+                {passwordSuccess}
+              </p>
+            ) : null}
+            <Button type="submit" className="w-full" loading={resetPassword.isPending}>
+              Update password
+            </Button>
+          </form>
+        ) : null}
       </Modal>
     </div>
   );

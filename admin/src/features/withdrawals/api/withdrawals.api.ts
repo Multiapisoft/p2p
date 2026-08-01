@@ -30,4 +30,7 @@ export const withdrawalsApi = {
     apiPatch<Withdrawal>(`/withdrawals/${id}/approve`, { utr, txHash }),
   reject: (id: string, reason: string) =>
     apiPatch<Withdrawal>(`/withdrawals/${id}/reject`, { reason }),
+  listForP2p: (id: string) => apiPatch<Withdrawal>(`/withdrawals/${id}/list-for-p2p`, {}),
+  unlistForP2p: (id: string, reason?: string) =>
+    apiPatch<Withdrawal>(`/withdrawals/${id}/unlist-for-p2p`, { reason }),
 };

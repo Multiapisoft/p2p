@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
 import { withdrawalsApi } from '../api/withdrawals.api';
 import { walletApi } from '@/features/wallet/api/wallet.api';
+import { profileApi } from '@/features/profile/api/profile.api';
 import { Card } from '@/shared/components/ui/Card';
 import { Button } from '@/shared/components/ui/Button';
 import { Input } from '@/shared/components/ui/Input';
@@ -151,6 +152,13 @@ export function WithdrawalsPage() {
     queryFn: () => walletApi.getBalance(),
   });
 
+  const { data: profile } = useQuery({
+    queryKey: ['profile-me'],
+    queryFn: () => profileApi.getMe(),
+  });
+  /** Business-code users can request any P2P withdrawal amount (no wallet balance gate). */
+  const isBusinessLinked = Boolean(profile?.referredByBusiness);
+
   const listQuery = useMemo(
     () => ({ page, limit, status, search, sort, method: methodFilter }),
     [page, limit, status, search, sort, methodFilter],
@@ -188,7 +196,10 @@ export function WithdrawalsPage() {
       qc.invalidateQueries({ queryKey: ['wallet-balance'] });
       setShowForm(false);
       resetForm();
-      toast.success('Withdrawal submitted', 'Your request is pending processing.');
+      toast.success(
+        'Withdrawal submitted',
+        'Waiting for business/admin approval before others can pay this request.',
+      );
     },
     onError: (err) => {
       const msg = withdrawalErrorMessage(err);
@@ -261,9 +272,11 @@ export function WithdrawalsPage() {
   const maxInr =
     balance?.approxInrAvailable ??
     (walletIsUsdt ? Math.floor((balance?.availableBalance ?? 0) * usdtInrRate * 100) / 100 : undefined);
-  const amountMax = amountIsInrPayout
-    ? maxInr
-    : balance?.availableBalance;
+  const amountMax = isBusinessLinked
+    ? undefined
+    : amountIsInrPayout
+      ? maxInr
+      : balance?.availableBalance;
   const usdtToSpend =
     amountIsInrPayout && Number(amount) > 0
       ? Math.ceil((Number(amount) / usdtInrRate) * 1e6) / 1e6
@@ -281,7 +294,7 @@ export function WithdrawalsPage() {
       setFormError('Enter a valid amount');
       return;
     }
-    if (balance) {
+    if (balance && !isBusinessLinked) {
       if (amountIsInrPayout) {
         const needUsdt = Math.ceil((numAmount / usdtInrRate) * 1e6) / 1e6;
         if (needUsdt > balance.availableBalance) {
@@ -426,7 +439,14 @@ export function WithdrawalsPage() {
               required
             />
 
-            {amountIsInrPayout && Number(amount) > 0 && (
+            {isBusinessLinked ? (
+              <p className="text-sm text-on-surface-variant">
+                Linked to a business — you can request any amount. It waits for business/admin P2P
+                approval before others can pay.
+              </p>
+            ) : null}
+
+            {amountIsInrPayout && !isBusinessLinked && Number(amount) > 0 && (
               <p className="text-sm text-on-surface-variant">
                 You spend{' '}
                 <span className="font-semibold text-on-surface">
@@ -632,6 +652,23 @@ export function WithdrawalsPage() {
                             {formatCurrency(w.amount, w.currency)}
                           </h3>
                           <StatusBadge status={w.status as TransactionStatus} />
+                          {(w.status === 'pending' || w.status === 'processing') && (
+                            <span
+                              className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                                w.p2pListStatus === 'listed'
+                                  ? 'bg-secondary/15 text-secondary'
+                                  : w.p2pListStatus === 'rejected'
+                                    ? 'bg-error/10 text-error'
+                                    : 'bg-outline-variant/50 text-on-surface-variant'
+                              }`}
+                            >
+                              {w.p2pListStatus === 'listed'
+                                ? 'Open for P2P pay'
+                                : w.p2pListStatus === 'rejected'
+                                  ? 'P2P rejected'
+                                  : 'Awaiting P2P approval'}
+                            </span>
+                          )}
                         </div>
                         <p className="break-all font-mono text-[11px] text-on-surface-variant sm:text-xs">
                           {w.referenceId}

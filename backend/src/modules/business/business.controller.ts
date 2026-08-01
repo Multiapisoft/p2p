@@ -23,7 +23,7 @@ import { WebhookService } from '../webhook/webhook.service';
 import { IntegrationConfigService } from '../integration/integration-config.service';
 import { UpdateIntegrationUrlsDto } from './dto/integration-urls.dto';
 import { UpdatePartnerApiDto } from './dto/partner-api.dto';
-import { UserListQueryDto } from '../users/dto/create-user.dto';
+import { UserListQueryDto, BusinessSetUserPasswordDto } from '../users/dto/create-user.dto';
 
 @Controller('business')
 export class BusinessController {
@@ -79,6 +79,21 @@ export class BusinessController {
   ) {
     const business = await this.businessService.findByOwner(user.userId);
     return this.usersService.findByBusiness(business._id.toString(), query);
+  }
+
+  @Patch('me/users/:userId/password')
+  @Roles(UserRole.BUSINESS)
+  async setUserPassword(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('userId') userId: string,
+    @Body() dto: BusinessSetUserPasswordDto,
+  ) {
+    const business = await this.businessService.findByOwner(user.userId);
+    return this.usersService.setPasswordForBusinessUser(
+      business._id.toString(),
+      userId,
+      dto.newPassword,
+    );
   }
 
   @Post('me/webhook/test')

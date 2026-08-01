@@ -1,9 +1,14 @@
 import { apiPost } from '@/shared/api/client';
-import type { AuthUser } from '@/shared/types/api.types';
+import type { AuthUser, BusinessProfile } from '@/shared/types/api.types';
 
 interface AuthResponse {
   accessToken: string;
   user: AuthUser;
+  referralCode?: string;
+  business?: BusinessProfile;
+  apiKey?: string;
+  apiSecret?: string;
+  internalSecret?: string;
 }
 
 export async function loginApi(email: string, password: string) {
@@ -15,6 +20,11 @@ export async function registerApi(data: {
   password: string;
   name: string;
   phone?: string;
+  businessName?: string;
 }) {
-  return apiPost<AuthResponse>('/auth/register', { ...data, role: 'business' });
+  return apiPost<AuthResponse>('/auth/register', {
+    ...data,
+    role: 'business',
+    businessName: data.businessName,
+  });
 }

@@ -31,6 +31,11 @@ export class RegisterDto {
   @IsOptional()
   @IsString()
   referralCode?: string;
+
+  /** Business display name — used when role=business to auto-create entity + referral code */
+  @IsOptional()
+  @IsString()
+  businessName?: string;
 }
 
 export class SetPasswordDto {

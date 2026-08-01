@@ -87,6 +87,8 @@ export class WithdrawalService {
     let sourceAmount: number | undefined;
     let exchangeRate: number | undefined;
     let partnerDebited = false;
+    let p2pAdvanceCredited = false;
+    let p2pAdvanceAmount = 0;
 
     // Investor points are INR — USDT method converts INR → USDT open request, locks INR.
     if (isInvestor && isUsdtMethod) {
@@ -102,71 +104,75 @@ export class WithdrawalService {
     }
 
     const walletCurrency = isInvestor && isUsdtMethod ? Currency.INR : currency;
+    const isBusinessLinkedUser = Boolean(businessId) && !isInvestor;
 
-    // Partner SSO users: spend Bitfarming earning wallet, mirror into FinGuard lock
-    if (businessId && !isInvestor) {
+    // Partner SSO users: spend Bitfarming earning wallet when funded; otherwise any amount
+    // for business-code users (P2P request) via FinGuard advance credit + lock.
+    if (isBusinessLinkedUser && businessId) {
       const business = await this.businessService.findDocumentById(businessId);
       if (this.partnerApiService.isConfigured(business)) {
-        const partnerUserId = partnerUserIdFromExternalRef(user.externalRef);
-        const partnerBal = await this.partnerApiService.fetchBalance(business, {
-          email: user.email,
-          userId: partnerUserId,
-        });
-        const partnerCurrency = (partnerBal.currency || 'INR').toUpperCase();
+        try {
+          const partnerUserId = partnerUserIdFromExternalRef(user.externalRef);
+          const partnerBal = await this.partnerApiService.fetchBalance(business, {
+            email: user.email,
+            userId: partnerUserId,
+          });
+          const partnerCurrency = (partnerBal.currency || 'INR').toUpperCase();
 
-        // USDT balance → UPI/Bank INR payout needs conversion
-        if (partnerCurrency === 'USDT' && !isUsdtMethod) {
-          exchangeRate = this.exchangeRateService.getUsdtInrRate();
-          sourceCurrency = Currency.USDT;
-          sourceAmount = this.exchangeRateService.inrToUsdt(dto.amount);
-          partnerDebitAmount = sourceAmount;
-          currency = Currency.INR;
-          payoutAmount = dto.amount;
+          let canDebitPartner = false;
+          if (partnerCurrency === 'USDT' && !isUsdtMethod) {
+            exchangeRate = this.exchangeRateService.getUsdtInrRate();
+            sourceCurrency = Currency.USDT;
+            sourceAmount = this.exchangeRateService.inrToUsdt(dto.amount);
+            partnerDebitAmount = sourceAmount;
+            currency = Currency.INR;
+            payoutAmount = dto.amount;
+            canDebitPartner = partnerBal.availableBalance >= partnerDebitAmount;
+          } else {
+            sourceCurrency = partnerCurrency === 'USDT' ? Currency.USDT : Currency.INR;
+            sourceAmount = dto.amount;
+            partnerDebitAmount = dto.amount;
+            canDebitPartner = partnerBal.availableBalance >= partnerDebitAmount;
+          }
 
-          if (partnerBal.availableBalance < partnerDebitAmount) {
-            throw new BadRequestException(
-              `Insufficient USDT balance. Need ${partnerDebitAmount} USDT ` +
-                `(₹${dto.amount} at ${exchangeRate} INR/USDT). ` +
-                `Available ${partnerBal.availableBalance} USDT`,
+          if (canDebitPartner) {
+            await this.partnerApiService.debitPartner(
+              business,
+              user.email,
+              partnerDebitAmount,
+              `P2P withdrawal ${dto.method.toUpperCase()}` +
+                (exchangeRate
+                  ? ` — ${partnerDebitAmount} USDT → ₹${payoutAmount} @ ${exchangeRate}`
+                  : ''),
+              partnerUserId,
             );
+            partnerDebited = true;
+
+            // Mirror payout currency into FinGuard so lock / cancel / approve flows keep working.
+            // Do NOT bump totalDeposited — this is not a user deposit.
+            const mirrorWallet = await this.walletService.getOrCreate(userId, currency, businessId);
+            await this.walletService.credit(mirrorWallet._id.toString(), payoutAmount, false);
           }
-        } else {
-          sourceCurrency = partnerCurrency === 'USDT' ? Currency.USDT : Currency.INR;
-          sourceAmount = dto.amount;
-          partnerDebitAmount = dto.amount;
-          if (partnerBal.availableBalance < partnerDebitAmount) {
-            throw new BadRequestException(
-              `Insufficient partner balance (available ${partnerBal.availableBalance} ${partnerBal.currency})`,
-            );
-          }
+        } catch {
+          // Partner unreachable / not funded — business-code users may still open P2P requests.
         }
-
-        await this.partnerApiService.debitPartner(
-          business,
-          user.email,
-          partnerDebitAmount,
-          `P2P withdrawal ${dto.method.toUpperCase()}` +
-            (exchangeRate
-              ? ` — ${partnerDebitAmount} USDT → ₹${payoutAmount} @ ${exchangeRate}`
-              : ''),
-          partnerUserId,
-        );
-        partnerDebited = true;
-
-        // Mirror payout currency into FinGuard so lock / cancel / approve flows keep working.
-        // Do NOT bump totalDeposited — this is not a user deposit.
-        const mirrorWallet = await this.walletService.getOrCreate(userId, currency, businessId);
-        await this.walletService.credit(mirrorWallet._id.toString(), payoutAmount, false);
       }
     }
 
     const freshWallet = await this.walletService.getOrCreate(userId, walletCurrency, businessId);
     const available = freshWallet.balance - freshWallet.lockedBalance;
     if (available < lockAmount) {
-      if (partnerDebited && businessId) {
-        await this.refundPartnerDebit(user, businessId, partnerDebitAmount);
+      if (isBusinessLinkedUser) {
+        // Top up so lock accounting works; reversed on cancel/reject if not partner-funded.
+        p2pAdvanceAmount = Math.round((lockAmount - available) * 1e6) / 1e6;
+        await this.walletService.credit(freshWallet._id.toString(), p2pAdvanceAmount, false);
+        if (!partnerDebited) p2pAdvanceCredited = true;
+      } else {
+        if (partnerDebited && businessId) {
+          await this.refundPartnerDebit(user, businessId, partnerDebitAmount);
+        }
+        throw new BadRequestException('Insufficient balance');
       }
-      throw new BadRequestException('Insufficient balance');
     }
 
     const referenceId = `WDR-${Date.now()}-${uuidv4().slice(0, 8).toUpperCase()}`;
@@ -178,6 +184,12 @@ export class WithdrawalService {
         await this.refundPartnerDebit(user, businessId, partnerDebitAmount);
         try {
           await this.walletService.debit(freshWallet._id.toString(), lockAmount, false);
+        } catch {
+          /* best-effort rollback */
+        }
+      } else if (p2pAdvanceCredited && p2pAdvanceAmount > 0) {
+        try {
+          await this.walletService.debit(freshWallet._id.toString(), p2pAdvanceAmount, false);
         } catch {
           /* best-effort rollback */
         }
@@ -194,10 +206,13 @@ export class WithdrawalService {
       currency,
       method: dto.method,
       status: TransactionStatus.PENDING,
+      p2pListStatus: 'awaiting',
       upiDetails: dto.upiDetails,
       bankDetails: dto.bankDetails,
       usdtDetails: dto.usdtDetails,
       partnerDebited,
+      p2pAdvanceCredited,
+      p2pAdvanceAmount: p2pAdvanceCredited ? p2pAdvanceAmount : undefined,
       sourceAmount,
       sourceCurrency,
       exchangeRate,
@@ -351,6 +366,88 @@ export class WithdrawalService {
 
     withdrawal.status = TransactionStatus.REJECTED;
     withdrawal.failureReason = dto.reason;
+    await withdrawal.save();
+    return withdrawal;
+  }
+
+  /**
+   * Publish withdrawal to the P2P pay list (admin or owning business).
+   * Distinct from final payout `approve`.
+   */
+  async listForP2p(
+    withdrawalId: string,
+    actor: { userId: string; email: string; role: UserRole },
+  ) {
+    const withdrawal = await this.withdrawalModel.findById(withdrawalId).exec();
+    if (!withdrawal) throw new NotFoundException('Withdrawal not found');
+
+    if (
+      withdrawal.status !== TransactionStatus.PENDING &&
+      withdrawal.status !== TransactionStatus.PROCESSING
+    ) {
+      throw new BadRequestException('Only open withdrawals can be listed for P2P');
+    }
+
+    const remaining =
+      withdrawal.amount - (withdrawal.paidAmount || 0) - (withdrawal.reservedAmount || 0);
+    if (remaining <= 0) {
+      throw new BadRequestException('Withdrawal has no remaining amount to list');
+    }
+
+    if (actor.role === UserRole.BUSINESS) {
+      const business = await this.businessService.findByOwner(actor.userId);
+      if (withdrawal.businessId?.toString() !== business._id.toString()) {
+        throw new ForbiddenException('Withdrawal does not belong to your business');
+      }
+    } else if (actor.role !== UserRole.ADMIN && actor.role !== UserRole.SUB_ADMIN) {
+      throw new ForbiddenException('Not allowed to list withdrawals for P2P');
+    }
+
+    if (withdrawal.p2pListStatus === 'listed') {
+      return withdrawal;
+    }
+
+    withdrawal.p2pListStatus = 'listed';
+    withdrawal.p2pListedAt = new Date();
+    withdrawal.p2pListedBy = actor.email || actor.userId;
+    withdrawal.p2pListRejectReason = undefined;
+    await withdrawal.save();
+    return withdrawal;
+  }
+
+  /** Remove / reject from P2P pay list (admin or owning business). */
+  async rejectP2pList(
+    withdrawalId: string,
+    actor: { userId: string; email: string; role: UserRole },
+    reason?: string,
+  ) {
+    const withdrawal = await this.withdrawalModel.findById(withdrawalId).exec();
+    if (!withdrawal) throw new NotFoundException('Withdrawal not found');
+
+    if (actor.role === UserRole.BUSINESS) {
+      const business = await this.businessService.findByOwner(actor.userId);
+      if (withdrawal.businessId?.toString() !== business._id.toString()) {
+        throw new ForbiddenException('Withdrawal does not belong to your business');
+      }
+    } else if (actor.role !== UserRole.ADMIN && actor.role !== UserRole.SUB_ADMIN) {
+      throw new ForbiddenException('Not allowed to unlist withdrawals');
+    }
+
+    const pendingPays = await this.paymentModel.exists({
+      withdrawalId: withdrawal._id,
+      status: TransactionStatus.PENDING,
+      $or: [{ disputedAt: { $exists: false } }, { disputedAt: null }],
+    });
+    if (pendingPays) {
+      throw new BadRequestException(
+        'Cannot unlist — active pending payments exist. Reject those first.',
+      );
+    }
+
+    withdrawal.p2pListStatus = 'rejected';
+    withdrawal.p2pListedAt = undefined;
+    withdrawal.p2pListedBy = actor.email || actor.userId;
+    withdrawal.p2pListRejectReason = reason?.trim() || 'Removed from P2P pay list';
     await withdrawal.save();
     return withdrawal;
   }
@@ -541,26 +638,38 @@ export class WithdrawalService {
     return withdrawal.amount;
   }
 
-  /** Undo FinGuard mirror + refund Bitfarming when partner-funded withdrawal is cancelled/rejected */
+  /** Undo FinGuard mirror / P2P advance when business-linked withdrawal is cancelled/rejected */
   private async releasePartnerMirror(withdrawal: WithdrawalDocument) {
-    if (!withdrawal.partnerDebited || !withdrawal.businessId) return;
+    if (withdrawal.partnerDebited && withdrawal.businessId) {
+      try {
+        // Reverse mirror only — not a real withdrawal settlement
+        await this.walletService.debit(withdrawal.walletId.toString(), withdrawal.amount, false);
+      } catch {
+        /* wallet may already be empty */
+      }
 
-    try {
-      // Reverse mirror only — not a real withdrawal settlement
-      await this.walletService.debit(withdrawal.walletId.toString(), withdrawal.amount, false);
-    } catch {
-      /* wallet may already be empty */
+      const user = await this.userModel.findById(withdrawal.userId).exec();
+      if (user) {
+        await this.refundPartnerDebit(
+          user,
+          withdrawal.businessId.toString(),
+          withdrawal.sourceAmount ?? withdrawal.amount,
+          `P2P withdrawal ${withdrawal.referenceId} cancelled — refund`,
+        );
+      }
+      withdrawal.partnerDebited = false;
+      return;
     }
 
-    const user = await this.userModel.findById(withdrawal.userId).exec();
-    if (!user) return;
-    await this.refundPartnerDebit(
-      user,
-      withdrawal.businessId.toString(),
-      withdrawal.sourceAmount ?? withdrawal.amount,
-      `P2P withdrawal ${withdrawal.referenceId} cancelled — refund`,
-    );
-    withdrawal.partnerDebited = false;
+    if (withdrawal.p2pAdvanceCredited) {
+      const advance = withdrawal.p2pAdvanceAmount ?? withdrawal.amount;
+      try {
+        await this.walletService.debit(withdrawal.walletId.toString(), advance, false);
+      } catch {
+        /* wallet may already be empty */
+      }
+      withdrawal.p2pAdvanceCredited = false;
+    }
   }
 
   async findByUser(userId: string, opts: WithdrawalListOpts = {}) {

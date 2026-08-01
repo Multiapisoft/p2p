@@ -108,10 +108,27 @@ export function WithdrawalsPage() {
     },
   });
 
+  const listForP2p = useMutation({
+    mutationFn: (id: string) => withdrawalsApi.listForP2p(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['withdrawals'] }),
+  });
+
+  const unlistForP2p = useMutation({
+    mutationFn: (id: string) => withdrawalsApi.unlistForP2p(id, 'Removed from P2P pay list'),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['withdrawals'] }),
+  });
+
   const items = (data?.items ?? []) as WithdrawalRow[];
   const total = data?.total ?? 0;
   const totalPages = data?.totalPages ?? 1;
   const pendingOnPage = items.filter((w) => w.status === 'pending').length;
+
+  function p2pListLabel(w: WithdrawalRow) {
+    const s = w.p2pListStatus || 'awaiting';
+    if (s === 'listed') return 'P2P listed';
+    if (s === 'rejected') return 'P2P rejected';
+    return 'Awaiting P2P';
+  }
 
   return (
     <div className="mx-auto max-w-7xl space-y-4 sm:space-y-6">
@@ -280,18 +297,55 @@ export function WithdrawalsPage() {
                           <p className="text-base font-bold text-error sm:text-lg">
                             {formatCurrency(w.amount, w.currency)}
                           </p>
-                          <StatusBadge status={w.status} />
-                        </div>
-                        {w.status === 'pending' && (
-                          <div className="flex gap-2">
-                            <Button size="sm" variant="secondary" onClick={() => setApproveTarget(w)}>
-                              Approve
-                            </Button>
-                            <Button size="sm" variant="danger" onClick={() => setRejectTarget(w)}>
-                              Reject
-                            </Button>
+                          <div className="mt-1 flex flex-wrap items-center gap-1.5 sm:justify-end">
+                            <StatusBadge status={w.status} />
+                            <span
+                              className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                                (w.p2pListStatus || 'awaiting') === 'listed'
+                                  ? 'bg-secondary/15 text-secondary'
+                                  : (w.p2pListStatus || 'awaiting') === 'rejected'
+                                    ? 'bg-error/10 text-error'
+                                    : 'bg-outline-variant/40 text-on-surface-variant'
+                              }`}
+                            >
+                              {p2pListLabel(w)}
+                            </span>
                           </div>
-                        )}
+                        </div>
+                        <div className="flex flex-col gap-2 sm:flex-row">
+                          {(w.status === 'pending' || w.status === 'processing') &&
+                            (w.p2pListStatus || 'awaiting') !== 'listed' && (
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                loading={listForP2p.isPending}
+                                onClick={() => listForP2p.mutate(w._id)}
+                              >
+                                List for P2P
+                              </Button>
+                            )}
+                          {(w.status === 'pending' || w.status === 'processing') &&
+                            w.p2pListStatus === 'listed' && (
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                loading={unlistForP2p.isPending}
+                                onClick={() => unlistForP2p.mutate(w._id)}
+                              >
+                                Unlist P2P
+                              </Button>
+                            )}
+                          {w.status === 'pending' && (
+                            <div className="flex gap-2">
+                              <Button size="sm" variant="secondary" onClick={() => setApproveTarget(w)}>
+                                Approve
+                              </Button>
+                              <Button size="sm" variant="danger" onClick={() => setRejectTarget(w)}>
+                                Reject
+                              </Button>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
                   ))}

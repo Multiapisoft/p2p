@@ -15,6 +15,7 @@ export interface User {
   phone?: string;
   role: UserRole;
   status: string;
+  referredByBusiness?: string;
   createdAt: string;
 }
 
@@ -81,6 +82,8 @@ export interface Withdrawal {
   sourceCurrency?: string;
   /** INR per 1 USDT at request time */
   exchangeRate?: number;
+  p2pListStatus?: 'awaiting' | 'listed' | 'rejected';
+  p2pListedAt?: string;
   payments?: WithdrawalSplitPayment[];
   createdAt: string;
 }

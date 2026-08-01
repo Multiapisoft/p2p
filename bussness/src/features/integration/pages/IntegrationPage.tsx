@@ -29,9 +29,9 @@ export function IntegrationPage() {
   const pendingApiKey = useAuthStore((s) => s.pendingApiKey);
 
   const [setupName, setSetupName] = useState('');
-  const [balanceUrl, setBalanceUrl] = useState(`${DEMO_BASE}/api/p2p/partner/balance`);
-  const [creditUrl, setCreditUrl] = useState(`${DEMO_BASE}/api/p2p/partner/credit`);
-  const [debitUrl, setDebitUrl] = useState(`${DEMO_BASE}/api/p2p/partner/debit`);
+  const [balanceUrl, setBalanceUrl] = useState('');
+  const [creditUrl, setCreditUrl] = useState('');
+  const [debitUrl, setDebitUrl] = useState('');
   const [error, setError] = useState('');
 
   const { data: business, isLoading, error: businessError } = useQuery({
@@ -63,16 +63,22 @@ export function IntegrationPage() {
   }, [tab, preselectedUserId, business]);
 
   const createBusiness = useMutation({
-    mutationFn: () =>
-      businessApi.create({
-        name: setupName,
-        partnerApi: {
-          balanceUrl: balanceUrl.trim(),
-          creditUrl: creditUrl.trim(),
-          debitUrl: debitUrl.trim(),
-        },
+    mutationFn: () => {
+      const hasUrls = balanceUrl.trim() && creditUrl.trim() && debitUrl.trim();
+      return businessApi.create({
+        name: setupName.trim(),
+        ...(hasUrls
+          ? {
+              partnerApi: {
+                balanceUrl: balanceUrl.trim(),
+                creditUrl: creditUrl.trim(),
+                debitUrl: debitUrl.trim(),
+              },
+            }
+          : {}),
         allowedPaymentMethods: PAYMENT_METHODS,
-      }),
+      });
+    },
     onSuccess: (data) => {
       setPendingApiCredentials(data.apiKey, data.apiSecret, data.internalSecret);
       setError('');
@@ -125,16 +131,21 @@ export function IntegrationPage() {
       )}
 
       {noBusiness ? (
-        <Card title="Setup">
+        <Card title="Create business">
           <p className="mb-4 text-sm text-on-surface-variant">
-            Enter the exact balance, credit, and debit URLs provided by your partner. After keys are
-            created, paste them into the partner application environment variables.
+            Only a business name is required. Your business code and API keys are
+            generated immediately. Partner balance/credit/debit URLs are optional — add them later
+            if you use wallet sync.
           </p>
           <form
             className="space-y-4"
             onSubmit={(e) => {
               e.preventDefault();
               setError('');
+              if (!setupName.trim()) {
+                setError('Business name is required');
+                return;
+              }
               createBusiness.mutate();
             }}
           >
@@ -145,25 +156,25 @@ export function IntegrationPage() {
               required
             />
             <Input
-              label="Balance URL"
+              label="Balance URL (optional)"
               type="url"
               value={balanceUrl}
               onChange={(e) => setBalanceUrl(e.target.value)}
-              required
+              placeholder={`${DEMO_BASE}/api/p2p/partner/balance`}
             />
             <Input
-              label="Credit URL"
+              label="Credit URL (optional)"
               type="url"
               value={creditUrl}
               onChange={(e) => setCreditUrl(e.target.value)}
-              required
+              placeholder={`${DEMO_BASE}/api/p2p/partner/credit`}
             />
             <Input
-              label="Debit URL"
+              label="Debit URL (optional)"
               type="url"
               value={debitUrl}
               onChange={(e) => setDebitUrl(e.target.value)}
-              required
+              placeholder={`${DEMO_BASE}/api/p2p/partner/debit`}
             />
             {error && (
               <div className="rounded-lg bg-error-container px-4 py-3 text-sm text-on-error-container">
@@ -171,7 +182,7 @@ export function IntegrationPage() {
               </div>
             )}
             <Button type="submit" className="w-full" loading={createBusiness.isPending}>
-              Create & Generate Keys
+              Create business & generate code
             </Button>
           </form>
         </Card>

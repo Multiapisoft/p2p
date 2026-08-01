@@ -60,10 +60,7 @@ export class BusinessService {
       referralCode,
       webhookUrl: dto.webhookUrl,
       partnerApi: {
-        baseUrl: partnerUrls.baseUrl,
-        balanceUrl: partnerUrls.balanceUrl,
-        creditUrl: partnerUrls.creditUrl,
-        debitUrl: partnerUrls.debitUrl,
+        ...(partnerUrls || {}),
         apiKey,
         apiSecret,
       },
@@ -201,6 +198,11 @@ export class BusinessService {
       partnerUrls = resolvePartnerApiUrls(dto);
     } catch (err) {
       throw new BadRequestException(err instanceof Error ? err.message : 'Invalid partner API');
+    }
+    if (!partnerUrls?.balanceUrl || !partnerUrls.creditUrl || !partnerUrls.debitUrl) {
+      throw new BadRequestException(
+        'Provide partner baseUrl, or all three balance/credit/debit URLs',
+      );
     }
 
     business.partnerApi = {
@@ -417,10 +419,8 @@ export class BusinessService {
     if (!business) throw new NotFoundException('Business not found');
 
     const limit = business.p2pPayLimit || 0;
+    // Unlimited quota — do not accumulate used (avoids ghost remaining when a limit is set later)
     if (limit <= 0) {
-      await this.businessModel.findByIdAndUpdate(businessId, {
-        $inc: { p2pPayUsed: rounded },
-      });
       return;
     }
 

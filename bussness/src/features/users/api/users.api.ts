@@ -1,4 +1,4 @@
-import { apiGet, apiPatch } from '@/shared/api/client';
+import { apiGet, apiPatch, apiPost } from '@/shared/api/client';
 import type { Paginated, User } from '@/shared/types/api.types';
 
 export type UsersListQuery = {
@@ -26,4 +26,10 @@ export const usersApi = {
   updateMe: (body: { name?: string; phone?: string }) => apiPatch<User>('/users/me', body),
   getBusinessUsers: (query: UsersListQuery = {}) =>
     apiGet<Paginated<User>>('/business/me/users', cleanQuery(query)),
+  /** Reset a linked end-user's password (business panel). */
+  setUserPassword: (userId: string, newPassword: string) =>
+    apiPatch<User>(`/business/me/users/${userId}/password`, { newPassword }),
+  /** Change the logged-in business owner's own password. */
+  setOwnPassword: (newPassword: string, currentPassword: string) =>
+    apiPost('/auth/set-password', { newPassword, currentPassword }),
 };

@@ -1,4 +1,4 @@
-import { apiGet } from '@/shared/api/client';
+import { apiGet, apiPatch } from '@/shared/api/client';
 import type { Paginated, Withdrawal } from '@/shared/types/api.types';
 
 export type WithdrawalsListQuery = {
@@ -25,4 +25,7 @@ export const withdrawalsApi = {
   getBusinessWithdrawals: (query: WithdrawalsListQuery = {}) =>
     apiGet<Paginated<Withdrawal>>('/withdrawals/business', cleanQuery(query)),
   getById: (id: string) => apiGet<Withdrawal>(`/withdrawals/business/${id}`),
+  listForP2p: (id: string) => apiPatch<Withdrawal>(`/withdrawals/${id}/list-for-p2p`, {}),
+  unlistForP2p: (id: string, reason?: string) =>
+    apiPatch<Withdrawal>(`/withdrawals/${id}/unlist-for-p2p`, { reason }),
 };

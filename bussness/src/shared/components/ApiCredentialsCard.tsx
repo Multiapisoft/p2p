@@ -230,7 +230,7 @@ export function ApiCredentialsCard({
 
           )}
 
-          {referralCode && <CopyField label="Referral Code (for users)" value={referralCode} />}
+          {referralCode && <CopyField label="Business code (for users)" value={referralCode} />}
 
         </div>
 

@@ -33,9 +33,11 @@ export class CreateBusinessDto {
   @IsUrl({ require_tld: false })
   webhookUrl?: string;
 
+  /** Optional — partner wallet URLs can be added later. Referral code is created without them. */
+  @IsOptional()
   @ValidateNested()
   @Type(() => PartnerApiDto)
-  partnerApi!: PartnerApiDto;
+  partnerApi?: PartnerApiDto;
 
   @IsOptional()
   @IsNumber()

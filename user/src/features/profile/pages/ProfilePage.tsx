@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import axios from 'axios';
 import { profileApi } from '../api/profile.api';
 import { useAuthStore } from '@/features/auth/store/auth.store';
 import { Card } from '@/shared/components/ui/Card';
@@ -22,6 +23,7 @@ export function ProfilePage() {
 
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
+  const [referralCode, setReferralCode] = useState('');
 
   useEffect(() => {
     if (profile) {
@@ -39,7 +41,26 @@ export function ProfilePage() {
     onError: () => toast.error('Could not update profile'),
   });
 
+  const joinBusiness = useMutation({
+    mutationFn: () => profileApi.attachReferral(referralCode.trim()),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['profile'] });
+      setReferralCode('');
+      toast.success('Joined business', 'Your withdrawals will use this business referral');
+    },
+    onError: (error: unknown) => {
+      let msg = 'Could not join with this code';
+      if (axios.isAxiosError(error)) {
+        const m = error.response?.data?.message;
+        if (typeof m === 'string' && m.trim()) msg = m;
+      }
+      toast.error('Join failed', msg);
+    },
+  });
+
   if (isLoading) return <LoadingScreen />;
+
+  const linked = !!profile?.referredByBusiness;
 
   return (
     <div className="mx-auto max-w-2xl space-y-4 sm:space-y-6">
@@ -61,6 +82,12 @@ export function ProfilePage() {
           <div className="flex justify-between gap-2">
             <dt className="text-on-surface-variant">Status</dt>
             <dd className="font-medium capitalize">{profile?.status}</dd>
+          </div>
+          <div className="flex justify-between gap-2">
+            <dt className="text-on-surface-variant">Business</dt>
+            <dd className="font-medium">
+              {linked ? 'Linked via referral' : 'Not linked'}
+            </dd>
           </div>
           {profile?.createdAt && (
             <div className="flex justify-between gap-2">
@@ -87,6 +114,37 @@ export function ProfilePage() {
           )}
         </form>
       </Card>
+
+      {!linked && (
+        <Card title="Join a business">
+          <p className="mb-4 text-sm text-on-surface-variant">
+            Enter a business code to link your account. Your withdrawals will then wait
+            for that business (or admin) to approve them for the P2P pay list.
+          </p>
+          <form
+            className="flex flex-col gap-3 sm:flex-row sm:items-end"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!referralCode.trim()) return;
+              joinBusiness.mutate();
+            }}
+          >
+            <div className="flex-1">
+              <Input
+                label="Business code"
+                icon="redeem"
+                value={referralCode}
+                onChange={(e) => setReferralCode(e.target.value)}
+                placeholder="e.g. ref_bitfarm_xxxxxxxx"
+                required
+              />
+            </div>
+            <Button type="submit" loading={joinBusiness.isPending} className="sm:mb-0.5">
+              Join
+            </Button>
+          </form>
+        </Card>
+      )}
     </div>
   );
 }

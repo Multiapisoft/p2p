@@ -41,12 +41,19 @@ export function expandPartnerApiFromBase(baseUrl: string): {
   };
 }
 
-export function resolvePartnerApiUrls(input: {
+export function resolvePartnerApiUrls(input?: {
   baseUrl?: string;
   balanceUrl?: string;
   creditUrl?: string;
   debitUrl?: string;
-}): { baseUrl?: string; balanceUrl: string; creditUrl: string; debitUrl: string } {
+} | null): {
+  baseUrl?: string;
+  balanceUrl?: string;
+  creditUrl?: string;
+  debitUrl?: string;
+} | null {
+  if (!input) return null;
+
   const base = input.baseUrl?.trim();
   if (base) {
     return expandPartnerApiFromBase(base);
@@ -55,6 +62,12 @@ export function resolvePartnerApiUrls(input: {
   const balanceUrl = input.balanceUrl?.trim();
   const creditUrl = input.creditUrl?.trim();
   const debitUrl = input.debitUrl?.trim();
+
+  // No partner URLs yet — business can configure later (referral-only signup)
+  if (!balanceUrl && !creditUrl && !debitUrl) {
+    return null;
+  }
+
   if (!balanceUrl || !creditUrl || !debitUrl) {
     throw new Error('Provide partner baseUrl, or all three balance/credit/debit URLs');
   }

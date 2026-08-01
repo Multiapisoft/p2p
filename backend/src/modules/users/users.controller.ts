@@ -1,6 +1,6 @@
 import { Controller, Get, Patch, Param, Body, Query } from '@nestjs/common';
 import { UsersService } from './users.service';
-import { UpdateUserDto, UserListQueryDto } from './dto/create-user.dto';
+import { UpdateUserDto, UserListQueryDto, AttachReferralDto } from './dto/create-user.dto';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { UserRole } from '../../common/enums/role.enum';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -18,6 +18,11 @@ export class UsersController {
   @Patch('me')
   updateProfile(@CurrentUser() user: AuthenticatedUser, @Body() dto: UpdateUserDto) {
     return this.usersService.update(user.userId, dto);
+  }
+
+  @Patch('me/referral')
+  attachReferral(@CurrentUser() user: AuthenticatedUser, @Body() dto: AttachReferralDto) {
+    return this.usersService.attachReferral(user.userId, dto.referralCode);
   }
 
   @Get()

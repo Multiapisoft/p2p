@@ -187,6 +187,10 @@ export interface Withdrawal {
   paymentCount?: number;
   payments?: WithdrawalPaymentBrief[];
   failureReason?: string;
+  p2pListStatus?: 'awaiting' | 'listed' | 'rejected';
+  p2pListedAt?: string;
+  p2pListedBy?: string;
+  p2pListRejectReason?: string;
   completedAt?: string;
   createdAt: string;
 }

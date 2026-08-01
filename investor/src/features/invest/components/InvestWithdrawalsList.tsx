@@ -409,7 +409,7 @@ export function InvestWithdrawalsList() {
               message={
                 search || method !== 'all'
                   ? 'No requests match your filters'
-                  : 'No withdrawal requests available'
+                  : 'No approved P2P withdrawals yet. Business or admin must list a request first.'
               }
               icon="payments"
             />

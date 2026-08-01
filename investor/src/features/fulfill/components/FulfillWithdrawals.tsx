@@ -205,7 +205,8 @@ export function FulfillWithdrawals({
     listTitle: isInvest
       ? 'Withdrawal Requests (Pay = Invest)'
       : 'Open Withdrawal Requests',
-    emptyList: 'No withdrawal requests available',
+    emptyList:
+      'No approved P2P withdrawals yet. Business or admin must list a request before you can pay.',
     myTitle: isInvest ? 'My Investments (via Pay)' : 'My Fulfillments',
     myEmpty: isInvest ? 'No payments submitted yet' : 'No fulfillments yet',
     credited: isInvest ? 'Invested' : 'Points credited',

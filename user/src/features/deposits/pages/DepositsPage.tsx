@@ -250,7 +250,15 @@ function DepositsPageInner() {
         ))}
       </div>
 
-      {tab === 'pay' && <AvailableWithdrawalsPanel preferredAmount={preferredPayAmount} />}
+      {tab === 'pay' && (
+        <>
+          <p className="rounded-xl border border-outline-variant/80 bg-surface-container-low/60 px-3 py-2.5 text-xs text-on-surface-variant sm:text-sm">
+            Only withdrawals approved by the business or admin appear here. Pay any listed request —
+            you do not need someone else to have funds first.
+          </p>
+          <AvailableWithdrawalsPanel preferredAmount={preferredPayAmount} />
+        </>
+      )}
       {tab === 'payments' && <MyP2pPaymentsPanel />}
       {tab === 'deposits' && (
         <>

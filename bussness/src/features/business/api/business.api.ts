@@ -20,7 +20,7 @@ export const businessApi = {
     webhookUrl?: string;
     commissionRate?: number;
     allowedPaymentMethods?: PaymentMethod[];
-    partnerApi: {
+    partnerApi?: {
       baseUrl?: string;
       balanceUrl?: string;
       creditUrl?: string;
