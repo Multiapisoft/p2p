@@ -28,8 +28,15 @@ export class GlobalExceptionFilter implements ExceptionFilter {
         message = exceptionResponse;
       } else if (typeof exceptionResponse === 'object' && exceptionResponse !== null) {
         const resp = exceptionResponse as Record<string, unknown>;
-        message = (resp.message as string) || message;
-        errors = resp.message;
+        const raw = resp.message;
+        if (Array.isArray(raw)) {
+          message = raw.filter(Boolean).join(', ') || message;
+          errors = raw;
+        } else if (typeof raw === 'string' && raw.trim()) {
+          message = raw;
+        } else if (typeof resp.error === 'string' && resp.error.trim()) {
+          message = resp.error;
+        }
       }
     } else if (exception instanceof Error) {
       this.logger.error(
@@ -48,7 +55,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
 
     response.status(status).json({
       success: false,
-      message: Array.isArray(errors) ? errors.join(', ') : message,
+      message: Array.isArray(errors) ? (errors as unknown[]).filter(Boolean).join(', ') : message,
       statusCode: status,
     });
   }

@@ -43,9 +43,10 @@ export class UsersService {
     let referredByBusiness: string | undefined;
 
     if (dto.referralCode) {
+      const code = dto.referralCode.trim();
       const business = await this.businessModel
         .findOne({
-          referralCode: dto.referralCode.trim(),
+          referralCode: { $regex: `^${code.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, $options: 'i' },
           status: { $in: [UserStatus.ACTIVE, UserStatus.PENDING] },
         })
         .exec();

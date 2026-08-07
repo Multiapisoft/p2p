@@ -21,6 +21,7 @@ export class AuthService {
   async register(dto: RegisterDto) {
     const allowedSelfRegister = [UserRole.USER, UserRole.BUSINESS, UserRole.INVESTOR];
     const role = dto.role && allowedSelfRegister.includes(dto.role) ? dto.role : UserRole.USER;
+    const email = dto.email.trim().toLowerCase();
 
     // End users must join via business code (or use integration API keys / portal token instead)
     if (role === UserRole.USER && !dto.referralCode?.trim()) {
@@ -30,15 +31,15 @@ export class AuthService {
     }
 
     await this.usersService.create({
-      email: dto.email,
+      email,
       password: dto.password,
-      name: dto.name,
+      name: dto.name.trim(),
       phone: dto.phone,
       role,
-      referralCode: dto.referralCode,
+      referralCode: dto.referralCode?.trim(),
     });
 
-    const user = await this.usersService.findByEmail(dto.email);
+    const user = await this.usersService.findByEmail(email);
     if (!user) throw new UnauthorizedException('Registration failed');
 
     const token = this.generateToken(user);

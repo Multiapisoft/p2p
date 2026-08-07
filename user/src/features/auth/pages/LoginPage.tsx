@@ -10,6 +10,7 @@ import { Button } from '@/shared/components/ui/Button';
 import { Input } from '@/shared/components/ui/Input';
 import { toast } from '@/shared/ui/toast/toast.store';
 import { emailError, normalizeEmail } from '@/shared/lib/validation';
+import { getApiErrorMessage } from '@/shared/lib/api-error';
 
 function LoginForm() {
   const router = useRouter();
@@ -34,9 +35,21 @@ function LoginForm() {
   const login = useMutation({
     mutationFn: () => loginApi(normalizeEmail(email), password),
     onSuccess: (data) => {
+      if (!data?.accessToken || !data?.user) {
+        setError('Login response incomplete. Try again.');
+        toast.error('Login failed', 'Incomplete response from server');
+        return;
+      }
       if (data.user.role !== 'user') {
-        setError('User account access only');
-        toast.error('Access denied', 'User account access only');
+        const portal =
+          data.user.role === 'business'
+            ? 'Business portal'
+            : data.user.role === 'investor'
+              ? 'Investor portal'
+              : 'Admin portal';
+        const msg = `Yeh ${data.user.role} account hai — User app pe login nahi hoga. ${portal} use karo.`;
+        setError(msg);
+        toast.error('Wrong portal', msg);
         return;
       }
       setAuth(data.accessToken, data.user);
@@ -45,12 +58,7 @@ function LoginForm() {
       router.replace(next.startsWith('/') ? next : '/');
     },
     onError: (err: unknown) => {
-      const msg =
-        err && typeof err === 'object' && 'response' in err
-          ? (err as { response?: { data?: { message?: string | string[] } } }).response?.data
-              ?.message
-          : undefined;
-      const text = Array.isArray(msg) ? msg.join(', ') : msg || 'Invalid email or password';
+      const text = getApiErrorMessage(err, 'Invalid email or password');
       setError(text);
       toast.error('Login failed', text);
     },

@@ -34,16 +34,25 @@ apiClient.interceptors.response.use(
 );
 
 export async function apiGet<T>(url: string, params?: Record<string, unknown>) {
-  const { data } = await apiClient.get<{ data: T }>(url, { params });
-  return data.data;
+  const { data } = await apiClient.get<unknown>(url, { params });
+  return unwrapData<T>(data);
 }
 
 export async function apiPost<T>(url: string, body?: unknown) {
-  const { data } = await apiClient.post<{ data: T }>(url, body);
-  return data.data;
+  const { data } = await apiClient.post<unknown>(url, body);
+  return unwrapData<T>(data);
 }
 
 export async function apiPatch<T>(url: string, body?: unknown) {
-  const { data } = await apiClient.patch<{ data: T }>(url, body);
-  return data.data;
+  const { data } = await apiClient.patch<unknown>(url, body);
+  return unwrapData<T>(data);
+}
+
+/** Support both `{ data: T }` envelope and raw `T` payloads. */
+function unwrapData<T>(payload: unknown): T {
+  if (payload && typeof payload === 'object' && 'data' in payload) {
+    const inner = (payload as { data: T }).data;
+    if (inner !== undefined) return inner;
+  }
+  return payload as T;
 }

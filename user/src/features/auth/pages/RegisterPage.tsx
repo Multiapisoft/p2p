@@ -15,6 +15,7 @@ import {
   normalizePhone,
   phoneError,
 } from '@/shared/lib/validation';
+import { getApiErrorMessage } from '@/shared/lib/api-error';
 
 function RegisterForm() {
   const router = useRouter();
@@ -43,26 +44,35 @@ function RegisterForm() {
   const register = useMutation({
     mutationFn: () =>
       registerApi({
-        name,
+        name: name.trim(),
         email: normalizeEmail(email),
         password,
         phone: phone.trim() ? normalizePhone(phone) : undefined,
         referralCode: referralCode.trim(),
       }),
     onSuccess: (data) => {
+      if (!data?.accessToken || !data?.user) {
+        setError('Registration succeeded but login data missing. Try logging in.');
+        toast.error('Almost done', 'Please login with your new account');
+        router.replace('/login');
+        return;
+      }
+      if (data.user.role !== 'user') {
+        setError('Account created, but this portal is for users only.');
+        toast.error('Wrong portal');
+        return;
+      }
       setAuth(data.accessToken, data.user);
       toast.success('Account created', 'Welcome to FinGuard');
       router.replace('/');
     },
     onError: (err: unknown) => {
-      const msg =
-        err && typeof err === 'object' && 'response' in err
-          ? (err as { response?: { data?: { message?: string | string[] } } }).response?.data
-              ?.message
-          : undefined;
-      const text = Array.isArray(msg) ? msg[0] : msg;
-      setError(text || 'Registration failed. Email may already be in use.');
-      toast.error('Registration failed', text || 'Email may already be in use');
+      const text = getApiErrorMessage(
+        err,
+        'Registration failed. Check business code / email.',
+      );
+      setError(text);
+      toast.error('Registration failed', text);
     },
   });
 
