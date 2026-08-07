@@ -69,8 +69,8 @@ export function ProfilePage() {
 
   const linked = !!(profile?.referredByBusiness || profile?.referredBusiness);
   const businessName = profile?.referredBusiness?.name;
-  const referralCode = profile?.referredBusiness?.referralCode;
-  const hasBusinessMeta = !!(businessName || referralCode || profile?.businessUserCode);
+  const businessReferralCode = profile?.referredBusiness?.referralCode;
+  const hasBusinessMeta = !!(businessName || businessReferralCode || profile?.businessUserCode);
 
   return (
     <div className="mx-auto max-w-2xl space-y-4 sm:space-y-6">
@@ -96,13 +96,13 @@ export function ProfilePage() {
           <div className="flex justify-between gap-2">
             <dt className="text-on-surface-variant">Business</dt>
             <dd className="text-right font-medium">
-              {linked || hasBusinessMeta ? (
+                  {linked || hasBusinessMeta ? (
                 <span>
                   {businessName || 'Linked via referral'}
-                  {(referralCode || profile?.businessUserCode) && (
+                  {(businessReferralCode || profile?.businessUserCode) && (
                     <span className="mt-0.5 block font-mono text-xs text-on-surface-variant">
                       {[
-                        referralCode ? `Code: ${referralCode}` : null,
+                        businessReferralCode ? `Code: ${businessReferralCode}` : null,
                         profile?.businessUserCode
                           ? `Your ID: ${profile.businessUserCode}`
                           : null,
