@@ -17,16 +17,16 @@ export function Card({ children, className, title, action }: CardProps) {
       )}
     >
       {(title || action) && (
-        <div className="flex items-center justify-between border-b border-outline-variant px-4 py-3 md:px-6">
+        <div className="flex items-center justify-between gap-2 border-b border-outline-variant px-3 py-2.5 sm:px-4 sm:py-3 md:px-6">
           {title && (
-            <h3 className="font-[family-name:var(--font-headline)] text-lg font-semibold text-on-surface">
+            <h3 className="min-w-0 truncate font-[family-name:var(--font-headline)] text-base font-semibold text-on-surface sm:text-lg">
               {title}
             </h3>
           )}
-          {action}
+          {action ? <div className="shrink-0">{action}</div> : null}
         </div>
       )}
-      <div className="p-4 md:p-6">{children}</div>
+      <div className="p-3 sm:p-4 md:p-6">{children}</div>
     </div>
   );
 }
@@ -47,27 +47,27 @@ export function StatCard({ label, value, icon, trend, variant = 'default' }: Sta
   };
 
   return (
-    <div className="rounded-xl border border-outline-variant bg-surface-container-lowest p-5 card-shadow">
-      <div className="mb-2 flex items-start justify-between">
-        <span className="text-sm font-semibold uppercase tracking-wide text-on-surface-variant">
+    <div className="rounded-xl border border-outline-variant bg-surface-container-lowest p-3 card-shadow sm:p-4 md:p-5">
+      <div className="mb-1.5 flex items-start justify-between gap-2 sm:mb-2">
+        <span className="text-[10px] font-semibold uppercase tracking-wide text-on-surface-variant sm:text-xs md:text-sm">
           {label}
         </span>
         <span
           className={cn(
-            'material-symbols-outlined rounded-full p-2 text-xl',
+            'material-symbols-outlined shrink-0 rounded-full p-1.5 text-lg sm:p-2 sm:text-xl',
             iconColors[variant],
           )}
         >
           {icon}
         </span>
       </div>
-      <p className="font-[family-name:var(--font-headline)] text-3xl font-bold text-on-surface">
+      <p className="break-words font-[family-name:var(--font-headline)] text-xl font-bold text-on-surface sm:text-2xl md:text-3xl">
         {value}
       </p>
       {trend && (
-        <p className="mt-2 flex items-center gap-1 text-sm text-secondary">
-          <span className="material-symbols-outlined text-sm">trending_up</span>
-          {trend}
+        <p className="mt-1.5 flex items-start gap-1 text-[11px] leading-snug text-secondary sm:mt-2 sm:text-sm">
+          <span className="material-symbols-outlined mt-0.5 shrink-0 text-sm">trending_up</span>
+          <span className="min-w-0">{trend}</span>
         </p>
       )}
     </div>

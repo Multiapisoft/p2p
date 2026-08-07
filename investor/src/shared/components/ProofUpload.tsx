@@ -110,17 +110,27 @@ export function ProofUpload({
       )}
 
       <Input
-        label={isTxid ? 'TxID / TRX hash *' : 'UTR / Transaction Reference *'}
+        label={isTxid ? 'USDT / TRX TxID *' : 'UTR / Transaction Reference *'}
         value={utr}
         onChange={(e) =>
           onUtrChange(isTxid ? e.target.value.trim() : e.target.value.toUpperCase())
         }
         placeholder={
-          isTxid ? 'Blockchain transaction hash / TxID' : '12-digit UTR or reference number'
+          isTxid
+            ? '64-character hex TxID (TRC20 / optional 0x)'
+            : '12-digit UTR / RRN'
         }
         required
         disabled={disabled}
+        maxLength={isTxid ? 66 : 22}
+        spellCheck={false}
+        autoComplete="off"
       />
+      <p className="-mt-1 text-xs text-on-surface-variant">
+        {isTxid
+          ? 'Paste the blockchain transaction hash from your wallet / explorer. Same TxID cannot be reused.'
+          : 'Use the UTR or IMPS RRN from your UPI/bank payment receipt.'}
+      </p>
 
       {error && (
         <div className="rounded-lg bg-error-container px-3 py-2 text-sm text-on-error-container">

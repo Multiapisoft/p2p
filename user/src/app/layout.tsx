@@ -8,14 +8,14 @@ const montserrat = Montserrat({ subsets: ['latin'], variable: '--font-headline' 
 
 export const metadata: Metadata = {
   title: 'FinGuard Wallet',
-  description: 'P2P platform user wallet panel',
+  description: 'Platform Payment user wallet panel',
 };
 
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
   viewportFit: 'cover',
-  themeColor: '#f8f9ff',
+  themeColor: '#f7f8f4',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

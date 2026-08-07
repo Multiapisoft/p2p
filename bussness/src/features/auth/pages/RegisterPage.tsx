@@ -8,6 +8,12 @@ import { useAuthStore } from '@/features/auth/store/auth.store';
 import { Button } from '@/shared/components/ui/Button';
 import { Input } from '@/shared/components/ui/Input';
 import Link from 'next/link';
+import {
+  emailError,
+  normalizeEmail,
+  normalizePhone,
+  phoneError,
+} from '@/shared/lib/validation';
 
 export function RegisterPage() {
   const router = useRouter();
@@ -31,9 +37,9 @@ export function RegisterPage() {
     mutationFn: () =>
       registerApi({
         name,
-        email,
+        email: normalizeEmail(email),
         password,
-        phone: phone || undefined,
+        phone: phone.trim() ? normalizePhone(phone) : undefined,
         businessName: businessName.trim() || name.trim(),
       }),
     onSuccess: (data) => {
@@ -54,6 +60,16 @@ export function RegisterPage() {
       setError('Business name is required');
       return;
     }
+    const eMsg = emailError(email);
+    if (eMsg) {
+      setError(eMsg);
+      return;
+    }
+    const pMsg = phoneError(phone, false);
+    if (pMsg) {
+      setError(pMsg);
+      return;
+    }
     if (password.length < 8) {
       setError('Password must be at least 8 characters');
       return;
@@ -67,7 +83,7 @@ export function RegisterPage() {
 
   return (
     <div className="flex min-h-screen flex-col md:flex-row">
-      <div className="relative flex min-h-[240px] w-full items-center justify-center overflow-hidden bg-primary-container md:min-h-screen md:w-1/2">
+      <div className="relative flex min-h-[240px] w-full items-center justify-center overflow-hidden bg-primary md:min-h-screen md:w-1/2">
         <div className="absolute inset-0 bg-gradient-to-tr from-on-background/60 to-secondary/40" />
         <div className="relative z-10 max-w-xl px-6 text-center text-white md:px-12 md:text-left">
           <div className="mb-6 inline-flex items-center gap-3">

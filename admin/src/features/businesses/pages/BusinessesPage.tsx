@@ -244,7 +244,7 @@ export function BusinessesPage() {
                       <p className="font-semibold">{b.commissionRate ?? 0}%</p>
                     </div>
                     <div>
-                      <p className="text-xs text-on-surface-variant sm:text-sm">P2P pay limit</p>
+                      <p className="text-xs text-on-surface-variant sm:text-sm">Platform pay limit</p>
                       <p className="font-semibold">
                         {(b.p2pPayLimit ?? 0) > 0
                           ? formatCurrency(b.p2pPayLimit!)
@@ -315,7 +315,7 @@ export function BusinessesPage() {
               <p className="font-semibold">{stats.commissionRate}%</p>
             </div>
             <div>
-              <p className="text-on-surface-variant">P2P Pay Limit</p>
+              <p className="text-on-surface-variant">Platform Pay Limit</p>
               <p className="font-semibold">
                 {(stats.p2pPayLimit ?? 0) > 0
                   ? formatCurrency(stats.p2pPayLimit ?? 0)

@@ -106,30 +106,49 @@ export class InvestorService {
         throw new BadRequestException('Redemption is not pending');
       }
 
-      const wallet = await this.walletService.getOrCreate(redemption.investorId.toString());
-      const redeemable = await this.walletService.getRedeemableAmount(
-        redemption.investorId.toString(),
-      );
+      const walletId = redemption.walletId.toString();
+      const investorId = redemption.investorId.toString();
+      const wallet =
+        (await this.walletService.findById(walletId, session)) ||
+        (await this.walletService.getOrCreate(investorId));
 
-      if (redemption.amount > redeemable) {
-        throw new BadRequestException('Redemption exceeds current redeemable amount');
+      // Request already locked `amount`. getRedeemableAmount() excludes locked funds,
+      // so re-checking it here wrongly rejects valid pending redemptions.
+      if (wallet.balance < redemption.amount) {
+        throw new BadRequestException('Insufficient wallet balance for redemption');
       }
 
       const commission = await this.commissionService.calculate(
         redemption.amount,
         CommissionTarget.INVESTOR,
-        redemption.investorId.toString(),
+        investorId,
+        redemption.method,
       );
-      const totalDebit = redemption.amount + commission.amount;
+      const fee = Math.max(0, commission.amount || 0);
       const balanceBefore = wallet.balance;
 
-      await this.walletService.unlock(wallet._id.toString(), redemption.amount, session);
-      const updatedWallet = await this.walletService.debit(
-        wallet._id.toString(),
-        totalDebit,
+      const lockRelease = Math.min(wallet.lockedBalance || 0, redemption.amount);
+      if (lockRelease > 0) {
+        await this.walletService.unlock(walletId, lockRelease, session);
+      }
+
+      let updatedWallet = await this.walletService.debit(
+        walletId,
+        redemption.amount,
         'totalRedeemed',
         session,
       );
+
+      if (fee > 0) {
+        const available =
+          updatedWallet.balance - (updatedWallet.lockedBalance || 0);
+        if (available < fee) {
+          throw new BadRequestException(
+            `Insufficient balance for redemption fee of ₹${fee}`,
+          );
+        }
+        updatedWallet = await this.walletService.debit(walletId, fee, false, session);
+      }
 
       redemption.status = TransactionStatus.COMPLETED;
       redemption.processedBy = processedBy;
@@ -138,15 +157,18 @@ export class InvestorService {
       await redemption.save({ session });
 
       await this.transactionService.record({
-        userId: redemption.investorId.toString(),
-        walletId: wallet._id.toString(),
+        userId: investorId,
+        walletId,
         type: LedgerType.REDEMPTION,
-        amount: totalDebit,
+        amount: redemption.amount + fee,
         balanceBefore,
         balanceAfter: updatedWallet.balance,
         referenceType: 'redemption',
         referenceId: redemption._id.toString(),
-        description: `Investor redemption processed by ${processedBy}`,
+        description:
+          fee > 0
+            ? `Investor redemption ₹${redemption.amount} + fee ₹${fee} by ${processedBy}`
+            : `Investor redemption processed by ${processedBy}`,
       });
 
       await session.commitTransaction();
@@ -166,7 +188,12 @@ export class InvestorService {
       throw new BadRequestException('Redemption is not pending');
     }
 
-    await this.walletService.unlock(redemption.walletId.toString(), redemption.amount);
+    const walletId = redemption.walletId.toString();
+    const wallet = await this.walletService.findById(walletId);
+    const lockRelease = Math.min(wallet?.lockedBalance || 0, redemption.amount);
+    if (lockRelease > 0) {
+      await this.walletService.unlock(walletId, lockRelease);
+    }
     redemption.status = TransactionStatus.REJECTED;
     redemption.failureReason = dto.reason;
     await redemption.save();
@@ -343,10 +370,25 @@ export class InvestorService {
     if (status) and.push({ status });
     if (opts.method && opts.method !== 'all') and.push({ method: opts.method });
     if (search) {
+      const investorIds = await this.connection
+        .collection('users')
+        .find({
+          $or: [
+            { email: { $regex: search, $options: 'i' } },
+            { name: { $regex: search, $options: 'i' } },
+            { phone: { $regex: search, $options: 'i' } },
+          ],
+        })
+        .project({ _id: 1 })
+        .limit(50)
+        .toArray();
       and.push({
         $or: [
           { referenceId: { $regex: search, $options: 'i' } },
           { note: { $regex: search, $options: 'i' } },
+          ...(investorIds.length
+            ? [{ investorId: { $in: investorIds.map((u) => u._id) } }]
+            : []),
         ],
       });
     }
@@ -355,6 +397,7 @@ export class InvestorService {
     const [items, total] = await Promise.all([
       this.investmentModel
         .find(filter)
+        .populate('investorId', 'name email phone')
         .skip(skip)
         .limit(limit)
         .sort(this.moneySort(sort))
@@ -420,11 +463,26 @@ export class InvestorService {
 
     if (status) and.push({ status });
     if (search) {
+      const investorIds = await this.connection
+        .collection('users')
+        .find({
+          $or: [
+            { email: { $regex: search, $options: 'i' } },
+            { name: { $regex: search, $options: 'i' } },
+            { phone: { $regex: search, $options: 'i' } },
+          ],
+        })
+        .project({ _id: 1 })
+        .limit(50)
+        .toArray();
       and.push({
         $or: [
           { referenceId: { $regex: search, $options: 'i' } },
           { note: { $regex: search, $options: 'i' } },
           { failureReason: { $regex: search, $options: 'i' } },
+          ...(investorIds.length
+            ? [{ investorId: { $in: investorIds.map((u) => u._id) } }]
+            : []),
         ],
       });
     }
@@ -433,6 +491,7 @@ export class InvestorService {
     const [items, total] = await Promise.all([
       this.redemptionModel
         .find(filter)
+        .populate('investorId', 'name email phone')
         .skip(skip)
         .limit(limit)
         .sort(this.moneySort(sort))

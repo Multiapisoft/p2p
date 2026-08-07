@@ -11,6 +11,7 @@ import { Input } from '@/shared/components/ui/Input';
 import { LoadingScreen } from '@/shared/components/ui/Icon';
 import { formatDate } from '@/shared/lib/utils';
 import { toast } from '@/shared/ui/toast/toast.store';
+import { normalizePhone, phoneError } from '@/shared/lib/validation';
 
 export function ProfilePage() {
   const authUser = useAuthStore((s) => s.user);
@@ -24,6 +25,7 @@ export function ProfilePage() {
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [referralCode, setReferralCode] = useState('');
+  const [formError, setFormError] = useState('');
 
   useEffect(() => {
     if (profile) {
@@ -33,9 +35,14 @@ export function ProfilePage() {
   }, [profile]);
 
   const update = useMutation({
-    mutationFn: () => profileApi.updateMe({ name, phone: phone || undefined }),
+    mutationFn: () =>
+      profileApi.updateMe({
+        name,
+        phone: phone.trim() ? normalizePhone(phone) : undefined,
+      }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['profile'] });
+      setFormError('');
       toast.success('Profile updated');
     },
     onError: () => toast.error('Could not update profile'),
@@ -60,7 +67,10 @@ export function ProfilePage() {
 
   if (isLoading) return <LoadingScreen />;
 
-  const linked = !!profile?.referredByBusiness;
+  const linked = !!(profile?.referredByBusiness || profile?.referredBusiness);
+  const businessName = profile?.referredBusiness?.name;
+  const referralCode = profile?.referredBusiness?.referralCode;
+  const hasBusinessMeta = !!(businessName || referralCode || profile?.businessUserCode);
 
   return (
     <div className="mx-auto max-w-2xl space-y-4 sm:space-y-6">
@@ -85,8 +95,26 @@ export function ProfilePage() {
           </div>
           <div className="flex justify-between gap-2">
             <dt className="text-on-surface-variant">Business</dt>
-            <dd className="font-medium">
-              {linked ? 'Linked via referral' : 'Not linked'}
+            <dd className="text-right font-medium">
+              {linked || hasBusinessMeta ? (
+                <span>
+                  {businessName || 'Linked via referral'}
+                  {(referralCode || profile?.businessUserCode) && (
+                    <span className="mt-0.5 block font-mono text-xs text-on-surface-variant">
+                      {[
+                        referralCode ? `Code: ${referralCode}` : null,
+                        profile?.businessUserCode
+                          ? `Your ID: ${profile.businessUserCode}`
+                          : null,
+                      ]
+                        .filter(Boolean)
+                        .join(' · ')}
+                    </span>
+                  )}
+                </span>
+              ) : (
+                'Not linked'
+              )}
             </dd>
           </div>
           {profile?.createdAt && (
@@ -101,11 +129,31 @@ export function ProfilePage() {
           className="space-y-4 border-t border-outline-variant pt-4 sm:pt-6"
           onSubmit={(e) => {
             e.preventDefault();
+            const pMsg = phoneError(phone, false);
+            if (pMsg) {
+              setFormError(pMsg);
+              return;
+            }
+            setFormError('');
             update.mutate();
           }}
         >
           <Input label="Full Name" icon="person" value={name} onChange={(e) => setName(e.target.value)} />
-          <Input label="Phone" icon="phone" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} />
+          <Input
+            label="Phone"
+            icon="phone"
+            type="tel"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            placeholder="10-digit mobile"
+            inputMode="numeric"
+            maxLength={13}
+          />
+          {formError && (
+            <div className="rounded-lg bg-error-container px-4 py-3 text-sm text-on-error-container">
+              {formError}
+            </div>
+          )}
           <Button type="submit" loading={update.isPending} className="w-full sm:w-auto">
             Save Changes
           </Button>
@@ -119,7 +167,7 @@ export function ProfilePage() {
         <Card title="Join a business">
           <p className="mb-4 text-sm text-on-surface-variant">
             Enter a business code to link your account. Your withdrawals will then wait
-            for that business (or admin) to approve them for the P2P pay list.
+            for that business (or admin) to approve them for the Platform Payment list.
           </p>
           <form
             className="flex flex-col gap-3 sm:flex-row sm:items-end"

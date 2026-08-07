@@ -10,6 +10,10 @@ import { Type } from 'class-transformer';
 import { PaymentMethod } from '../../../common/enums/payment-method.enum';
 import { Currency } from '../../../common/enums/currency.enum';
 import { ListQueryDto } from '../../../common/dto/list-query.dto';
+import {
+  IsOptionalAppTxHash,
+  IsOptionalAppUtr,
+} from '../../../common/validators/contact.validators';
 
 export class DepositListQueryDto extends ListQueryDto {
   @IsOptional()
@@ -25,8 +29,7 @@ export class UpiDetailsDto {
   @IsString()
   payerName?: string;
 
-  @IsOptional()
-  @IsString()
+  @IsOptionalAppUtr()
   utr?: string;
 }
 
@@ -44,8 +47,7 @@ export class BankDetailsDto {
   @IsString()
   bankName?: string;
 
-  @IsOptional()
-  @IsString()
+  @IsOptionalAppUtr()
   utr?: string;
 }
 
@@ -57,8 +59,7 @@ export class UsdtDetailsDto {
   @IsString()
   network?: string;
 
-  @IsOptional()
-  @IsString()
+  @IsOptionalAppTxHash()
   txHash?: string;
 }
 
@@ -103,12 +104,10 @@ export class CreateDepositDto {
 }
 
 export class ApproveDepositDto {
-  @IsOptional()
-  @IsString()
+  @IsOptionalAppUtr()
   utr?: string;
 
-  @IsOptional()
-  @IsString()
+  @IsOptionalAppTxHash()
   txHash?: string;
 
   @IsOptional()

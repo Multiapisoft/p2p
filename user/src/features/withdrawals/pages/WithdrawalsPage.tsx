@@ -13,6 +13,7 @@ import { StatusBadge } from '@/shared/components/ui/Badge';
 import { Pagination } from '@/shared/components/ui/Pagination';
 import { LoadingScreen, EmptyState } from '@/shared/components/ui/Icon';
 import { formatCurrency, formatDate } from '@/shared/lib/utils';
+import { formatSecondsMmSs } from '@/shared/lib/upi-qr';
 import { toast } from '@/shared/ui/toast/toast.store';
 import { confirmDialog } from '@/shared/ui/confirm/confirm.store';
 import type {
@@ -137,7 +138,13 @@ export function WithdrawalsPage() {
   const [actionError, setActionError] = useState('');
   const [disputeFor, setDisputeFor] = useState<WithdrawalSplitPayment | null>(null);
   const [disputeReason, setDisputeReason] = useState('');
+  const [now, setNow] = useState(() => Date.now());
   const qc = useQueryClient();
+
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -156,7 +163,7 @@ export function WithdrawalsPage() {
     queryKey: ['profile-me'],
     queryFn: () => profileApi.getMe(),
   });
-  /** Business-code users can request any P2P withdrawal amount (no wallet balance gate). */
+  /** Business-code users can request any Platform Payment withdrawal amount (no wallet balance gate). */
   const isBusinessLinked = Boolean(profile?.referredByBusiness);
 
   const listQuery = useMemo(
@@ -441,8 +448,8 @@ export function WithdrawalsPage() {
 
             {isBusinessLinked ? (
               <p className="text-sm text-on-surface-variant">
-                Linked to a business — you can request any amount. It waits for business/admin P2P
-                approval before others can pay.
+                Linked to a business — you can request any amount. It waits for business/admin
+                Platform Payment approval before others can pay.
               </p>
             ) : null}
 
@@ -517,6 +524,10 @@ export function WithdrawalsPage() {
       )}
 
       <Card title="My withdrawals">
+        <p className="mb-4 text-[11px] text-on-surface-variant sm:text-xs">
+          Once listed for Platform Payment / approved by business, you cannot cancel. Contact
+          business/admin.
+        </p>
         <div className="mb-4 space-y-3 sm:mb-5 sm:space-y-4">
           <div className="flex flex-col gap-2.5 lg:flex-row lg:items-end lg:gap-3">
             <div className="min-w-0 flex-1">
@@ -639,6 +650,14 @@ export function WithdrawalsPage() {
                 const disputedPays = payments.filter((p) => !!p.disputedAt);
                 const expanded = expandedId === w._id;
                 const pct = progressPct(paid, w.amount);
+                const canCancel = w.userCanCancel === true;
+                const tatLeft =
+                  w.userEditExpiresAt != null
+                    ? Math.max(
+                        0,
+                        Math.ceil((new Date(w.userEditExpiresAt).getTime() - now) / 1000),
+                      )
+                    : w.tatSecondsRemaining ?? 0;
 
                 return (
                   <article
@@ -663,10 +682,10 @@ export function WithdrawalsPage() {
                               }`}
                             >
                               {w.p2pListStatus === 'listed'
-                                ? 'Open for P2P pay'
+                                ? 'Open for Platform Payment'
                                 : w.p2pListStatus === 'rejected'
-                                  ? 'P2P rejected'
-                                  : 'Awaiting P2P approval'}
+                                  ? 'Platform Payment rejected'
+                                  : 'Awaiting Platform Payment approval'}
                             </span>
                           )}
                         </div>
@@ -682,6 +701,19 @@ export function WithdrawalsPage() {
                           </p>
                         )}
                         <DestinationLine w={w} />
+                        {(w.status === 'pending' || w.status === 'processing') &&
+                          canCancel &&
+                          tatLeft > 0 && (
+                            <p className="text-[11px] font-medium text-secondary sm:text-xs">
+                              You can cancel/edit for {formatSecondsMmSs(tatLeft)}
+                            </p>
+                          )}
+                        {(w.status === 'pending' || w.status === 'processing') && !canCancel && (
+                          <p className="text-[11px] text-on-surface-variant sm:text-xs">
+                            Once listed for Platform Payment / approved by business, you cannot
+                            cancel. Contact business/admin.
+                          </p>
+                        )}
                       </div>
 
                       <div className="flex w-full flex-wrap items-center gap-1.5 sm:w-auto sm:gap-2">
@@ -693,7 +725,7 @@ export function WithdrawalsPage() {
                         >
                           {expanded ? 'Hide' : 'Details'}
                         </Button>
-                        {(w.status === 'pending' || w.status === 'processing') && paid === 0 && (
+                        {canCancel && (
                           <Button
                             size="sm"
                             variant="outline"

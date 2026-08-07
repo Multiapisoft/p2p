@@ -8,6 +8,7 @@ import { useAuthStore } from '@/features/auth/store/auth.store';
 import { Button } from '@/shared/components/ui/Button';
 import { Input } from '@/shared/components/ui/Input';
 import Link from 'next/link';
+import { emailError, normalizeEmail } from '@/shared/lib/validation';
 
 export function LoginPage() {
   const router = useRouter();
@@ -24,7 +25,7 @@ export function LoginPage() {
   const [error, setError] = useState('');
 
   const login = useMutation({
-    mutationFn: () => loginApi(email, password),
+    mutationFn: () => loginApi(normalizeEmail(email), password),
     onSuccess: (data) => {
       if (data.user.role !== 'business') {
         setError('Business account required');
@@ -38,7 +39,7 @@ export function LoginPage() {
 
   return (
     <div className="flex min-h-screen flex-col md:flex-row">
-      <div className="relative flex min-h-[280px] w-full items-center justify-center overflow-hidden bg-primary-container md:min-h-screen md:w-1/2">
+      <div className="relative flex min-h-[280px] w-full items-center justify-center overflow-hidden bg-primary md:min-h-screen md:w-1/2">
         <div className="absolute inset-0 bg-gradient-to-tr from-on-background/60 to-secondary/40" />
         <div className="relative z-10 max-w-xl px-6 text-center text-white md:px-12 md:text-left">
           <div className="mb-6 inline-flex items-center gap-3">
@@ -49,7 +50,7 @@ export function LoginPage() {
             Business Portal
           </p>
           <p className="mt-4 text-lg text-surface-container-highest/90">
-            Manage deposits, API keys, and integrations for your P2P business.
+            Manage deposits, API keys, and integrations for your Platform Payment business.
           </p>
         </div>
       </div>
@@ -68,6 +69,11 @@ export function LoginPage() {
             onSubmit={(e) => {
               e.preventDefault();
               setError('');
+              const eMsg = emailError(email);
+              if (eMsg) {
+                setError(eMsg);
+                return;
+              }
               login.mutate();
             }}
           >

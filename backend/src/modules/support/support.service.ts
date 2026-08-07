@@ -7,6 +7,7 @@ import { CreateTicketDto, ReplyTicketDto, UpdateTicketStatusDto } from './dto/su
 import { SupportStatus } from '../../common/enums/support-status.enum';
 import { UserRole } from '../../common/enums/role.enum';
 import { Business, BusinessDocument } from '../business/schemas/business.schema';
+import { User, UserDocument } from '../users/schemas/user.schema';
 
 export type CreateTicketMeta = {
   participantIds?: string[];
@@ -30,6 +31,7 @@ export class SupportService {
   constructor(
     @InjectModel(SupportTicket.name) private ticketModel: Model<SupportTicketDocument>,
     @InjectModel(Business.name) private businessModel: Model<BusinessDocument>,
+    @InjectModel(User.name) private userModel: Model<UserDocument>,
   ) {}
 
   async create(userId: string, dto: CreateTicketDto, meta?: CreateTicketMeta) {
@@ -38,11 +40,19 @@ export class SupportService {
       .filter((id) => id && id !== userId)
       .map((id) => new Types.ObjectId(id));
 
+    let businessId = meta?.businessId;
+    if (!businessId) {
+      const user = await this.userModel.findById(userId).select('referredByBusiness').exec();
+      if (user?.referredByBusiness) {
+        businessId = user.referredByBusiness.toString();
+      }
+    }
+
     return this.ticketModel.create({
       ticketId,
       userId: new Types.ObjectId(userId),
       participantIds,
-      businessId: meta?.businessId ? new Types.ObjectId(meta.businessId) : undefined,
+      businessId: businessId ? new Types.ObjectId(businessId) : undefined,
       relatedPaymentId: meta?.relatedPaymentId
         ? new Types.ObjectId(meta.relatedPaymentId)
         : undefined,

@@ -20,6 +20,7 @@ import { AdminModule } from './modules/admin/admin.module';
 import { WebhookModule } from './modules/webhook/webhook.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { PaymentConfigModule } from './modules/payment-config/payment-config.module';
+import { PlatformSettingsModule } from './modules/platform-settings/platform-settings.module';
 import { NotificationModule } from './modules/notification/notification.module';
 import { HealthModule } from './modules/health/health.module';
 import { StorageModule } from './modules/storage/storage.module';
@@ -52,6 +53,7 @@ import { TransformInterceptor } from './common/interceptors/transform.intercepto
     SupportModule,
     AdminModule,
     PaymentConfigModule,
+    PlatformSettingsModule,
     HealthModule,
     StorageModule,
   ],

@@ -13,6 +13,12 @@ import { ProofUpload } from '@/shared/components/ProofUpload';
 import { AddressQr } from '@/shared/components/AddressQr';
 import { LoadingScreen, EmptyState } from '@/shared/components/ui/Icon';
 import { apiErrorMessage, formatCurrency, formatDate } from '@/shared/lib/utils';
+import { normalizeUtr, normalizeTxHash, paymentRefErrorForMethod } from '@/shared/lib/validation';
+import {
+  buildUpiPayUri,
+  formatSecondsMmSs,
+  planAmountLabel,
+} from '@/shared/lib/upi-qr';
 import type { PaymentMethod } from '@/shared/types/api.types';
 
 const PAGE_SIZES = [5, 10, 20];
@@ -54,8 +60,20 @@ function maskAccount(num?: string) {
   return `${'*'.repeat(num.length - 4)}${num.slice(-4)}`;
 }
 
-function DestinationInfo({ w }: { w: AvailableWithdrawal }) {
+function DestinationInfo({
+  w,
+  payAmount,
+}: {
+  w: AvailableWithdrawal;
+  payAmount?: number;
+}) {
   if (w.method === 'upi' && w.upiDetails?.upiId) {
+    const upiAmount =
+      payAmount != null && payAmount > 0
+        ? payAmount
+        : w.maxPayable != null
+          ? Math.min(w.maxPayable, w.remainingAmount)
+          : w.remainingAmount;
     return (
       <div className="rounded-lg bg-surface-container-low p-3 text-sm">
         <p className="font-semibold">UPI ID</p>
@@ -63,6 +81,14 @@ function DestinationInfo({ w }: { w: AvailableWithdrawal }) {
         {w.upiDetails.payerName && (
           <p className="mt-1 text-on-surface-variant">Name: {w.upiDetails.payerName}</p>
         )}
+        <AddressQr
+          value={buildUpiPayUri({
+            upiId: w.upiDetails.upiId,
+            name: w.upiDetails.payerName,
+            amount: upiAmount > 0 ? upiAmount : undefined,
+          })}
+          label="Scan UPI QR"
+        />
       </div>
     );
   }
@@ -206,7 +232,7 @@ export function FulfillWithdrawals({
       ? 'Withdrawal Requests (Pay = Invest)'
       : 'Open Withdrawal Requests',
     emptyList:
-      'No approved P2P withdrawals yet. Business or admin must list a request before you can pay.',
+      'No approved Platform Payment withdrawals yet. Business or admin must list a request before you can pay.',
     myTitle: isInvest ? 'My Investments (via Pay)' : 'My Fulfillments',
     myEmpty: isInvest ? 'No payments submitted yet' : 'No fulfillments yet',
     credited: isInvest ? 'Invested' : 'Points credited',
@@ -233,11 +259,14 @@ export function FulfillWithdrawals({
   const [payStatus, setPayStatus] = useState('all');
 
   const [target, setTarget] = useState<AvailableWithdrawal | null>(null);
+  const [claimPayDeadline, setClaimPayDeadline] = useState<string | null>(null);
+  const [claimingId, setClaimingId] = useState<string | null>(null);
   const [amount, setAmount] = useState('');
   const [utr, setUtr] = useState('');
   const [proofKey, setProofKey] = useState('');
   const [proofUrl, setProofUrl] = useState('');
   const [formError, setFormError] = useState('');
+  const [now, setNow] = useState(() => Date.now());
   const qc = useQueryClient();
 
   useEffect(() => {
@@ -255,6 +284,12 @@ export function FulfillWithdrawals({
     }, 350);
     return () => clearTimeout(t);
   }, [paySearchInput]);
+
+  useEffect(() => {
+    if (!claimPayDeadline && !target) return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [claimPayDeadline, target]);
 
   const availableQuery = useMemo(
     () => ({ page, limit, search, sort, method }),
@@ -303,19 +338,25 @@ export function FulfillWithdrawals({
     return { earned, pending };
   }, [myPayments]);
 
+  const selectPlan = useMutation({
+    mutationFn: (planAmount: number) => fulfillApi.setInvestorPlan(planAmount),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['fulfill-available'] });
+    },
+  });
+
   const submit = useMutation({
     mutationFn: () =>
       fulfillApi.submitPayment(target!._id, {
         amount: Number(amount),
-        utr: utr.trim(),
+        utr: target!.method === 'usdt' ? normalizeTxHash(utr) : normalizeUtr(utr),
         proofImageKey: proofKey,
         proofImageUrl: proofUrl,
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['fulfill-available'] });
       qc.invalidateQueries({ queryKey: ['fulfill-my-payments'] });
-      setTarget(null);
-      resetForm();
+      closePay();
     },
     onError: (err: unknown) => {
       setFormError(apiErrorMessage(err, 'Submission failed. Please check your details.'));
@@ -330,17 +371,40 @@ export function FulfillWithdrawals({
     setFormError('');
   };
 
-  const openPay = (w: AvailableWithdrawal) => {
-    setTarget(w);
+  const closePay = () => {
+    setTarget(null);
+    setClaimPayDeadline(null);
     resetForm();
-    const maxPay =
-      w.maxPayable != null ? Math.min(w.maxPayable, w.remainingAmount) : w.remainingAmount;
-    setAmount(String(maxPay > 0 ? maxPay : w.remainingAmount));
+  };
+
+  const openPay = async (w: AvailableWithdrawal) => {
+    setFormError('');
+    setClaimingId(w._id);
+    try {
+      const claimed = await fulfillApi.claimWithdrawal(w._id);
+      setTarget({ ...w, ...claimed });
+      setClaimPayDeadline(claimed.claimPayDeadline);
+      resetForm();
+      const maxPay =
+        claimed.maxPayable != null
+          ? Math.min(claimed.maxPayable, claimed.remainingAmount)
+          : claimed.remainingAmount;
+      setAmount(String(maxPay > 0 ? maxPay : claimed.remainingAmount));
+      qc.invalidateQueries({ queryKey: ['fulfill-available'] });
+    } catch (err: unknown) {
+      setFormError(apiErrorMessage(err, 'Could not claim this withdrawal'));
+    } finally {
+      setClaimingId(null);
+    }
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setFormError('');
+    if (payExpired) {
+      setFormError('Submit window ended. Payment will not be accepted.');
+      return;
+    }
     const num = Number(amount);
     if (!target || !num || num < 1) {
       setFormError('Please enter a valid amount');
@@ -358,10 +422,9 @@ export function FulfillWithdrawals({
       );
       return;
     }
-    if (!utr || utr.length < 6) {
-      setFormError(
-        target.method === 'usdt' ? 'TxID / TRX hash is required' : 'UTR is required',
-      );
+    const refErr = paymentRefErrorForMethod(utr, target.method);
+    if (refErr) {
+      setFormError(refErr);
       return;
     }
     if (!proofKey || !proofUrl) {
@@ -374,6 +437,13 @@ export function FulfillWithdrawals({
   const availableItems = data?.items ?? [];
   const availableTotal = data?.total ?? 0;
   const availableTotalPages = data?.totalPages ?? 1;
+  const needsPlan = isInvest && !!data?.needsPlan;
+  const planAmounts = data?.planAmounts ?? [25000, 50000, 100000, 200000];
+  const claimLockMinutes = data?.claimLockMinutes ?? 7;
+  const paySecondsLeft = claimPayDeadline
+    ? Math.max(0, Math.ceil((new Date(claimPayDeadline).getTime() - now) / 1000))
+    : 0;
+  const payExpired = !!claimPayDeadline && paySecondsLeft <= 0;
 
   const paymentItems = myPayments?.items ?? [];
   const paymentsTotal = myPayments?.total ?? 0;
@@ -381,6 +451,48 @@ export function FulfillWithdrawals({
 
   return (
     <div className="space-y-6">
+      {formError && !target && (
+        <div className="rounded-lg bg-error-container px-4 py-3 text-sm text-on-error-container">
+          {formError}
+        </div>
+      )}
+
+      {isInvest && data && !needsPlan && data.planAmount != null && data.targetAmount != null && (
+        <Card>
+          <div className="flex flex-wrap items-end justify-between gap-2">
+            <div>
+              <p className="text-sm text-on-surface-variant">
+                Your plan · {planAmountLabel(data.planAmount)}
+              </p>
+              <p className="mt-1 text-2xl font-bold text-secondary">
+                Target {formatCurrency(data.targetAmount)}
+              </p>
+            </div>
+            <p className="text-sm text-on-surface-variant">
+              Paid toward plan{' '}
+              <span className="font-semibold text-on-surface">
+                {formatCurrency(data.paidTowardPlan ?? 0)}
+              </span>
+              {' / '}
+              {formatCurrency(data.targetAmount)}
+            </p>
+          </div>
+          <div className="mt-3 h-2 overflow-hidden rounded-full bg-surface-container-high">
+            <div
+              className="h-full rounded-full bg-secondary"
+              style={{
+                width: `${Math.min(
+                  100,
+                  data.targetAmount > 0
+                    ? ((data.paidTowardPlan ?? 0) / data.targetAmount) * 100
+                    : 0,
+                )}%`,
+              }}
+            />
+          </div>
+        </Card>
+      )}
+
       {showEarnings && (
         <div className="grid gap-4 sm:grid-cols-2">
           <Card>
@@ -452,6 +564,11 @@ export function FulfillWithdrawals({
               Retry
             </Button>
           </div>
+        ) : needsPlan ? (
+          <EmptyState
+            message="Select an investment plan to see available withdrawals."
+            icon="payments"
+          />
         ) : !availableItems.length ? (
           <EmptyState
             message={
@@ -497,7 +614,12 @@ export function FulfillWithdrawals({
                     </div>
                     <div className="flex items-center gap-2">
                       <StatusBadge status={w.status} />
-                      <Button size="sm" onClick={() => openPay(w)}>
+                      <Button
+                        size="sm"
+                        onClick={() => openPay(w)}
+                        loading={claimingId === w._id}
+                        disabled={claimingId === w._id}
+                      >
                         {labels.fulfillBtn}
                       </Button>
                     </div>
@@ -640,8 +762,43 @@ export function FulfillWithdrawals({
       )}
 
       <Modal
+        open={needsPlan}
+        onClose={() => undefined}
+        title="Choose investment plan"
+        className="sm:max-w-md"
+      >
+        <div className="space-y-3">
+          <p className="text-sm text-on-surface-variant">
+            Pick a plan to unlock Platform Payment withdrawals. Your target is plan × multiplier
+            from platform settings.
+          </p>
+          <div className="grid grid-cols-2 gap-2">
+            {planAmounts.map((amt) => (
+              <button
+                key={amt}
+                type="button"
+                disabled={selectPlan.isPending}
+                onClick={() => selectPlan.mutate(amt)}
+                className="rounded-xl border border-outline-variant bg-surface-container-low px-3 py-4 text-center transition hover:border-secondary hover:bg-secondary-container/20 disabled:opacity-60"
+              >
+                <p className="text-lg font-bold text-secondary">{planAmountLabel(amt)}</p>
+                <p className="mt-0.5 text-[11px] text-on-surface-variant">
+                  {formatCurrency(amt)}
+                </p>
+              </button>
+            ))}
+          </div>
+          {selectPlan.isError && (
+            <p className="text-xs text-error">
+              {apiErrorMessage(selectPlan.error, 'Could not save plan')}
+            </p>
+          )}
+        </div>
+      </Modal>
+
+      <Modal
         open={!!target}
-        onClose={() => setTarget(null)}
+        onClose={closePay}
         title={labels.modalTitle}
         footer={
           target ? (
@@ -650,14 +807,34 @@ export function FulfillWithdrawals({
               form="fulfill-pay-form"
               className="w-full"
               loading={submit.isPending}
+              disabled={payExpired}
             >
-              {labels.submitBtn}
+              {payExpired ? 'Time expired' : labels.submitBtn}
             </Button>
           ) : null
         }
       >
         {target && (
           <form id="fulfill-pay-form" onSubmit={handleSubmit} className="space-y-4">
+            <div
+              className={`rounded-xl border px-3 py-2.5 ${
+                payExpired
+                  ? 'border-error/40 bg-error-container/40'
+                  : 'border-amber-500/40 bg-amber-500/10'
+              }`}
+            >
+              <p className="text-xs font-bold uppercase tracking-wide">
+                Submit within {formatSecondsMmSs(paySecondsLeft)}
+              </p>
+              <p className="mt-1 text-[11px] font-medium text-on-surface">
+                If you submit after time ends, payment will not be accepted
+              </p>
+              <p className="mt-1 text-[10px] text-on-surface-variant">
+                This withdrawal stays locked for others for {claimLockMinutes} min
+                (claim lock).
+              </p>
+            </div>
+
             <div className="rounded-lg bg-surface-container-low p-3 text-sm">
               <p>Total: {formatCurrency(target.amount, target.currency)}</p>
               <p>
@@ -677,12 +854,15 @@ export function FulfillWithdrawals({
               </p>
               {target.p2pPayRemainingInr != null && (
                 <p className="mt-1 text-xs text-amber-700">
-                  Business P2P limit remaining: ₹{target.p2pPayRemainingInr}
+                  Business Platform Payment limit remaining: ₹{target.p2pPayRemainingInr}
                 </p>
               )}
             </div>
 
-            <DestinationInfo w={target} />
+            <DestinationInfo
+              w={target}
+              payAmount={payAmountNum >= 1 ? payAmountNum : undefined}
+            />
 
             <Input
               label={labels.amountLabel}
@@ -696,6 +876,7 @@ export function FulfillWithdrawals({
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               required
+              disabled={payExpired}
             />
 
             {isInvest && payAmountNum >= 1 && (
@@ -755,7 +936,7 @@ export function FulfillWithdrawals({
                 setProofKey(key);
                 setProofUrl(url);
               }}
-              disabled={submit.isPending}
+              disabled={submit.isPending || payExpired}
               referenceKind={target.method === 'usdt' ? 'txid' : 'utr'}
             />
 

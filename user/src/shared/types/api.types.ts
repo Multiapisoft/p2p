@@ -16,6 +16,12 @@ export interface User {
   role: UserRole;
   status: string;
   referredByBusiness?: string;
+  referredBusiness?: {
+    _id: string;
+    name: string;
+    referralCode?: string;
+  };
+  businessUserCode?: string;
   createdAt: string;
 }
 
@@ -84,6 +90,10 @@ export interface Withdrawal {
   exchangeRate?: number;
   p2pListStatus?: 'awaiting' | 'listed' | 'rejected';
   p2pListedAt?: string;
+  /** True while within cancel TAT and not yet listed for Platform Payment. */
+  userCanCancel?: boolean;
+  userEditExpiresAt?: string;
+  tatSecondsRemaining?: number;
   payments?: WithdrawalSplitPayment[];
   createdAt: string;
 }

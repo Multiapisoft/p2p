@@ -19,7 +19,10 @@ export function MobileNav() {
 
   return (
     <>
-      <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-outline-variant bg-surface/95 px-1 py-1.5 shadow-[0_-4px_20px_rgba(0,0,0,0.06)] backdrop-blur-md md:hidden">
+      <nav
+        className="fixed bottom-0 left-0 right-0 z-50 border-t border-outline-variant bg-surface/95 px-1 pt-1 shadow-[0_-4px_20px_rgba(0,0,0,0.06)] backdrop-blur-md md:hidden"
+        style={{ paddingBottom: 'max(0.375rem, env(safe-area-inset-bottom))' }}
+      >
         <div className="flex items-stretch justify-around">
           {MOBILE_PRIMARY_NAV.map((item) => {
             const active = isNavActive(pathname, item.to);
@@ -28,19 +31,19 @@ export function MobileNav() {
                 key={item.to}
                 href={item.to}
                 className={cn(
-                  'flex min-w-0 flex-1 flex-col items-center rounded-xl px-1 py-1.5 text-[10px] font-semibold transition-colors',
+                  'flex min-w-0 flex-1 flex-col items-center rounded-lg px-0.5 py-1 text-[9px] font-semibold transition-colors sm:text-[10px]',
                   active ? 'text-secondary' : 'text-on-surface-variant',
                 )}
               >
                 <span
                   className={cn(
-                    'material-symbols-outlined text-[22px]',
+                    'material-symbols-outlined text-[20px] sm:text-[22px]',
                     active && 'material-symbols-filled',
                   )}
                 >
                   {item.icon}
                 </span>
-                <span className="mt-0.5 truncate">{item.label}</span>
+                <span className="mt-0.5 max-w-full truncate">{item.label}</span>
               </Link>
             );
           })}
@@ -48,11 +51,11 @@ export function MobileNav() {
             type="button"
             onClick={() => setMoreOpen(true)}
             className={cn(
-              'flex min-w-0 flex-1 flex-col items-center rounded-xl px-1 py-1.5 text-[10px] font-semibold',
+              'flex min-w-0 flex-1 flex-col items-center rounded-lg px-0.5 py-1 text-[9px] font-semibold sm:text-[10px]',
               moreActive || moreOpen ? 'text-secondary' : 'text-on-surface-variant',
             )}
           >
-            <span className="material-symbols-outlined text-[22px]">more_horiz</span>
+            <span className="material-symbols-outlined text-[20px] sm:text-[22px]">more_horiz</span>
             <span className="mt-0.5">More</span>
           </button>
         </div>

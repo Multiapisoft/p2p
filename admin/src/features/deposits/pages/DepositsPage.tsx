@@ -11,6 +11,8 @@ import { Modal } from '@/shared/components/ui/Modal';
 import { Pagination } from '@/shared/components/ui/Pagination';
 import { LoadingScreen, EmptyState } from '@/shared/components/ui/Icon';
 import { formatCurrency, formatDate } from '@/shared/lib/utils';
+import { getApiErrorMessage } from '@/shared/lib/api-error';
+import { normalizeUtr, normalizeTxHash, txHashError, utrError } from '@/shared/lib/validation';
 import type { Deposit } from '@/shared/types/api.types';
 
 const STATUS_FILTERS = [
@@ -47,7 +49,7 @@ function methodIcon(method: string) {
 export function DepositsPage() {
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
-  const [status, setStatus] = useState('pending');
+  const [status, setStatus] = useState('all');
   const [method, setMethod] = useState('all');
   const [sort, setSort] = useState('newest');
   const [searchInput, setSearchInput] = useState('');
@@ -58,6 +60,7 @@ export function DepositsPage() {
   const [txHash, setTxHash] = useState('');
   const [rejectReason, setRejectReason] = useState('');
   const [detailId, setDetailId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState('');
   const qc = useQueryClient();
 
   useEffect(() => {
@@ -79,7 +82,7 @@ export function DepositsPage() {
     enabled: !!detailId,
   });
 
-  const { data, isLoading, isFetching } = useQuery({
+  const { data, isLoading, isFetching, isError, error } = useQuery({
     queryKey: ['deposits', listQuery],
     queryFn: () =>
       status === 'pending'
@@ -88,14 +91,31 @@ export function DepositsPage() {
   });
 
   const approve = useMutation({
-    mutationFn: () =>
-      depositsApi.approve(approveTarget!._id, utr || undefined, txHash || undefined),
+    mutationFn: () => {
+      const u = utr.trim();
+      const t = txHash.trim();
+      if (u) {
+        const err = utrError(u, true);
+        if (err) throw new Error(err);
+      }
+      if (t) {
+        const err = txHashError(t, true);
+        if (err) throw new Error(err);
+      }
+      return depositsApi.approve(
+        approveTarget!._id,
+        u ? normalizeUtr(u) : undefined,
+        t ? normalizeTxHash(t) : undefined,
+      );
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['deposits'] });
       setApproveTarget(null);
       setUtr('');
       setTxHash('');
+      setActionError('');
     },
+    onError: (err) => setActionError(getApiErrorMessage(err, 'Approve failed')),
   });
 
   const reject = useMutation({
@@ -104,7 +124,9 @@ export function DepositsPage() {
       qc.invalidateQueries({ queryKey: ['deposits'] });
       setRejectTarget(null);
       setRejectReason('');
+      setActionError('');
     },
+    onError: (err) => setActionError(getApiErrorMessage(err, 'Reject failed')),
   });
 
   const items = data?.items ?? [];
@@ -116,7 +138,9 @@ export function DepositsPage() {
     <div className="mx-auto max-w-7xl space-y-4 sm:space-y-6">
       <div>
         <h1 className="font-[family-name:var(--font-headline)] text-xl font-bold sm:text-2xl">Deposits</h1>
-        <p className="mt-0.5 text-sm text-on-surface-variant">Review and approve user deposits</p>
+        <p className="mt-0.5 text-sm text-on-surface-variant">
+          Review and approve user deposits. Platform Payment proofs are under Withdrawals → Split Payments.
+        </p>
       </div>
 
       <div className="grid grid-cols-3 gap-2 sm:gap-3">
@@ -216,12 +240,17 @@ export function DepositsPage() {
 
         {isLoading ? (
           <LoadingScreen />
+        ) : isError ? (
+          <EmptyState
+            message={getApiErrorMessage(error, 'Failed to load deposits')}
+            icon="error"
+          />
         ) : !items.length ? (
           <EmptyState
             message={
               search || status !== 'all' || method !== 'all'
                 ? 'No deposits match your filters'
-                : 'No deposits found'
+                : 'No classic deposits yet — Platform Payment proofs are in Withdrawals → Split Payments'
             }
             icon="south_west"
           />
@@ -284,11 +313,19 @@ export function DepositsPage() {
         )}
       </Card>
 
-      <Modal open={!!approveTarget} onClose={() => setApproveTarget(null)} title="Approve Deposit">
+      <Modal
+        open={!!approveTarget}
+        onClose={() => {
+          setApproveTarget(null);
+          setActionError('');
+        }}
+        title="Approve Deposit"
+      >
         <form
           className="space-y-4"
           onSubmit={(e) => {
             e.preventDefault();
+            setActionError('');
             approve.mutate();
           }}
         >
@@ -296,9 +333,26 @@ export function DepositsPage() {
             {approveTarget?.referenceId} — {formatCurrency(approveTarget?.amount ?? 0, approveTarget?.currency)}
           </p>
           {approveTarget?.method !== 'usdt' ? (
-            <Input label="UTR (optional)" value={utr} onChange={(e) => setUtr(e.target.value)} />
+            <Input
+              label="UTR (optional)"
+              value={utr}
+              onChange={(e) => setUtr(e.target.value)}
+              placeholder="12-digit UTR / RRN (or 12–22 alphanumeric)"
+              maxLength={22}
+            />
           ) : (
-            <Input label="Tx Hash (optional)" value={txHash} onChange={(e) => setTxHash(e.target.value)} />
+            <Input
+              label="Tx Hash (optional)"
+              value={txHash}
+              onChange={(e) => setTxHash(e.target.value)}
+              placeholder="64 hex TxID (TRC20 / optional 0x)"
+              maxLength={66}
+            />
+          )}
+          {actionError && (
+            <div className="rounded-lg bg-error-container px-4 py-3 text-sm text-on-error-container">
+              {actionError}
+            </div>
           )}
           <Button type="submit" loading={approve.isPending} className="w-full">
             Confirm Approve
@@ -306,11 +360,19 @@ export function DepositsPage() {
         </form>
       </Modal>
 
-      <Modal open={!!rejectTarget} onClose={() => setRejectTarget(null)} title="Reject Deposit">
+      <Modal
+        open={!!rejectTarget}
+        onClose={() => {
+          setRejectTarget(null);
+          setActionError('');
+        }}
+        title="Reject Deposit"
+      >
         <form
           className="space-y-4"
           onSubmit={(e) => {
             e.preventDefault();
+            setActionError('');
             reject.mutate();
           }}
         >
@@ -320,6 +382,11 @@ export function DepositsPage() {
             onChange={(e) => setRejectReason(e.target.value)}
             required
           />
+          {actionError && (
+            <div className="rounded-lg bg-error-container px-4 py-3 text-sm text-on-error-container">
+              {actionError}
+            </div>
+          )}
           <Button type="submit" variant="danger" loading={reject.isPending} className="w-full">
             Confirm Reject
           </Button>

@@ -9,6 +9,12 @@ import { useAuthHydrated } from '@/features/auth/hooks/useAuthHydrated';
 import { useAuthStore } from '@/features/auth/store/auth.store';
 import { Button } from '@/shared/components/ui/Button';
 import { Input } from '@/shared/components/ui/Input';
+import {
+  emailError,
+  normalizeEmail,
+  normalizePhone,
+  phoneError,
+} from '@/shared/lib/validation';
 
 export function RegisterPage() {
   const router = useRouter();
@@ -28,7 +34,13 @@ export function RegisterPage() {
   const [error, setError] = useState('');
 
   const register = useMutation({
-    mutationFn: () => registerApi({ name, email, password, phone: phone || undefined }),
+    mutationFn: () =>
+      registerApi({
+        name,
+        email: normalizeEmail(email),
+        password,
+        phone: phone.trim() ? normalizePhone(phone) : undefined,
+      }),
     onSuccess: (data) => {
       setAuth(data.accessToken, data.user);
       router.replace('/');
@@ -44,6 +56,16 @@ export function RegisterPage() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    const eMsg = emailError(email);
+    if (eMsg) {
+      setError(eMsg);
+      return;
+    }
+    const pMsg = phoneError(phone, false);
+    if (pMsg) {
+      setError(pMsg);
+      return;
+    }
     if (password.length < 8) {
       setError('Password must be at least 8 characters');
       return;
@@ -57,7 +79,7 @@ export function RegisterPage() {
 
   return (
     <div className="flex min-h-screen flex-col md:flex-row">
-      <div className="relative flex min-h-[200px] w-full items-center justify-center overflow-hidden bg-primary-container md:min-h-screen md:w-1/2">
+      <div className="relative flex min-h-[200px] w-full items-center justify-center overflow-hidden bg-primary md:min-h-screen md:w-1/2">
         <div className="absolute inset-0 bg-gradient-to-tr from-on-background/60 to-secondary/40" />
         <div className="relative z-10 max-w-xl px-6 text-center text-white md:px-12 md:text-left">
           <div className="mb-4 inline-flex items-center gap-3">
@@ -65,7 +87,7 @@ export function RegisterPage() {
             <h1 className="font-[family-name:var(--font-headline)] text-2xl font-bold md:text-3xl">FinGuard</h1>
           </div>
           <p className="text-lg text-surface-container-highest/90">
-            Join as an investor and start growing your portfolio on our P2P platform.
+            Join as an investor and start growing your portfolio on our Platform Payment system.
           </p>
         </div>
       </div>
@@ -85,6 +107,7 @@ export function RegisterPage() {
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
+              placeholder="name@example.com"
               required
             />
             <Input
@@ -93,6 +116,9 @@ export function RegisterPage() {
               type="tel"
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
+              placeholder="10-digit mobile"
+              inputMode="numeric"
+              maxLength={13}
             />
             <Input
               label="Password"

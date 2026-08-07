@@ -1,8 +1,9 @@
-import { IsEmail, IsString, MinLength, IsOptional, IsArray, IsEnum } from 'class-validator';
+import { IsString, MinLength, IsOptional, IsArray, IsEnum } from 'class-validator';
 import { UserStatus } from '../../../common/enums/currency.enum';
+import { IsAppEmail } from '../../../common/validators/contact.validators';
 
 export class CreateSubAdminDto {
-  @IsEmail()
+  @IsAppEmail()
   email!: string;
 
   @IsString()

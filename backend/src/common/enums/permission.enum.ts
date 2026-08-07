@@ -7,6 +7,7 @@ export enum Permission {
   INVESTORS_MANAGE = 'investors.manage',
   SUPPORT_MANAGE = 'support.manage',
   PAYMENT_CONFIG_MANAGE = 'payment_config.manage',
+  PLATFORM_SETTINGS_MANAGE = 'platform_settings.manage',
   AUDIT_VIEW = 'audit.view',
   WALLET_ADJUST = 'wallet.adjust',
 }

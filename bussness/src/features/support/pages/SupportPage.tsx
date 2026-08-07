@@ -206,7 +206,7 @@ export function SupportPage() {
             </select>
           </div>
 
-          <div className="flex flex-wrap gap-2">
+          <div className="chip-scroll">
             {STATUS_FILTERS.map((s) => (
               <button
                 key={s.value}
@@ -215,11 +215,7 @@ export function SupportPage() {
                   setStatus(s.value);
                   setPage(1);
                 }}
-                className={`rounded-full px-3.5 py-1.5 text-xs font-semibold transition ${
-                  status === s.value
-                    ? 'bg-primary text-on-primary'
-                    : 'border border-outline-variant'
-                }`}
+                className={`chip ${status === s.value ? 'chip-active' : ''}`}
               >
                 {s.label}
               </button>

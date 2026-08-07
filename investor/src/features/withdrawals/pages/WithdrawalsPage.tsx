@@ -11,6 +11,7 @@ import { StatusBadge } from '@/shared/components/ui/Badge';
 import { Pagination } from '@/shared/components/ui/Pagination';
 import { LoadingScreen, EmptyState } from '@/shared/components/ui/Icon';
 import { apiErrorMessage, formatCurrency, formatDate } from '@/shared/lib/utils';
+import { formatSecondsMmSs } from '@/shared/lib/upi-qr';
 import type {
   CreateWithdrawalPayload,
   PaymentMethod,
@@ -38,7 +39,13 @@ export function WithdrawalsPage() {
   const [walletAddress, setWalletAddress] = useState('');
   const [network, setNetwork] = useState('TRC20');
   const [formError, setFormError] = useState('');
+  const [now, setNow] = useState(() => Date.now());
   const qc = useQueryClient();
+
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
 
   const { data: balance } = useQuery({
     queryKey: ['wallet-balance'],
@@ -162,6 +169,10 @@ export function WithdrawalsPage() {
         <p className="mt-1 text-xs text-on-surface-variant">
           USDT method: enter INR amount — open request converts to USDT at live rate.
         </p>
+        <p className="mt-2 text-[11px] text-on-surface-variant">
+          Once listed for Platform Payment / approved by business, you cannot cancel. Contact
+          business/admin.
+        </p>
       </div>
 
       {showForm && (
@@ -280,7 +291,16 @@ export function WithdrawalsPage() {
           <EmptyState message="No withdrawals yet" icon="north_east" />
         ) : (
           <div className={`space-y-3 ${isFetching ? 'opacity-70' : ''}`}>
-            {items.map((w: Withdrawal) => (
+            {items.map((w: Withdrawal) => {
+              const canCancel = w.userCanCancel === true;
+              const tatLeft =
+                w.userEditExpiresAt != null
+                  ? Math.max(
+                      0,
+                      Math.ceil((new Date(w.userEditExpiresAt).getTime() - now) / 1000),
+                    )
+                  : w.tatSecondsRemaining ?? 0;
+              return (
               <div key={w._id} className="rounded-xl border border-outline-variant p-3">
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div>
@@ -308,11 +328,21 @@ export function WithdrawalsPage() {
                         {w.usdtDetails.network || 'TRC20'}: {w.usdtDetails.walletAddress}
                       </p>
                     )}
+                    {(w.status === 'pending' || w.status === 'processing') && canCancel && tatLeft > 0 && (
+                      <p className="mt-1 text-[11px] font-medium text-secondary">
+                        You can cancel/edit for {formatSecondsMmSs(tatLeft)}
+                      </p>
+                    )}
+                    {(w.status === 'pending' || w.status === 'processing') && !canCancel && (
+                      <p className="mt-1 text-[11px] text-on-surface-variant">
+                        Once listed for Platform Payment / approved by business, you cannot cancel.
+                        Contact business/admin.
+                      </p>
+                    )}
                   </div>
                   <div className="flex flex-col items-end gap-2">
                     <StatusBadge status={w.status} />
-                    {(w.status === 'pending' || w.status === 'processing') &&
-                      !(w.paidAmount || 0) && (
+                    {canCancel && (
                         <Button
                           size="sm"
                           variant="danger"
@@ -325,7 +355,8 @@ export function WithdrawalsPage() {
                   </div>
                 </div>
               </div>
-            ))}
+              );
+            })}
             <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
           </div>
         )}

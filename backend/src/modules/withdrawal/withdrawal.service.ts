@@ -38,6 +38,7 @@ import {
   normalizeListOpts,
   type ListQueryOpts,
 } from '../../common/dto/list-query.dto';
+import { PlatformSettingsService } from '../platform-settings/platform-settings.service';
 
 export type WithdrawalListOpts = ListQueryOpts & { method?: string };
 
@@ -58,6 +59,7 @@ export class WithdrawalService {
     private businessFloatService: BusinessFloatService,
     private partnerApiService: PartnerApiService,
     private exchangeRateService: ExchangeRateService,
+    private platformSettingsService: PlatformSettingsService,
   ) {}
 
   async create(userId: string, dto: CreateWithdrawalDto) {
@@ -260,11 +262,24 @@ export class WithdrawalService {
       if ((withdrawal.paidAmount || 0) > 0) {
         throw new BadRequestException('Cannot approve — use split payment approvals');
       }
+      const pendingPayments = await this.paymentModel
+        .exists({
+          withdrawalId: withdrawal._id,
+          status: TransactionStatus.PENDING,
+        })
+        .session(session);
+      if (pendingPayments) {
+        throw new BadRequestException('Reject or approve pending split payments first');
+      }
 
-      const wallet = await this.walletService.getOrCreate(
-        withdrawal.userId.toString(),
-        withdrawal.currency,
-      );
+      const lockAmt = this.lockAmountFor(withdrawal);
+      const wallet =
+        (await this.walletService.findById(withdrawal.walletId.toString(), session)) ||
+        (await this.walletService.getOrCreate(
+          withdrawal.userId.toString(),
+          withdrawal.currency,
+          withdrawal.businessId?.toString(),
+        ));
 
       let commissionAmount = 0;
       if (withdrawal.businessId) {
@@ -284,13 +299,12 @@ export class WithdrawalService {
         );
       }
 
-      const totalDebit = withdrawal.amount + commissionAmount;
+      // Debit only what was locked — commission is recorded, not taken from unlocked shortfall
       const balanceBefore = wallet.balance;
-
-      await this.walletService.unlock(wallet._id.toString(), withdrawal.amount, session);
+      await this.walletService.unlock(wallet._id.toString(), lockAmt, session);
       const updatedWallet = await this.walletService.debit(
         wallet._id.toString(),
-        totalDebit,
+        lockAmt,
         'totalWithdrawn',
         session,
       );
@@ -302,13 +316,14 @@ export class WithdrawalService {
       withdrawal.status = TransactionStatus.COMPLETED;
       withdrawal.processedBy = processedBy;
       withdrawal.completedAt = new Date();
+      withdrawal.p2pAdvanceCredited = false;
       await withdrawal.save({ session });
 
       await this.transactionService.record({
         userId: withdrawal.userId.toString(),
         walletId: wallet._id.toString(),
         type: LedgerType.WITHDRAWAL,
-        amount: totalDebit,
+        amount: lockAmt,
         currency: withdrawal.currency,
         balanceBefore,
         balanceAfter: updatedWallet.balance,
@@ -407,6 +422,17 @@ export class WithdrawalService {
       return withdrawal;
     }
 
+    const tatMs = await this.platformSettingsService.getTatMs();
+    const createdAt = (withdrawal as unknown as { createdAt?: Date }).createdAt;
+    if (createdAt && Date.now() - new Date(createdAt).getTime() < tatMs) {
+      const remainingSec = Math.ceil(
+        (tatMs - (Date.now() - new Date(createdAt).getTime())) / 1000,
+      );
+      throw new BadRequestException(
+        `User edit window still active (${remainingSec}s remaining). Wait until TAT expires before listing for Platform Payment.`,
+      );
+    }
+
     withdrawal.p2pListStatus = 'listed';
     withdrawal.p2pListedAt = new Date();
     withdrawal.p2pListedBy = actor.email || actor.userId;
@@ -458,6 +484,21 @@ export class WithdrawalService {
     if (withdrawal.userId.toString() !== userId) {
       throw new ForbiddenException('Not your withdrawal');
     }
+
+    if (withdrawal.p2pListStatus === 'listed') {
+      throw new BadRequestException(
+        'Cannot cancel after Platform Payment list approval. Contact business or admin.',
+      );
+    }
+
+    const tatMs = await this.platformSettingsService.getTatMs();
+    const createdAt = (withdrawal as unknown as { createdAt?: Date }).createdAt;
+    if (createdAt && Date.now() - new Date(createdAt).getTime() > tatMs) {
+      throw new BadRequestException(
+        'Edit window expired; contact business or admin to cancel.',
+      );
+    }
+
     return this.cancelWithdrawalRecord(withdrawal);
   }
 
@@ -472,7 +513,7 @@ export class WithdrawalService {
   async findByIdForBusiness(id: string, businessId: string) {
     const withdrawal = await this.withdrawalModel
       .findById(id)
-      .populate('userId', 'name email phone externalRef')
+      .populate('userId', 'name email phone externalRef businessUserCode')
       .exec();
     if (!withdrawal) throw new NotFoundException('Withdrawal not found');
     if (withdrawal.businessId?.toString() !== businessId) {
@@ -484,9 +525,15 @@ export class WithdrawalService {
       .sort({ createdAt: -1 })
       .exec();
 
+    const tatMs = await this.platformSettingsService.getTatMs();
+    const createdAt = (withdrawal as unknown as { createdAt?: Date }).createdAt;
+    const readyForListApproval =
+      !!createdAt && Date.now() - new Date(createdAt).getTime() >= tatMs;
+
     return {
       ...withdrawal.toObject(),
       remainingAmount: Math.max(0, withdrawal.amount - (withdrawal.paidAmount || 0)),
+      readyForListApproval,
       payments: payments.map((p) => this.toPaymentBrief(p)),
     };
   }
@@ -527,7 +574,7 @@ export class WithdrawalService {
     const [items, total] = await Promise.all([
       this.withdrawalModel
         .find(filter)
-        .populate('userId', 'name email phone externalRef')
+        .populate('userId', 'name email phone externalRef businessUserCode')
         .skip(skip)
         .limit(limit)
         .sort(sortSpec)
@@ -551,13 +598,20 @@ export class WithdrawalService {
       byWithdrawal.set(key, list);
     }
 
+    const tatMs = await this.platformSettingsService.getTatMs();
+    const now = Date.now();
+
     return {
       items: items.map((w) => {
         const list = byWithdrawal.get(w._id.toString()) || [];
+        const createdAt = (w as unknown as { createdAt?: Date }).createdAt;
+        const readyForListApproval =
+          !!createdAt && now - new Date(createdAt).getTime() >= tatMs;
         return {
           ...w.toObject(),
           remainingAmount: Math.max(0, w.amount - (w.paidAmount || 0)),
           paymentCount: list.length,
+          readyForListApproval,
           payments: list.map((p) => this.toPaymentBrief(p)),
         };
       }),
@@ -726,12 +780,41 @@ export class WithdrawalService {
       byWithdrawal.set(key, list);
     }
 
+    const tatMs = await this.platformSettingsService.getTatMs();
+    const now = Date.now();
+
     return {
       items: items.map((w) => {
         const list = byWithdrawal.get(w._id.toString()) || [];
+        const createdAt = (w as unknown as { createdAt?: Date }).createdAt;
+        const userEditExpiresAt = createdAt
+          ? new Date(new Date(createdAt).getTime() + tatMs)
+          : undefined;
+        const listed = w.p2pListStatus === 'listed';
+        const withinTat =
+          !!createdAt && now - new Date(createdAt).getTime() <= tatMs;
+        const cancellableStatus =
+          w.status === TransactionStatus.PENDING ||
+          w.status === TransactionStatus.PROCESSING;
+        const userCanCancel =
+          cancellableStatus &&
+          !listed &&
+          withinTat &&
+          (w.paidAmount || 0) === 0;
+        const tatSecondsRemaining =
+          createdAt && withinTat
+            ? Math.max(
+                0,
+                Math.ceil((tatMs - (now - new Date(createdAt).getTime())) / 1000),
+              )
+            : 0;
+
         return {
           ...w.toObject(),
           remainingAmount: Math.max(0, w.amount - (w.paidAmount || 0)),
+          userCanCancel,
+          userEditExpiresAt,
+          tatSecondsRemaining,
           payments: list.map((p) => ({
             _id: p._id,
             referenceId: p.referenceId,

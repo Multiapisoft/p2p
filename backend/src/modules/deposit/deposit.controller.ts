@@ -119,7 +119,8 @@ export class DepositController {
 
   @Get(':id')
   getOne(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
-    return this.depositService.findById(id, user.userId);
+    const isStaff = user.role === UserRole.ADMIN || user.role === UserRole.SUB_ADMIN;
+    return this.depositService.findById(id, isStaff ? undefined : user.userId);
   }
 
   @Patch(':id/cancel')

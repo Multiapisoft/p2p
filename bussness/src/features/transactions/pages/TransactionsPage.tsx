@@ -148,7 +148,7 @@ export function TransactionsPage() {
             </select>
           </div>
 
-          <div className="flex flex-wrap gap-2">
+          <div className="chip-scroll">
             {TYPE_FILTERS.map((t) => (
               <button
                 key={t.value}
@@ -157,11 +157,7 @@ export function TransactionsPage() {
                   setType(t.value);
                   setPage(1);
                 }}
-                className={`rounded-full px-3.5 py-1.5 text-xs font-semibold transition ${
-                  type === t.value
-                    ? 'bg-primary text-on-primary'
-                    : 'border border-outline-variant'
-                }`}
+                className={`chip ${type === t.value ? 'chip-active' : ''}`}
               >
                 {t.label}
               </button>

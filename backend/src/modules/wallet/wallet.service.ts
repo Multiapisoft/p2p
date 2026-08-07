@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model, ClientSession } from 'mongoose';
+import { Model, ClientSession, Types } from 'mongoose';
 import { Wallet, WalletDocument } from './schemas/wallet.schema';
 import { Currency, LedgerType } from '../../common/enums/currency.enum';
 import { RedisService } from '../../redis/redis.service';
@@ -28,6 +28,10 @@ export class WalletService {
       });
     }
     return wallet;
+  }
+
+  async findById(walletId: string, session?: ClientSession) {
+    return this.walletModel.findById(walletId).session(session || null).exec();
   }
 
   async findByUser(userId: string) {
@@ -121,8 +125,13 @@ export class WalletService {
     type: WalletAdjustType,
     reason: string,
     adminEmail: string,
+    currency = Currency.INR,
   ) {
-    const wallet = await this.getOrCreate(userId);
+    if (!Types.ObjectId.isValid(userId)) {
+      throw new BadRequestException('Invalid user id');
+    }
+
+    const wallet = await this.getOrCreate(userId, currency);
     const balanceBefore = wallet.balance;
 
     if (type === WalletAdjustType.CREDIT) {
@@ -148,7 +157,17 @@ export class WalletService {
       description: `Admin adjustment (${type}) by ${adminEmail}: ${reason}`,
     });
 
-    return wallet;
+    return {
+      _id: wallet._id,
+      userId: wallet.userId,
+      currency: wallet.currency,
+      balance: wallet.balance,
+      lockedBalance: wallet.lockedBalance,
+      availableBalance: wallet.balance - wallet.lockedBalance,
+      type,
+      amount,
+      reason,
+    };
   }
 
   private async invalidateCache(userId: string) {

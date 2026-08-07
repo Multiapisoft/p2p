@@ -41,8 +41,16 @@ import {
   normalizeListOpts,
   type ListQueryOpts,
 } from '../../common/dto/list-query.dto';
+import {
+  normalizeTxHash,
+  normalizeUtr,
+  paymentRefErrorForMethod,
+} from '../../common/validators/contact.validators';
+import { PlatformSettingsService } from '../platform-settings/platform-settings.service';
+import { RedisService } from '../../redis/redis.service';
 
 const VERIFICATION_WINDOW_MS = 24 * 60 * 60 * 1000;
+const CLAIM_REDIS_PREFIX = 'withdrawal-claim:';
 
 export type WithdrawalPaymentListOpts = ListQueryOpts & { method?: string };
 
@@ -64,6 +72,8 @@ export class WithdrawalPaymentService {
     private exchangeRateService: ExchangeRateService,
     private supportService: SupportService,
     private partnerApiService: PartnerApiService,
+    private platformSettingsService: PlatformSettingsService,
+    private redis: RedisService,
   ) {}
 
   getRemaining(withdrawal: WithdrawalDocument) {
@@ -244,13 +254,44 @@ export class WithdrawalPaymentService {
 
   async findAvailableForPayment(userId: string, opts: WithdrawalPaymentListOpts = {}) {
     const { page, limit, skip, search, sort } = normalizeListOpts(opts);
+    const payer = await this.userModel.findById(userId).exec();
+    if (!payer) throw new NotFoundException('User not found');
+
+    const settings = await this.platformSettingsService.get();
+    const isInvestor = payer.role === UserRole.INVESTOR;
+    const planAmount = payer.investorPlanAmount || null;
+    const multiplier = settings.investorPlanTargetMultiplier ?? 1.1;
+    const targetAmount = planAmount != null ? Math.round(planAmount * multiplier * 100) / 100 : null;
+
+    if (isInvestor && !planAmount) {
+      return {
+        items: [],
+        total: 0,
+        page,
+        limit,
+        totalPages: 1,
+        needsPlan: true,
+        planAmounts: settings.investorPlanAmounts ?? [25000, 50000, 100000, 200000],
+        planAmount: null,
+        targetAmount: null,
+        paidTowardPlan: 0,
+        claimLockMinutes: settings.investorClaimLockMinutes,
+        paySubmitMinutes: settings.investorPaySubmitMinutes,
+      };
+    }
+
+    const paidTowardPlan = isInvestor ? await this.getPaidTowardPlan(userId) : null;
+
     // Exclude only businesses with an exhausted quota — missing/unknown businessId still shows
     const exhaustedBusinessIds =
       await this.businessService.findBusinessIdsExhaustedForP2pPay();
 
+    const now = new Date();
+    const userOid = new Types.ObjectId(userId);
+
     const and: Record<string, unknown>[] = [
       {
-        userId: { $ne: new Types.ObjectId(userId) },
+        userId: { $ne: userOid },
         status: { $in: [TransactionStatus.PENDING, TransactionStatus.PROCESSING] },
         p2pListStatus: 'listed',
         $expr: {
@@ -264,6 +305,17 @@ export class WithdrawalPaymentService {
             '$amount',
           ],
         },
+      },
+      // Exclude active claims by others; include own claims and unlocked/expired
+      {
+        $or: [
+          { claimLockedBy: { $exists: false } },
+          { claimLockedBy: null },
+          { claimLockedUntil: { $exists: false } },
+          { claimLockedUntil: null },
+          { claimLockedUntil: { $lte: now } },
+          { claimLockedBy: userOid },
+        ],
       },
     ];
 
@@ -306,6 +358,21 @@ export class WithdrawalPaymentService {
       this.withdrawalModel.countDocuments(filter).exec(),
     ]);
 
+    // Clear stale claim fields on read
+    for (const w of items) {
+      if (
+        w.claimLockedUntil &&
+        w.claimLockedUntil.getTime() <= now.getTime() &&
+        (w.claimLockedBy || w.claimPayDeadline)
+      ) {
+        w.set('claimLockedBy', null);
+        w.set('claimLockedUntil', null);
+        w.set('claimPayDeadline', null);
+        await w.save();
+        await this.clearClaimRedis(w._id.toString());
+      }
+    }
+
     // Source-of-truth for locked: active (non-disputed) pending payment sums
     const pendingByWd = await this.paymentModel.aggregate<{ _id: Types.ObjectId; total: number }>([
       {
@@ -327,9 +394,7 @@ export class WithdrawalPaymentService {
       }
     }
 
-    const payer = await this.userModel.findById(userId).exec();
-    const payerBusinessId = payer?.referredByBusiness?.toString();
-    const isInvestor = payer?.role === UserRole.INVESTOR;
+    const payerBusinessId = payer.referredByBusiness?.toString();
 
     const itemsWithCredit = await Promise.all(
       items.map(async (w) => {
@@ -394,6 +459,87 @@ export class WithdrawalPaymentService {
       page,
       limit,
       totalPages: Math.max(1, Math.ceil(total / limit) || 1),
+      needsPlan: false,
+      planAmounts: settings.investorPlanAmounts ?? [25000, 50000, 100000, 200000],
+      planAmount,
+      targetAmount,
+      paidTowardPlan,
+      claimLockMinutes: settings.investorClaimLockMinutes,
+      paySubmitMinutes: settings.investorPaySubmitMinutes,
+    };
+  }
+
+  /**
+   * Claim a listed withdrawal for exclusive pay window (USER / INVESTOR payers).
+   * Refreshes deadlines if already claimed by self.
+   */
+  async claimWithdrawal(userId: string, withdrawalId: string) {
+    const payer = await this.userModel.findById(userId).exec();
+    if (!payer) throw new NotFoundException('User not found');
+    if (payer.role !== UserRole.USER && payer.role !== UserRole.INVESTOR) {
+      throw new ForbiddenException('Only users and investors can claim withdrawals for payment');
+    }
+
+    if (payer.role === UserRole.INVESTOR && !payer.investorPlanAmount) {
+      throw new BadRequestException('Select an investor plan before claiming withdrawals');
+    }
+
+    const withdrawal = await this.withdrawalModel.findById(withdrawalId).exec();
+    if (!withdrawal) throw new NotFoundException('Withdrawal not found');
+
+    if (withdrawal.userId.toString() === userId) {
+      throw new BadRequestException('Cannot claim your own withdrawal');
+    }
+
+    if (
+      withdrawal.status !== TransactionStatus.PENDING &&
+      withdrawal.status !== TransactionStatus.PROCESSING
+    ) {
+      throw new BadRequestException('Withdrawal is not open for payments');
+    }
+
+    if (withdrawal.p2pListStatus !== 'listed') {
+      throw new BadRequestException(
+        'Withdrawal is waiting for business/admin approval before it can be paid',
+      );
+    }
+
+    if (this.getRemaining(withdrawal) <= 0) {
+      throw new BadRequestException('Withdrawal has no remaining amount');
+    }
+
+    const now = new Date();
+    const lockedByOther =
+      withdrawal.claimLockedBy &&
+      withdrawal.claimLockedUntil &&
+      withdrawal.claimLockedUntil.getTime() > now.getTime() &&
+      withdrawal.claimLockedBy.toString() !== userId;
+
+    if (lockedByOther) {
+      throw new BadRequestException(
+        'This withdrawal is temporarily claimed by another payer. Try again later.',
+      );
+    }
+
+    const claimLockMs = await this.platformSettingsService.getClaimLockMs();
+    const paySubmitMs = await this.platformSettingsService.getPaySubmitMs();
+    const claimLockedUntil = new Date(now.getTime() + claimLockMs);
+    const claimPayDeadline = new Date(now.getTime() + paySubmitMs);
+
+    withdrawal.claimLockedBy = new Types.ObjectId(userId);
+    withdrawal.claimLockedUntil = claimLockedUntil;
+    withdrawal.claimPayDeadline = claimPayDeadline;
+    await withdrawal.save();
+
+    await this.setClaimRedis(withdrawalId, userId, Math.ceil(claimLockMs / 1000));
+
+    return {
+      ...this.toAvailableView(withdrawal),
+      claimLockedBy: userId,
+      claimLockedUntil,
+      claimPayDeadline,
+      claimLockMs,
+      paySubmitMs,
     };
   }
 
@@ -440,6 +586,39 @@ export class WithdrawalPaymentService {
       );
     }
 
+    const now = new Date();
+    const claimActive =
+      !!withdrawal.claimLockedBy &&
+      !!withdrawal.claimLockedUntil &&
+      withdrawal.claimLockedUntil.getTime() > now.getTime();
+
+    if (claimActive && withdrawal.claimLockedBy!.toString() !== payerUserId) {
+      throw new BadRequestException(
+        'This withdrawal is temporarily claimed by another payer. Try again later.',
+      );
+    }
+
+    if (
+      claimActive &&
+      withdrawal.claimLockedBy!.toString() === payerUserId &&
+      withdrawal.claimPayDeadline &&
+      now.getTime() > withdrawal.claimPayDeadline.getTime()
+    ) {
+      throw new BadRequestException(
+        'Payment submit window expired. Claim again to continue.',
+      );
+    }
+
+    // Auto-claim if unlocked so lock + pay deadline start on first submit
+    if (!claimActive) {
+      const claimLockMs = await this.platformSettingsService.getClaimLockMs();
+      const paySubmitMs = await this.platformSettingsService.getPaySubmitMs();
+      withdrawal.claimLockedBy = new Types.ObjectId(payerUserId);
+      withdrawal.claimLockedUntil = new Date(now.getTime() + claimLockMs);
+      withdrawal.claimPayDeadline = new Date(now.getTime() + paySubmitMs);
+      await this.setClaimRedis(withdrawalId, payerUserId, Math.ceil(claimLockMs / 1000));
+    }
+
     const remaining = this.getRemaining(withdrawal);
     if (dto.amount > remaining) {
       throw new BadRequestException(`Amount exceeds remaining ${remaining}`);
@@ -455,10 +634,13 @@ export class WithdrawalPaymentService {
       throw new BadRequestException('You already have a pending payment on this withdrawal');
     }
 
-    const utrNorm = dto.utr.trim();
-    if (utrNorm.length < 6) {
-      throw new BadRequestException('UTR / TxID must be at least 6 characters');
-    }
+    const isUsdtPayout = withdrawal.method === PaymentMethod.USDT;
+    const refRaw = dto.utr?.trim() ?? '';
+    const refErr = paymentRefErrorForMethod(refRaw, withdrawal.method);
+    if (refErr) throw new BadRequestException(refErr);
+    const utrNorm = isUsdtPayout
+      ? String(normalizeTxHash(refRaw))
+      : String(normalizeUtr(refRaw));
     const utrAlreadyUsed = await this.paymentModel.exists({
       utr: { $regex: `^${this.escapeRegex(utrNorm)}$`, $options: 'i' },
       status: {
@@ -471,7 +653,9 @@ export class WithdrawalPaymentService {
     });
     if (utrAlreadyUsed) {
       throw new BadRequestException(
-        'This UTR / TxID is already submitted. Please use a different valid transaction reference.',
+        isUsdtPayout
+          ? 'This USDT / TRX TxID is already submitted. Please use a different transaction hash.'
+          : 'This UTR is already submitted. Please use a different valid UTR.',
       );
     }
 
@@ -482,6 +666,10 @@ export class WithdrawalPaymentService {
     const businessId =
       withdrawal.businessId?.toString() || payer?.referredByBusiness?.toString();
     const isInvestor = payer?.role === UserRole.INVESTOR;
+
+    if (isInvestor && !payer?.investorPlanAmount) {
+      throw new BadRequestException('Select an investor plan before submitting payments');
+    }
 
     const { maxPayable, p2pPayRemainingInr } =
       await this.businessService.getMaxPayableAmount(
@@ -545,7 +733,12 @@ export class WithdrawalPaymentService {
     // Reserve immediately → Open ↓, Locked ↑ on the request card
     withdrawal.reservedAmount = (withdrawal.reservedAmount || 0) + dto.amount;
     withdrawal.status = TransactionStatus.PROCESSING;
+    // Clear claim so remaining open amount can be claimed by others (lock already served its purpose)
+    withdrawal.set('claimLockedBy', null);
+    withdrawal.set('claimLockedUntil', null);
+    withdrawal.set('claimPayDeadline', null);
     await withdrawal.save();
+    await this.clearClaimRedis(withdrawalId);
 
     await this.notificationService.send(
       withdrawal.userId.toString(),
@@ -737,14 +930,18 @@ export class WithdrawalPaymentService {
       }
     }
 
-    // Regular users (not investors): mirror deposit onto partner site wallet.
-    // Investors stay on FinGuard only; bonus is investor-only (see above).
+    // Regular users (not investors): mirror deposit onto partner site wallet when configured.
+    // Partner outages must not block admin approval of the P2P proof.
     if (!isInvestor && payer && principalCredit > 0) {
-      await this.creditPayerPartnerDeposit(
-        payer,
-        principalCredit,
-        `P2P deposit via pay — ${withdrawal.referenceId}`,
-      );
+      try {
+        await this.creditPayerPartnerDeposit(
+          payer,
+          principalCredit,
+          `P2P deposit via pay — ${withdrawal.referenceId}`,
+        );
+      } catch {
+        /* partner credit is best-effort */
+      }
     }
 
     // 1) Full pay amount credited in INR for investors (USDT converted)
@@ -1316,6 +1513,12 @@ export class WithdrawalPaymentService {
     const remaining = this.getRemaining(w);
     const reserved = w.reservedAmount || 0;
     const approved = w.paidAmount || 0;
+    const now = Date.now();
+    const claimActive =
+      !!w.claimLockedBy &&
+      !!w.claimLockedUntil &&
+      w.claimLockedUntil.getTime() > now;
+
     return {
       _id: w._id,
       referenceId: w.referenceId,
@@ -1334,7 +1537,46 @@ export class WithdrawalPaymentService {
       bankDetails: w.bankDetails,
       usdtDetails: w.usdtDetails,
       createdAt: (w as unknown as { createdAt: Date }).createdAt,
+      claimLockedBy: claimActive ? w.claimLockedBy?.toString() : null,
+      claimLockedUntil: claimActive ? w.claimLockedUntil : null,
+      claimPayDeadline: claimActive ? w.claimPayDeadline ?? null : null,
     };
+  }
+
+  /** Completed + pending (non-disputed) pay amounts toward investor plan progress. */
+  private async getPaidTowardPlan(payerUserId: string): Promise<number> {
+    const rows = await this.paymentModel.aggregate<{ total: number }>([
+      {
+        $match: {
+          $and: [
+            {
+              $or: [
+                { payerUserId: new Types.ObjectId(payerUserId) },
+                { payerUserId: payerUserId },
+              ],
+            },
+            {
+              status: {
+                $in: [TransactionStatus.PENDING, TransactionStatus.COMPLETED],
+              },
+            },
+            {
+              $or: [{ disputedAt: { $exists: false } }, { disputedAt: null }],
+            },
+          ],
+        },
+      },
+      { $group: { _id: null, total: { $sum: '$amount' } } },
+    ]);
+    return Math.round((rows[0]?.total || 0) * 100) / 100;
+  }
+
+  private async setClaimRedis(withdrawalId: string, userId: string, ttlSeconds: number) {
+    await this.redis.set(`${CLAIM_REDIS_PREFIX}${withdrawalId}`, { userId }, ttlSeconds);
+  }
+
+  private async clearClaimRedis(withdrawalId: string) {
+    await this.redis.del(`${CLAIM_REDIS_PREFIX}${withdrawalId}`);
   }
 
   /** Pending investor payments count as locked points until approved / auto-unlocked. */

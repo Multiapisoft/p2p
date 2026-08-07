@@ -1,4 +1,12 @@
-import { IsNumber, IsString, IsEnum, Min } from 'class-validator';
+import {
+  IsEmail,
+  IsEnum,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Min,
+  ValidateIf,
+} from 'class-validator';
 
 export enum WalletAdjustType {
   CREDIT = 'credit',
@@ -6,8 +14,17 @@ export enum WalletAdjustType {
 }
 
 export class WalletAdjustDto {
+  @ValidateIf((o: WalletAdjustDto) => !o.email && !o.phone)
   @IsString()
-  userId!: string;
+  userId?: string;
+
+  @ValidateIf((o: WalletAdjustDto) => !o.userId && !o.phone)
+  @IsEmail()
+  email?: string;
+
+  @ValidateIf((o: WalletAdjustDto) => !o.userId && !o.email)
+  @IsString()
+  phone?: string;
 
   @IsNumber()
   @Min(1)
@@ -18,4 +35,8 @@ export class WalletAdjustDto {
 
   @IsString()
   reason!: string;
+
+  @IsOptional()
+  @IsString()
+  currency?: string;
 }

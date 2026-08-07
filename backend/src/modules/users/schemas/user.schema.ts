@@ -32,8 +32,19 @@ export class User {
   @Prop({ trim: true, index: true })
   externalRef?: string;
 
+  /** Human ID code set by the referring business */
+  @Prop({ trim: true, index: true })
+  businessUserCode?: string;
+
   @Prop({ trim: true, index: true })
   referralCode?: string;
+
+  /** Investor selected plan amount (INR) */
+  @Prop()
+  investorPlanAmount?: number;
+
+  @Prop()
+  investorPlanSelectedAt?: Date;
 
   @Prop({ type: Types.ObjectId, ref: 'User' })
   createdBy?: Types.ObjectId;
@@ -51,7 +62,27 @@ export class User {
 
 export const UserSchema = SchemaFactory.createForClass(User);
 UserSchema.index({ role: 1, status: 1 });
+/** Unique partner externalRef per business — only when externalRef is a non-empty string */
 UserSchema.index(
   { referredByBusiness: 1, externalRef: 1 },
-  { unique: true, sparse: true },
+  {
+    unique: true,
+    name: 'referredByBusiness_1_externalRef_1_partial',
+    partialFilterExpression: {
+      externalRef: { $type: 'string', $gt: '' },
+      referredByBusiness: { $exists: true },
+    },
+  },
+);
+/** Unique businessUserCode per business — only when set to a non-empty string */
+UserSchema.index(
+  { referredByBusiness: 1, businessUserCode: 1 },
+  {
+    unique: true,
+    name: 'referredByBusiness_1_businessUserCode_1_partial',
+    partialFilterExpression: {
+      businessUserCode: { $type: 'string', $gt: '' },
+      referredByBusiness: { $exists: true },
+    },
+  },
 );

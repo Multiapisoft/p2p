@@ -14,6 +14,10 @@ import {
   UsdtDetailsDto,
 } from '../../deposit/dto/deposit.dto';
 import { ListQueryDto } from '../../../common/dto/list-query.dto';
+import {
+  IsOptionalAppTxHash,
+  IsOptionalAppUtr,
+} from '../../../common/validators/contact.validators';
 
 export class WithdrawalListQueryDto extends ListQueryDto {
   @IsOptional()
@@ -50,10 +54,10 @@ export class CreateWithdrawalDto {
 }
 
 export class ProcessWithdrawalDto {
-  @IsOptional()
+  @IsOptionalAppUtr()
   utr?: string;
 
-  @IsOptional()
+  @IsOptionalAppTxHash()
   txHash?: string;
 }
 

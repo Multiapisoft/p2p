@@ -4,12 +4,14 @@ import { SupportTicket, SupportTicketSchema } from './schemas/support.schema';
 import { SupportService } from './support.service';
 import { SupportController } from './support.controller';
 import { Business, BusinessSchema } from '../business/schemas/business.schema';
+import { User, UserSchema } from '../users/schemas/user.schema';
 
 @Module({
   imports: [
     MongooseModule.forFeature([
       { name: SupportTicket.name, schema: SupportTicketSchema },
       { name: Business.name, schema: BusinessSchema },
+      { name: User.name, schema: UserSchema },
     ]),
   ],
   controllers: [SupportController],

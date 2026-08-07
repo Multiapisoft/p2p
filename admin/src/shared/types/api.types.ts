@@ -7,6 +7,12 @@ export type TransactionStatus =
   | 'cancelled'
   | 'rejected';
 
+export interface ReferredBusiness {
+  _id: string;
+  name: string;
+  referralCode?: string;
+}
+
 export interface User {
   _id: string;
   email: string;
@@ -15,6 +21,9 @@ export interface User {
   role: UserRole;
   status: string;
   permissions?: string[];
+  referredByBusiness?: string;
+  referredBusiness?: ReferredBusiness;
+  businessUserCode?: string;
   createdAt: string;
 }
 
@@ -174,7 +183,14 @@ export interface AuditLog {
 export interface Redemption {
   _id: string;
   referenceId: string;
-  investorId: string;
+  investorId:
+    | string
+    | {
+        _id: string;
+        name?: string;
+        email?: string;
+        phone?: string;
+      };
   amount: number;
   method?: string;
   upiDetails?: { upiId?: string; payerName?: string };
@@ -187,16 +203,26 @@ export interface Redemption {
   usdtDetails?: { walletAddress?: string; network?: string };
   note?: string;
   status: TransactionStatus;
+  failureReason?: string;
   createdAt: string;
 }
 
 export interface Investment {
   _id: string;
   referenceId: string;
-  investorId: string;
+  investorId:
+    | string
+    | {
+        _id: string;
+        name?: string;
+        email?: string;
+        phone?: string;
+      };
   amount: number;
   method: string;
+  note?: string;
   status: TransactionStatus;
+  failureReason?: string;
   createdAt: string;
 }
 

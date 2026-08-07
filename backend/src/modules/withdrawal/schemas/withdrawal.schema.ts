@@ -109,6 +109,18 @@ export class Withdrawal {
 
   @Prop()
   p2pListRejectReason?: string;
+
+  /** Investor/user who claimed this withdrawal for exclusive pay window. */
+  @Prop({ type: Types.ObjectId, ref: 'User', index: true })
+  claimLockedBy?: Types.ObjectId;
+
+  /** Hide from other payers until this time (claim lock). */
+  @Prop({ index: true })
+  claimLockedUntil?: Date;
+
+  /** Deadline for the claimer to submit payment proof. */
+  @Prop()
+  claimPayDeadline?: Date;
 }
 
 export const WithdrawalSchema = SchemaFactory.createForClass(Withdrawal);

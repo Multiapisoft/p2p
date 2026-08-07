@@ -11,6 +11,8 @@ import { Modal } from '@/shared/components/ui/Modal';
 import { Pagination } from '@/shared/components/ui/Pagination';
 import { LoadingScreen, EmptyState } from '@/shared/components/ui/Icon';
 import { formatCurrency, formatDate } from '@/shared/lib/utils';
+import { getApiErrorMessage } from '@/shared/lib/api-error';
+import { normalizeUtr, normalizeTxHash, txHashError, utrError } from '@/shared/lib/validation';
 import { SplitPaymentsTab } from '../components/SplitPaymentsTab';
 import type { Withdrawal } from '@/shared/types/api.types';
 
@@ -57,6 +59,7 @@ export function WithdrawalsPage() {
   const [utr, setUtr] = useState('');
   const [txHash, setTxHash] = useState('');
   const [rejectReason, setRejectReason] = useState('');
+  const [actionError, setActionError] = useState('');
   const qc = useQueryClient();
 
   useEffect(() => {
@@ -89,14 +92,31 @@ export function WithdrawalsPage() {
   });
 
   const approve = useMutation({
-    mutationFn: () =>
-      withdrawalsApi.approve(approveTarget!._id, utr || undefined, txHash || undefined),
+    mutationFn: () => {
+      const u = utr.trim();
+      const t = txHash.trim();
+      if (u) {
+        const err = utrError(u, true);
+        if (err) throw new Error(err);
+      }
+      if (t) {
+        const err = txHashError(t, true);
+        if (err) throw new Error(err);
+      }
+      return withdrawalsApi.approve(
+        approveTarget!._id,
+        u ? normalizeUtr(u) : undefined,
+        t ? normalizeTxHash(t) : undefined,
+      );
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['withdrawals'] });
       setApproveTarget(null);
       setUtr('');
       setTxHash('');
+      setActionError('');
     },
+    onError: (err) => setActionError(getApiErrorMessage(err, 'Approve failed')),
   });
 
   const reject = useMutation({
@@ -105,17 +125,27 @@ export function WithdrawalsPage() {
       qc.invalidateQueries({ queryKey: ['withdrawals'] });
       setRejectTarget(null);
       setRejectReason('');
+      setActionError('');
     },
+    onError: (err) => setActionError(getApiErrorMessage(err, 'Reject failed')),
   });
 
   const listForP2p = useMutation({
     mutationFn: (id: string) => withdrawalsApi.listForP2p(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['withdrawals'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['withdrawals'] });
+      setActionError('');
+    },
+    onError: (err) => setActionError(getApiErrorMessage(err, 'List for Platform Payment failed')),
   });
 
   const unlistForP2p = useMutation({
-    mutationFn: (id: string) => withdrawalsApi.unlistForP2p(id, 'Removed from P2P pay list'),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['withdrawals'] }),
+    mutationFn: (id: string) => withdrawalsApi.unlistForP2p(id, 'Removed from Platform Payment list'),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['withdrawals'] });
+      setActionError('');
+    },
+    onError: (err) => setActionError(getApiErrorMessage(err, 'Unlist failed')),
   });
 
   const items = (data?.items ?? []) as WithdrawalRow[];
@@ -125,9 +155,9 @@ export function WithdrawalsPage() {
 
   function p2pListLabel(w: WithdrawalRow) {
     const s = w.p2pListStatus || 'awaiting';
-    if (s === 'listed') return 'P2P listed';
-    if (s === 'rejected') return 'P2P rejected';
-    return 'Awaiting P2P';
+    if (s === 'listed') return 'Platform Payment listed';
+    if (s === 'rejected') return 'Platform Payment rejected';
+    return 'Awaiting Platform Payment';
   }
 
   return (
@@ -321,7 +351,7 @@ export function WithdrawalsPage() {
                                 loading={listForP2p.isPending}
                                 onClick={() => listForP2p.mutate(w._id)}
                               >
-                                List for P2P
+                                List for Platform Payment
                               </Button>
                             )}
                           {(w.status === 'pending' || w.status === 'processing') &&
@@ -332,18 +362,37 @@ export function WithdrawalsPage() {
                                 loading={unlistForP2p.isPending}
                                 onClick={() => unlistForP2p.mutate(w._id)}
                               >
-                                Unlist P2P
+                                Unlist Platform Payment
                               </Button>
                             )}
-                          {w.status === 'pending' && (
+                          {w.status === 'pending' && (w.paidAmount || 0) <= 0 && (
                             <div className="flex gap-2">
-                              <Button size="sm" variant="secondary" onClick={() => setApproveTarget(w)}>
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                onClick={() => {
+                                  setActionError('');
+                                  setApproveTarget(w);
+                                }}
+                              >
                                 Approve
                               </Button>
-                              <Button size="sm" variant="danger" onClick={() => setRejectTarget(w)}>
+                              <Button
+                                size="sm"
+                                variant="danger"
+                                onClick={() => {
+                                  setActionError('');
+                                  setRejectTarget(w);
+                                }}
+                              >
                                 Reject
                               </Button>
                             </div>
+                          )}
+                          {w.status === 'pending' && (w.paidAmount || 0) > 0 && (
+                            <p className="text-[11px] text-on-surface-variant">
+                              Use Split Payments to approve proofs
+                            </p>
                           )}
                         </div>
                       </div>
@@ -365,18 +414,43 @@ export function WithdrawalsPage() {
         </>
       )}
 
-      <Modal open={!!approveTarget} onClose={() => setApproveTarget(null)} title="Approve Withdrawal">
+      <Modal
+        open={!!approveTarget}
+        onClose={() => {
+          setApproveTarget(null);
+          setActionError('');
+        }}
+        title="Approve Withdrawal"
+      >
         <form
           className="space-y-4"
           onSubmit={(e) => {
             e.preventDefault();
+            setActionError('');
             approve.mutate();
           }}
         >
           {approveTarget?.method !== 'usdt' ? (
-            <Input label="UTR (optional)" value={utr} onChange={(e) => setUtr(e.target.value)} />
+            <Input
+              label="UTR (optional)"
+              value={utr}
+              onChange={(e) => setUtr(e.target.value)}
+              placeholder="12-digit UTR / RRN (or 12–22 alphanumeric)"
+              maxLength={22}
+            />
           ) : (
-            <Input label="Tx Hash (optional)" value={txHash} onChange={(e) => setTxHash(e.target.value)} />
+            <Input
+              label="Tx Hash (optional)"
+              value={txHash}
+              onChange={(e) => setTxHash(e.target.value)}
+              placeholder="64 hex TxID (TRC20 / optional 0x)"
+              maxLength={66}
+            />
+          )}
+          {actionError && (
+            <div className="rounded-lg bg-error-container px-4 py-3 text-sm text-on-error-container">
+              {actionError}
+            </div>
           )}
           <Button type="submit" loading={approve.isPending} className="w-full">
             Confirm Approve
@@ -384,11 +458,19 @@ export function WithdrawalsPage() {
         </form>
       </Modal>
 
-      <Modal open={!!rejectTarget} onClose={() => setRejectTarget(null)} title="Reject Withdrawal">
+      <Modal
+        open={!!rejectTarget}
+        onClose={() => {
+          setRejectTarget(null);
+          setActionError('');
+        }}
+        title="Reject Withdrawal"
+      >
         <form
           className="space-y-4"
           onSubmit={(e) => {
             e.preventDefault();
+            setActionError('');
             reject.mutate();
           }}
         >
@@ -398,6 +480,11 @@ export function WithdrawalsPage() {
             onChange={(e) => setRejectReason(e.target.value)}
             required
           />
+          {actionError && (
+            <div className="rounded-lg bg-error-container px-4 py-3 text-sm text-on-error-container">
+              {actionError}
+            </div>
+          )}
           <Button type="submit" variant="danger" loading={reject.isPending} className="w-full">
             Confirm Reject
           </Button>

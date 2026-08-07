@@ -8,7 +8,7 @@ const montserrat = Montserrat({ subsets: ['latin'], variable: '--font-headline' 
 
 export const metadata: Metadata = {
   title: 'FinGuard Business',
-  description: 'P2P payment platform business portal',
+  description: 'Platform Payment business portal',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

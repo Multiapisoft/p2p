@@ -12,6 +12,7 @@ import { Modal } from '@/shared/components/ui/Modal';
 import { Pagination } from '@/shared/components/ui/Pagination';
 import { LoadingScreen, EmptyState } from '@/shared/components/ui/Icon';
 import { formatCurrency, formatDate } from '@/shared/lib/utils';
+import { getApiErrorMessage } from '@/shared/lib/api-error';
 
 const STATUS_FILTERS = [
   { value: 'all', label: 'All' },
@@ -61,6 +62,7 @@ export function SplitPaymentsTab() {
   const [detail, setDetail] = useState<WithdrawalPaymentAdmin | null>(null);
   const [rejectTarget, setRejectTarget] = useState<WithdrawalPaymentAdmin | null>(null);
   const [rejectReason, setRejectReason] = useState('');
+  const [actionError, setActionError] = useState('');
   const qc = useQueryClient();
 
   useEffect(() => {
@@ -83,7 +85,7 @@ export function SplitPaymentsTab() {
     [page, limit, search, status, sort, method, listMode],
   );
 
-  const { data, isLoading, isFetching } = useQuery({
+  const { data, isLoading, isFetching, isError, error } = useQuery({
     queryKey: ['split-payments', listMode, listQuery],
     queryFn: () =>
       listMode === 'pending'
@@ -97,7 +99,9 @@ export function SplitPaymentsTab() {
       qc.invalidateQueries({ queryKey: ['split-payments'] });
       qc.invalidateQueries({ queryKey: ['withdrawals'] });
       setDetail(null);
+      setActionError('');
     },
+    onError: (err) => setActionError(getApiErrorMessage(err, 'Approve failed')),
   });
 
   const reject = useMutation({
@@ -107,7 +111,9 @@ export function SplitPaymentsTab() {
       setRejectTarget(null);
       setRejectReason('');
       setDetail(null);
+      setActionError('');
     },
+    onError: (err) => setActionError(getApiErrorMessage(err, 'Reject failed')),
   });
 
   const items = data?.items ?? [];
@@ -118,6 +124,11 @@ export function SplitPaymentsTab() {
 
   return (
     <div className="space-y-3 sm:space-y-4">
+      {actionError && (
+        <div className="rounded-lg bg-error-container px-4 py-3 text-sm text-on-error-container">
+          {actionError}
+        </div>
+      )}
       <div className="grid grid-cols-3 gap-2 sm:gap-3">
         <div className="rounded-xl border border-outline-variant bg-surface-container-lowest p-2.5 sm:rounded-2xl sm:p-4">
           <p className="text-[10px] font-bold uppercase tracking-wide text-on-surface-variant sm:text-[11px]">
@@ -237,6 +248,11 @@ export function SplitPaymentsTab() {
 
         {isLoading ? (
           <LoadingScreen />
+        ) : isError ? (
+          <EmptyState
+            message={getApiErrorMessage(error, 'Failed to load split payments')}
+            icon="error"
+          />
         ) : !items.length ? (
           <EmptyState
             message={
@@ -299,7 +315,10 @@ export function SplitPaymentsTab() {
                               size="sm"
                               variant="secondary"
                               loading={approve.isPending}
-                              onClick={() => approve.mutate(p._id)}
+                              onClick={() => {
+                                setActionError('');
+                                approve.mutate(p._id);
+                              }}
                             >
                               Approve
                             </Button>

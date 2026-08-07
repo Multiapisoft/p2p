@@ -17,7 +17,7 @@ export function StatusBadge({ status }: { status: string }) {
   return (
     <span
       className={cn(
-        'inline-block rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider',
+        'inline-block rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide sm:px-2.5 sm:text-[10px] sm:tracking-wider',
         statusStyles[status.toLowerCase()] || 'bg-surface-container-high text-on-surface-variant',
       )}
     >

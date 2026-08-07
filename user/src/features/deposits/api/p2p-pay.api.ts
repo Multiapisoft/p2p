@@ -42,6 +42,9 @@ export interface AvailableWithdrawal {
   };
   usdtDetails?: { walletAddress?: string; network?: string };
   createdAt: string;
+  claimLockedBy?: string | null;
+  claimLockedUntil?: string | null;
+  claimPayDeadline?: string | null;
   creditIfPayFull?: {
     payAmount: number;
     payCurrency?: string;
@@ -53,6 +56,19 @@ export interface AvailableWithdrawal {
     creditCurrency?: string;
     exchangeRate?: number | null;
   } | null;
+}
+
+export interface AvailableWithdrawalsResponse extends Paginated<AvailableWithdrawal> {
+  claimLockMinutes?: number;
+  paySubmitMinutes?: number;
+}
+
+export interface ClaimWithdrawalResult extends AvailableWithdrawal {
+  claimLockedBy: string;
+  claimLockedUntil: string;
+  claimPayDeadline: string;
+  claimLockMs: number;
+  paySubmitMs: number;
 }
 
 export interface P2pPayment {
@@ -93,9 +109,13 @@ function cleanQuery(query: P2pListQuery = {}) {
 
 export const p2pPayApi = {
   getAvailable: (query: P2pListQuery = {}) =>
-    apiGet<Paginated<AvailableWithdrawal>>(
+    apiGet<AvailableWithdrawalsResponse>(
       '/withdrawal-payments/available-withdrawals',
       cleanQuery(query),
+    ),
+  claimWithdrawal: (withdrawalId: string) =>
+    apiPost<ClaimWithdrawalResult>(
+      `/withdrawal-payments/withdrawal/${withdrawalId}/claim`,
     ),
   previewCredit: (amount: number, withdrawalId?: string) =>
     apiGet<CreditPreview>('/withdrawal-payments/credit-preview', {

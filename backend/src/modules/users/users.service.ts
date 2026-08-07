@@ -13,7 +13,7 @@ import { UserStatus } from '../../common/enums/currency.enum';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Business, BusinessDocument } from '../business/schemas/business.schema';
-import { UserDocument } from './schemas/user.schema';
+import { UserDocument, User } from './schemas/user.schema';
 import { IntegrationRegisterUserDto } from '../business/dto/integration.dto';
 import { partnerUserIdFromExternalRef } from '../integration/utils/partner-user-id.util';
 import {
@@ -21,14 +21,18 @@ import {
   normalizeListOpts,
   type ListQueryOpts,
 } from '../../common/dto/list-query.dto';
+import { PlatformSettingsService } from '../platform-settings/platform-settings.service';
 
 export type UserListOpts = ListQueryOpts & { role?: string };
+
+const DEFAULT_INVESTOR_PLAN_AMOUNTS = [25000, 50000, 100000, 200000];
 
 @Injectable()
 export class UsersService {
   constructor(
     private usersRepo: UsersRepository,
     @InjectModel(Business.name) private businessModel: Model<BusinessDocument>,
+    private platformSettingsService: PlatformSettingsService,
   ) {}
 
   async create(dto: CreateUserDto, createdBy?: string) {
@@ -53,16 +57,22 @@ export class UsersService {
       referredByBusiness = business._id.toString();
     }
 
-    const user = await this.usersRepo.create({
+    const createData: Partial<User> = {
       email: dto.email,
       password: hashedPassword,
       name: dto.name,
       phone: dto.phone,
       role: dto.role || UserRole.USER,
-      referredByBusiness: referredByBusiness as unknown as import('mongoose').Types.ObjectId,
-      createdBy: createdBy as unknown as import('mongoose').Types.ObjectId,
       permissions: dto.permissions || [],
-    });
+    };
+    if (referredByBusiness) {
+      createData.referredByBusiness = new Types.ObjectId(referredByBusiness);
+    }
+    if (createdBy) {
+      createData.createdBy = new Types.ObjectId(createdBy);
+    }
+
+    const user = await this.usersRepo.create(createData);
 
     if (referredByBusiness) {
       await this.businessModel.findByIdAndUpdate(referredByBusiness, {
@@ -195,6 +205,7 @@ export class UsersService {
           { name: { $regex: search, $options: 'i' } },
           { phone: { $regex: search, $options: 'i' } },
           { externalRef: { $regex: search, $options: 'i' } },
+          { businessUserCode: { $regex: search, $options: 'i' } },
         ],
       });
     }
@@ -219,7 +230,7 @@ export class UsersService {
   async findById(id: string) {
     const user = await this.usersRepo.findById(id);
     if (!user) throw new NotFoundException('User not found');
-    return this.sanitize(user);
+    return this.sanitizeWithBusiness(user);
   }
 
   async findByEmail(email: string) {
@@ -298,7 +309,7 @@ export class UsersService {
 
     const { items, total } = await this.usersRepo.findAll(filter, skip, limit, sortSpec);
     return {
-      items: items.map((u) => this.sanitize(u)),
+      items: await Promise.all(items.map((u) => this.sanitizeWithBusiness(u))),
       total,
       page,
       limit,
@@ -398,9 +409,103 @@ export class UsersService {
     return this.sanitize(updated);
   }
 
+  /** Business assigns a human-readable code to a referred user. */
+  async setBusinessUserCode(businessId: string, userId: string, code: string) {
+    const businessUserCode = code?.trim();
+    if (!businessUserCode) {
+      throw new BadRequestException('businessUserCode is required');
+    }
+
+    const user = await this.usersRepo.findById(userId);
+    if (!user) throw new NotFoundException('User not found');
+    if (user.referredByBusiness?.toString() !== businessId) {
+      throw new ForbiddenException('User does not belong to this business');
+    }
+    if (user.role !== UserRole.USER && user.role !== UserRole.INVESTOR) {
+      throw new BadRequestException('Can only set code for end users');
+    }
+
+    try {
+      const updated = await this.usersRepo.update(userId, { businessUserCode });
+      return this.sanitize(updated);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes('duplicate') || msg.includes('E11000')) {
+        throw new ConflictException('businessUserCode already in use for this business');
+      }
+      throw err;
+    }
+  }
+
+  /** Investor selects a plan amount (once or update). */
+  async setInvestorPlan(userId: string, planAmount: number) {
+    const user = await this.usersRepo.findById(userId);
+    if (!user) throw new NotFoundException('User not found');
+    if (user.role !== UserRole.INVESTOR) {
+      throw new ForbiddenException('Only investors can select a plan');
+    }
+
+    const settings = await this.platformSettingsService.get();
+    const allowed =
+      settings.investorPlanAmounts?.length > 0
+        ? settings.investorPlanAmounts
+        : DEFAULT_INVESTOR_PLAN_AMOUNTS;
+    if (!allowed.includes(planAmount)) {
+      throw new BadRequestException(
+        `Invalid plan amount. Allowed: ${allowed.join(', ')}`,
+      );
+    }
+
+    const updated = await this.usersRepo.update(userId, {
+      investorPlanAmount: planAmount,
+      investorPlanSelectedAt: new Date(),
+    });
+    return this.sanitizeWithBusiness(updated);
+  }
+
   private sanitize(user: UserDocument) {
     const obj = user.toObject() as unknown as Record<string, unknown>;
     delete obj.password;
+
+    const ref = obj.referredByBusiness;
+    if (ref && typeof ref === 'object' && ref !== null && '_id' in (ref as object)) {
+      const b = ref as { _id: Types.ObjectId; name?: string; referralCode?: string };
+      obj.referredBusiness = {
+        _id: b._id,
+        name: b.name,
+        referralCode: b.referralCode,
+      };
+      obj.referredByBusiness = b._id;
+    }
+
+    return obj;
+  }
+
+  /** Sanitize and ensure referredBusiness is populated for admin/profile responses. */
+  private async sanitizeWithBusiness(user: UserDocument) {
+    const obj = this.sanitize(user) as Record<string, unknown>;
+    if (obj.referredBusiness) return obj;
+
+    let bizId: string | undefined;
+    if (user.referredByBusiness) {
+      bizId = user.referredByBusiness.toString();
+    } else if (typeof obj.referredByBusiness === 'string') {
+      bizId = obj.referredByBusiness;
+    }
+    if (!bizId) return obj;
+
+    const biz = await this.businessModel
+      .findById(bizId)
+      .select('name referralCode')
+      .lean()
+      .exec();
+    if (biz) {
+      obj.referredBusiness = {
+        _id: biz._id,
+        name: biz.name,
+        referralCode: biz.referralCode,
+      };
+    }
     return obj;
   }
 
@@ -446,6 +551,7 @@ export class UsersService {
       email: String(base.email),
       name: String(base.name),
       externalRef,
+      businessUserCode: base.businessUserCode as string | undefined,
       /** Partner platform user id (e.g. Bitfarming Mongo _id) parsed from externalRef */
       partnerUserId: partnerUserIdFromExternalRef(externalRef),
       mustSetPassword: !!base.mustSetPassword,

@@ -29,6 +29,9 @@ export const usersApi = {
   /** Reset a linked end-user's password (business panel). */
   setUserPassword: (userId: string, newPassword: string) =>
     apiPatch<User>(`/business/me/users/${userId}/password`, { newPassword }),
+  /** Set / update identification code for a linked user. */
+  setUserCode: (userId: string, code: string) =>
+    apiPatch<User>(`/business/me/users/${userId}/code`, { code }),
   /** Change the logged-in business owner's own password. */
   setOwnPassword: (newPassword: string, currentPassword: string) =>
     apiPost('/auth/set-password', { newPassword, currentPassword }),

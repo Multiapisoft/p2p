@@ -1,6 +1,7 @@
 import { IsNumber, IsOptional, IsString, Min, MinLength } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ListQueryDto } from '../../../common/dto/list-query.dto';
+import { IsAppPaymentRef } from '../../../common/validators/contact.validators';
 
 export class WithdrawalPaymentListQueryDto extends ListQueryDto {
   @IsOptional()
@@ -24,8 +25,7 @@ export class SubmitWithdrawalPaymentDto {
   @Min(1)
   amount!: number;
 
-  @IsString()
-  @MinLength(6)
+  @IsAppPaymentRef()
   utr!: string;
 
   @IsString()

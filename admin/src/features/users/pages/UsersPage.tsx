@@ -209,6 +209,14 @@ export function UsersPage() {
                     <p className="mt-1.5 text-xs capitalize text-on-surface-variant">
                       {u.role.replace('_', ' ')} • {formatDate(u.createdAt)}
                     </p>
+                    {u.referredBusiness?.name ? (
+                      <p className="mt-1.5">
+                        <span className="inline-block rounded-full bg-secondary-container px-2 py-0.5 text-[10px] font-semibold text-on-secondary-container">
+                          {u.referredBusiness.name}
+                          {u.businessUserCode ? ` · ${u.businessUserCode}` : ''}
+                        </span>
+                      </p>
+                    ) : null}
                   </button>
                   {u.role !== 'admin' && (
                     <div className="mt-2">
@@ -232,10 +240,11 @@ export function UsersPage() {
             </div>
 
             <div className="hidden overflow-x-auto custom-scrollbar md:block">
-              <table className="w-full min-w-[640px] text-left text-sm">
+              <table className="w-full min-w-[720px] text-left text-sm">
                 <thead className="border-b border-outline-variant bg-surface-container-low">
                   <tr>
                     <th className="px-3 py-2.5 font-semibold text-on-surface-variant sm:px-4 sm:py-3">User</th>
+                    <th className="px-3 py-2.5 font-semibold text-on-surface-variant sm:px-4 sm:py-3">Business</th>
                     <th className="px-3 py-2.5 font-semibold text-on-surface-variant sm:px-4 sm:py-3">Role</th>
                     <th className="px-3 py-2.5 font-semibold text-on-surface-variant sm:px-4 sm:py-3">Status</th>
                     <th className="px-3 py-2.5 font-semibold text-on-surface-variant sm:px-4 sm:py-3">Joined</th>
@@ -256,6 +265,20 @@ export function UsersPage() {
                           <p className="font-medium">{u.name}</p>
                           <p className="text-on-surface-variant">{u.email}</p>
                         </button>
+                      </td>
+                      <td className="px-3 py-2.5 sm:px-4 sm:py-3">
+                        {u.referredBusiness?.name ? (
+                          <div className="space-y-0.5">
+                            <span className="inline-block rounded-full bg-secondary-container px-2 py-0.5 text-[10px] font-semibold text-on-secondary-container">
+                              {u.referredBusiness.name}
+                            </span>
+                            {u.businessUserCode ? (
+                              <p className="font-mono text-xs text-on-surface-variant">{u.businessUserCode}</p>
+                            ) : null}
+                          </div>
+                        ) : (
+                          <span className="text-on-surface-variant">—</span>
+                        )}
                       </td>
                       <td className="px-3 py-2.5 capitalize sm:px-4 sm:py-3">{u.role.replace('_', ' ')}</td>
                       <td className="px-3 py-2.5 sm:px-4 sm:py-3">
@@ -315,6 +338,25 @@ export function UsersPage() {
               <span className="text-on-surface-variant">Role:</span>{' '}
               <span className="capitalize">{userDetail.role.replace('_', ' ')}</span>
             </p>
+            <p>
+              <span className="text-on-surface-variant">Business:</span>{' '}
+              {userDetail.referredBusiness?.name ? (
+                <span className="inline-block rounded-full bg-secondary-container px-2 py-0.5 text-[10px] font-semibold text-on-secondary-container">
+                  {userDetail.referredBusiness.name}
+                  {userDetail.referredBusiness.referralCode
+                    ? ` (${userDetail.referredBusiness.referralCode})`
+                    : ''}
+                </span>
+              ) : (
+                '—'
+              )}
+            </p>
+            {userDetail.businessUserCode ? (
+              <p>
+                <span className="text-on-surface-variant">Business user code:</span>{' '}
+                <span className="font-mono">{userDetail.businessUserCode}</span>
+              </p>
+            ) : null}
             <p>
               <span className="text-on-surface-variant">Status:</span>{' '}
               <StatusBadge status={userDetail.status} />

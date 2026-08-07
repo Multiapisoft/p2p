@@ -22,6 +22,7 @@ import { User, UserSchema } from '../users/schemas/user.schema';
 import { IntegrationModule } from '../integration/integration.module';
 import { Business, BusinessSchema } from '../business/schemas/business.schema';
 import { SupportModule } from '../support/support.module';
+import { PlatformSettingsModule } from '../platform-settings/platform-settings.module';
 
 @Module({
   imports: [
@@ -40,6 +41,7 @@ import { SupportModule } from '../support/support.module';
     WebhookModule,
     AuditModule,
     SupportModule,
+    PlatformSettingsModule,
     forwardRef(() => IntegrationModule),
   ],
   controllers: [WithdrawalController, WithdrawalPaymentController],

@@ -4,12 +4,22 @@ type PopulatedUser = {
   email?: string;
   phone?: string;
   externalRef?: string;
+  businessUserCode?: string;
 };
 
 export function resolveUser(userId: string | PopulatedUser | undefined | null) {
-  if (!userId) return { id: '', name: '—', email: '', phone: '', externalRef: '' };
+  if (!userId) {
+    return { id: '', name: '—', email: '', phone: '', externalRef: '', businessUserCode: '' };
+  }
   if (typeof userId === 'string') {
-    return { id: userId, name: userId.slice(-8), email: '', phone: '', externalRef: '' };
+    return {
+      id: userId,
+      name: userId.slice(-8),
+      email: '',
+      phone: '',
+      externalRef: '',
+      businessUserCode: '',
+    };
   }
   return {
     id: userId._id || '',
@@ -17,5 +27,6 @@ export function resolveUser(userId: string | PopulatedUser | undefined | null) {
     email: userId.email || '',
     phone: userId.phone || '',
     externalRef: userId.externalRef || '',
+    businessUserCode: userId.businessUserCode || '',
   };
 }

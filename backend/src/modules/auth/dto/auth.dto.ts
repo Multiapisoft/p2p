@@ -1,8 +1,9 @@
-import { IsEmail, IsString, MinLength, IsOptional, IsEnum } from 'class-validator';
+import { IsString, MinLength, IsOptional, IsEnum } from 'class-validator';
 import { UserRole } from '../../../common/enums/role.enum';
+import { IsAppEmail, IsOptionalAppPhone } from '../../../common/validators/contact.validators';
 
 export class LoginDto {
-  @IsEmail()
+  @IsAppEmail()
   email!: string;
 
   @IsString()
@@ -10,7 +11,7 @@ export class LoginDto {
 }
 
 export class RegisterDto {
-  @IsEmail()
+  @IsAppEmail()
   email!: string;
 
   @IsString()
@@ -20,8 +21,7 @@ export class RegisterDto {
   @IsString()
   name!: string;
 
-  @IsOptional()
-  @IsString()
+  @IsOptionalAppPhone()
   phone?: string;
 
   @IsOptional()

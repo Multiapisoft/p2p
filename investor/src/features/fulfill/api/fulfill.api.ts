@@ -1,4 +1,4 @@
-import { apiGet, apiPost } from '@/shared/api/client';
+import { apiGet, apiPatch, apiPost } from '@/shared/api/client';
 import { useAuthStore } from '@/features/auth/store/auth.store';
 import type { Paginated, PaymentMethod, TransactionStatus } from '@/shared/types/api.types';
 
@@ -48,6 +48,9 @@ export interface AvailableWithdrawal {
   };
   usdtDetails?: { walletAddress?: string; network?: string };
   createdAt: string;
+  claimLockedBy?: string | null;
+  claimLockedUntil?: string | null;
+  claimPayDeadline?: string | null;
   /** Estimated wallet credit if you pay maxPayable (after verify, INR points) */
   creditIfPayFull?: {
     payAmount: number;
@@ -60,6 +63,24 @@ export interface AvailableWithdrawal {
     creditCurrency?: string;
     exchangeRate?: number | null;
   } | null;
+}
+
+export interface AvailableWithdrawalsResponse extends Paginated<AvailableWithdrawal> {
+  needsPlan?: boolean;
+  planAmounts?: number[];
+  planAmount?: number | null;
+  targetAmount?: number | null;
+  paidTowardPlan?: number | null;
+  claimLockMinutes?: number;
+  paySubmitMinutes?: number;
+}
+
+export interface ClaimWithdrawalResult extends AvailableWithdrawal {
+  claimLockedBy: string;
+  claimLockedUntil: string;
+  claimPayDeadline: string;
+  claimLockMs: number;
+  paySubmitMs: number;
 }
 
 export interface FulfillmentPayment {
@@ -118,9 +139,18 @@ function cleanFulfillQuery(query: FulfillListQuery = {}) {
 
 export const fulfillApi = {
   getAvailable: (query: FulfillListQuery = {}) =>
-    apiGet<Paginated<AvailableWithdrawal>>(
+    apiGet<AvailableWithdrawalsResponse>(
       '/withdrawal-payments/available-withdrawals',
       cleanFulfillQuery(query),
+    ),
+  setInvestorPlan: (planAmount: number) =>
+    apiPatch<{ investorPlanAmount: number; targetAmount?: number }>(
+      '/users/me/investor-plan',
+      { planAmount },
+    ),
+  claimWithdrawal: (withdrawalId: string) =>
+    apiPost<ClaimWithdrawalResult>(
+      `/withdrawal-payments/withdrawal/${withdrawalId}/claim`,
     ),
   previewCredit: (amount: number, withdrawalId?: string) =>
     apiGet<CreditPreview>('/withdrawal-payments/credit-preview', {

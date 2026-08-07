@@ -17,6 +17,7 @@ export interface User {
   name: string;
   phone?: string;
   externalRef?: string;
+  businessUserCode?: string;
   role: UserRole;
   status: string;
   createdAt: string;
@@ -118,7 +119,14 @@ export interface RegenerateKeysResponse {
 export interface Deposit {
   _id: string;
   referenceId: string;
-  userId: string | { _id: string; name?: string; email?: string; phone?: string; externalRef?: string };
+  userId: string | {
+    _id: string;
+    name?: string;
+    email?: string;
+    phone?: string;
+    externalRef?: string;
+    businessUserCode?: string;
+  };
   businessId?: string;
   amount: number;
   currency: string;
@@ -165,7 +173,14 @@ export interface WithdrawalPaymentBrief {
 export interface Withdrawal {
   _id: string;
   referenceId: string;
-  userId: string | { _id: string; name?: string; email?: string; phone?: string; externalRef?: string };
+  userId: string | {
+    _id: string;
+    name?: string;
+    email?: string;
+    phone?: string;
+    externalRef?: string;
+    businessUserCode?: string;
+  };
   businessId?: string;
   amount: number;
   paidAmount?: number;

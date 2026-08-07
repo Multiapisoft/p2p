@@ -103,7 +103,7 @@ export class InvestorController {
   @Permissions(Permission.INVESTORS_MANAGE)
   approve(
     @Param('id') id: string,
-    @Body() dto: ProcessRedemptionDto,
+    @Body() dto: ProcessRedemptionDto = {},
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.investorService.approve(id, dto, user.email);

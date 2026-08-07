@@ -1,4 +1,8 @@
-import { cn } from '@/shared/lib/utils';
+'use client';
+
+import { useEffect, useRef, useState } from 'react';
+import { cn, copyText } from '@/shared/lib/utils';
+import { CopyButton } from '@/shared/components/ui/CopyButton';
 
 export function LoadingScreen() {
   return (
@@ -19,21 +23,74 @@ export function EmptyState({ message, icon = 'inbox' }: { message: string; icon?
   );
 }
 
-export function CopyField({ label, value }: { label: string; value: string }) {
-  const copy = () => navigator.clipboard.writeText(value);
+export function CopyField({
+  label,
+  value,
+  className,
+}: {
+  label: string;
+  value: string;
+  className?: string;
+}) {
+  const [copied, setCopied] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (timer.current) clearTimeout(timer.current);
+    };
+  }, []);
+
+  const handleCopy = async () => {
+    if (!value) return;
+    const ok = await copyText(value);
+    setCopied(ok);
+    setFailed(!ok);
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => {
+      setCopied(false);
+      setFailed(false);
+    }, 2000);
+  };
 
   return (
-    <div className="space-y-1">
-      <p className="text-xs font-semibold uppercase tracking-wide text-on-surface-variant">{label}</p>
-      <div className="flex items-center gap-2 rounded-lg border border-outline-variant bg-surface-container-low p-3">
-        <code className="flex-1 overflow-x-auto text-sm break-all">{value}</code>
+    <div className={cn('space-y-1', className)}>
+      <p className="text-[10px] font-semibold uppercase tracking-wide text-on-surface-variant sm:text-xs">
+        {label}
+      </p>
+      <div
+        className={cn(
+          'flex items-center gap-1.5 rounded-lg border bg-surface-container-low p-2 transition-colors sm:gap-2 sm:p-3',
+          copied
+            ? 'border-secondary'
+            : failed
+              ? 'border-error'
+              : 'border-outline-variant',
+        )}
+      >
+        <code className="min-w-0 flex-1 overflow-x-auto break-all text-[11px] sm:text-sm">
+          {value || '—'}
+        </code>
         <button
           type="button"
-          onClick={copy}
-          className="material-symbols-outlined shrink-0 rounded-lg p-1 text-secondary hover:bg-surface-container-high"
-          title="Copy"
+          onClick={() => void handleCopy()}
+          disabled={!value}
+          className={cn(
+            'inline-flex shrink-0 items-center gap-0.5 rounded-lg px-1.5 py-1 text-[10px] font-semibold transition-colors sm:gap-1 sm:px-2 sm:text-xs',
+            copied
+              ? 'bg-secondary-container text-on-secondary-container'
+              : failed
+                ? 'bg-error-container text-on-error-container'
+                : 'text-secondary hover:bg-surface-container-high',
+          )}
+          title={copied ? 'Copied!' : failed ? 'Copy failed' : 'Copy'}
+          aria-label={copied ? 'Copied' : 'Copy'}
         >
-          content_copy
+          <span className="material-symbols-outlined text-base sm:text-lg">
+            {copied ? 'check' : failed ? 'error' : 'content_copy'}
+          </span>
+          <span>{copied ? 'Copied!' : failed ? 'Failed' : 'Copy'}</span>
         </button>
       </div>
     </div>
@@ -62,6 +119,13 @@ export function SecretBanner({
           {apiKey && <CopyField label="API Key" value={apiKey} />}
           {secret && <CopyField label="API Secret" value={secret} />}
           {internalSecret && <CopyField label="Internal Secret" value={internalSecret} />}
+          <div className="flex flex-wrap gap-2">
+            {apiKey ? <CopyButton value={apiKey} label="Copy API Key" /> : null}
+            {secret ? <CopyButton value={secret} label="Copy API Secret" /> : null}
+            {internalSecret ? (
+              <CopyButton value={internalSecret} label="Copy Internal Secret" />
+            ) : null}
+          </div>
           <button
             type="button"
             onClick={onDismiss}

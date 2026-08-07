@@ -507,11 +507,12 @@ export class DepositService {
     return this.queryDeposits(
       {},
       { ...opts, status: opts.status || TransactionStatus.PENDING },
+      true,
     );
   }
 
   async findAll(opts: DepositListOpts = {}) {
-    return this.queryDeposits({}, opts);
+    return this.queryDeposits({}, opts, true);
   }
 
   async getMethodSummary(status?: TransactionStatus) {

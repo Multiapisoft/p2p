@@ -1,7 +1,9 @@
-import { IsEmail, IsEnum, IsOptional, IsString, MinLength, IsArray } from 'class-validator';
+import { IsEnum, IsNumber, IsOptional, IsString, Min, MinLength, IsArray } from 'class-validator';
+import { Type } from 'class-transformer';
 import { UserRole } from '../../../common/enums/role.enum';
 import { UserStatus } from '../../../common/enums/currency.enum';
 import { ListQueryDto } from '../../../common/dto/list-query.dto';
+import { IsAppEmail, IsOptionalAppPhone } from '../../../common/validators/contact.validators';
 
 export class UserListQueryDto extends ListQueryDto {
   @IsOptional()
@@ -10,7 +12,7 @@ export class UserListQueryDto extends ListQueryDto {
 }
 
 export class CreateUserDto {
-  @IsEmail()
+  @IsAppEmail()
   email!: string;
 
   @IsString()
@@ -20,8 +22,7 @@ export class CreateUserDto {
   @IsString()
   name!: string;
 
-  @IsOptional()
-  @IsString()
+  @IsOptionalAppPhone()
   phone?: string;
 
   @IsOptional()
@@ -47,8 +48,7 @@ export class UpdateUserDto {
   @IsString()
   name?: string;
 
-  @IsOptional()
-  @IsString()
+  @IsOptionalAppPhone()
   phone?: string;
 
   @IsOptional()
@@ -65,4 +65,17 @@ export class BusinessSetUserPasswordDto {
   @IsString()
   @MinLength(8)
   newPassword!: string;
+}
+
+export class BusinessSetUserCodeDto {
+  @IsString()
+  @MinLength(1)
+  code!: string;
+}
+
+export class SetInvestorPlanDto {
+  @Type(() => Number)
+  @IsNumber()
+  @Min(1)
+  planAmount!: number;
 }

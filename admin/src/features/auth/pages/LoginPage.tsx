@@ -7,6 +7,7 @@ import { loginApi } from '@/features/auth/api/auth.api';
 import { useAuthStore } from '@/features/auth/store/auth.store';
 import { Button } from '@/shared/components/ui/Button';
 import { Input } from '@/shared/components/ui/Input';
+import { emailError, normalizeEmail } from '@/shared/lib/validation';
 
 export function LoginPage() {
   const router = useRouter();
@@ -23,7 +24,7 @@ export function LoginPage() {
   const [error, setError] = useState('');
 
   const login = useMutation({
-    mutationFn: () => loginApi(email, password),
+    mutationFn: () => loginApi(normalizeEmail(email), password),
     onSuccess: (data) => {
       if (data.user.role !== 'admin' && data.user.role !== 'sub_admin') {
         setError('Admin access only');
@@ -38,7 +39,7 @@ export function LoginPage() {
   return (
     <div className="flex min-h-screen flex-col md:flex-row">
       {/* Hero */}
-      <div className="relative flex min-h-[220px] w-full items-center justify-center overflow-hidden bg-primary-container sm:min-h-[280px] md:min-h-screen md:w-1/2">
+      <div className="relative flex min-h-[220px] w-full items-center justify-center overflow-hidden bg-primary sm:min-h-[280px] md:min-h-screen md:w-1/2">
         <div className="absolute inset-0 bg-gradient-to-tr from-on-background/60 to-secondary/40" />
         <div className="relative z-10 max-w-xl px-5 text-center text-white sm:px-6 md:px-12 md:text-left">
           <div className="mb-4 inline-flex items-center gap-2 sm:mb-6 sm:gap-3">
@@ -49,7 +50,7 @@ export function LoginPage() {
             Admin Control Center
           </p>
           <p className="mt-3 text-sm text-surface-container-highest/90 sm:mt-4 sm:text-lg">
-            P2P payment platform management — deposits, withdrawals, businesses & investors.
+            Platform Payment management — deposits, withdrawals, businesses & investors.
           </p>
         </div>
       </div>
@@ -61,7 +62,7 @@ export function LoginPage() {
             <h2 className="font-[family-name:var(--font-headline)] text-xl font-bold text-on-background sm:text-2xl">
               Welcome Back
             </h2>
-            <p className="mt-1.5 text-sm text-on-surface-variant sm:mt-2">Sign in to manage the P2P platform.</p>
+            <p className="mt-1.5 text-sm text-on-surface-variant sm:mt-2">Sign in to manage the Platform Payment system.</p>
           </header>
 
           <form
@@ -69,6 +70,11 @@ export function LoginPage() {
             onSubmit={(e) => {
               e.preventDefault();
               setError('');
+              const eMsg = emailError(email);
+              if (eMsg) {
+                setError(eMsg);
+                return;
+              }
               login.mutate();
             }}
           >

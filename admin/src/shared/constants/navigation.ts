@@ -9,9 +9,6 @@ export const NAV_ITEMS = [
   { to: '/investors', label: 'Investors', icon: 'savings', permission: PERMISSIONS.INVESTORS },
   { to: '/wallet', label: 'Wallet', icon: 'account_balance_wallet', permission: PERMISSIONS.WALLET },
   { to: '/transactions', label: 'Ledger', icon: 'receipt_long', permission: null },
-  { to: '/commissions', label: 'Commissions', icon: 'percent', permission: PERMISSIONS.COMMISSIONS },
-  { to: '/payments', label: 'Payments', icon: 'payments', permission: PERMISSIONS.PAYMENT_CONFIG },
   { to: '/support', label: 'Support', icon: 'support_agent', permission: PERMISSIONS.SUPPORT },
-  { to: '/audit', label: 'Audit', icon: 'history', permission: PERMISSIONS.AUDIT },
   { to: '/settings', label: 'Settings', icon: 'settings', permission: null },
 ] as const;

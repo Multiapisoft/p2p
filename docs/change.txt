@@ -1,0 +1,31 @@
+1
+
+1. User’s registered under Different Business should be directed through – URL Paysecure247.com (at present it is done at
+url fairplayofficial.com
+2. Given all websites different designs with own home page content. So that it would’t appear that all the 3 domains are
+run under same project. That’s why we have taken different domain names for each segment.
+3. In investor panel when an Investor logs in ask him to use a plan 25k/50k/1 lac/ 2 lac – after selction of plan show him
+Withdrawal request of equivalent to 110% of plan amount he has choosen. > Now he can start making payments
+(investments). He can choose one any of the available payments to complete his target one by one (choosen payment
+will not be visible to other investor for next 7 minutes (keep this dynamic controllable by admin panel). This is done to
+to give time to investor to complete his payment. After completion of stipulated time the locked payment will be
+available to other users/Investors.
+4. How admin will be identify that a particular user is registered under which business?? At present this is not visible to
+me in admin panel and user panel.
+5. I have just registered a user under business name “Mahavir” by the name Raju dummy as user but it is not visible under
+that business to me.
+6. I have made a widrawal request from rajudummy request reached successfully to “Mahavir” business and business is
+able to approve it as well. But problem is how business will identify that he is his user or not ?? Allow business to set or
+allocate some code for his users so that business can easily identify.
+7. Remove this word P2P from everywhere on platform. Please replace it by Platform Payment.
+8. Don’t allow user to cancel withdrawal request submitted by him. A request needs to cancelled by Concerned business
+or admin only. Give user a time tat of 2 minutes with timer (dynamic which will be set by admin) so that user can
+cancel/edit it within that time frame only. Once the time TAT is over only then send his this request to business for
+approval and once the request is approved by business then user cannot cancel the widrawal request. Apply this for
+investors withdrawal requests also. And give a note to user/investor that once request is approved it cannot be
+edited/deleted.
+9. When a investor accepts any withdrawal for making payment show him stop watch clearly stating that if any payment is
+submitted after time over it will not be Valid/Accepted. ( show him timer of 5 minutes to submit the request but in
+backend don’t show the particular payment (widrawal) to any one for atleast 7 minutes.
+10. Whenever user/investor gives his upi id please system to convert it to scanner/QR code as well.
+11. Ticket raised by user is visible to admin but it is not showing to concerned business please check.

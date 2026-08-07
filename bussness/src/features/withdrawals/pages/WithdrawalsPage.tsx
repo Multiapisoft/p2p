@@ -112,12 +112,12 @@ export function WithdrawalsPage() {
       qc.invalidateQueries({ queryKey: ['business-withdrawals'] });
       qc.invalidateQueries({ queryKey: ['business-withdrawal'] });
     },
-    onError: (err) => setActionError(getApiErrorMessage(err, 'Failed to list for P2P')),
+    onError: (err) => setActionError(getApiErrorMessage(err, 'Failed to list for Platform Payment')),
   });
 
   const unlistForP2p = useMutation({
     mutationFn: (id: string) =>
-      withdrawalsApi.unlistForP2p(id, 'Removed from P2P pay list by business'),
+      withdrawalsApi.unlistForP2p(id, 'Removed from Platform Payment list by business'),
     onSuccess: () => {
       setActionError('');
       qc.invalidateQueries({ queryKey: ['business-withdrawals'] });
@@ -141,16 +141,16 @@ export function WithdrawalsPage() {
 
   function p2pLabel(w: Withdrawal) {
     const s = w.p2pListStatus || 'awaiting';
-    if (s === 'listed') return 'P2P listed';
-    if (s === 'rejected') return 'P2P rejected';
-    return 'Awaiting P2P';
+    if (s === 'listed') return 'Platform Payment listed';
+    if (s === 'rejected') return 'Platform Payment rejected';
+    return 'Awaiting Platform Payment';
   }
 
   return (
     <div className="mx-auto max-w-7xl space-y-6">
       <PageHeader
         title="Withdrawals"
-        description="Approve withdrawals for the P2P pay list — then any user can pay them"
+        description="Approve withdrawals for the Platform Payment list — then any user can pay them"
       />
 
       {actionError ? (
@@ -161,7 +161,7 @@ export function WithdrawalsPage() {
       <div className="grid gap-3 sm:grid-cols-3">
         <div className="rounded-2xl border border-outline-variant bg-surface-container-lowest p-4">
           <p className="text-[11px] font-bold uppercase tracking-wide text-on-surface-variant">
-            Awaiting P2P approval
+            Awaiting Platform Payment approval
           </p>
           <p className="mt-1 text-2xl font-bold">{awaitingP2p}</p>
         </div>
@@ -232,7 +232,7 @@ export function WithdrawalsPage() {
             </select>
           </div>
 
-          <div className="flex flex-wrap gap-2">
+          <div className="chip-scroll">
             {STATUS_FILTERS.map((s) => (
               <button
                 key={s.value}
@@ -241,11 +241,7 @@ export function WithdrawalsPage() {
                   setStatus(s.value);
                   setPage(1);
                 }}
-                className={`rounded-full px-3.5 py-1.5 text-xs font-semibold transition ${
-                  status === s.value
-                    ? 'bg-primary text-on-primary'
-                    : 'border border-outline-variant'
-                }`}
+                className={`chip ${status === s.value ? 'chip-active' : ''}`}
               >
                 {s.label}
               </button>
@@ -299,6 +295,7 @@ export function WithdrawalsPage() {
                       <p className="mt-1 truncate text-sm font-medium">{user.name}</p>
                       <p className="text-xs text-on-surface-variant">
                         {user.email || '—'} · {w.referenceId}
+                        {user.businessUserCode ? ` · ${user.businessUserCode}` : ''}
                       </p>
                       <p className="mt-0.5 text-xs text-outline">
                         {destinationLine(w)} · {formatDate(w.createdAt)}
@@ -330,7 +327,7 @@ export function WithdrawalsPage() {
                             }}
                             loading={listForP2p.isPending}
                           >
-                            Approve for P2P
+                            Approve for Platform Payment
                           </Button>
                         )}
                       {(w.status === 'pending' || w.status === 'processing') &&
@@ -388,7 +385,7 @@ export function WithdrawalsPage() {
                   />
                   <DetailRow label="Status" value={<StatusBadge status={detail.status} />} />
                   <DetailRow
-                    label="P2P list"
+                    label="Platform Payment list"
                     value={
                       <span className="font-semibold">
                         {p2pLabel(detail)}
@@ -404,6 +401,9 @@ export function WithdrawalsPage() {
                   {user.externalRef ? (
                     <DetailRow label="External ref" value={user.externalRef} />
                   ) : null}
+                  {user.businessUserCode ? (
+                    <DetailRow label="User code" value={user.businessUserCode} />
+                  ) : null}
                   <DetailRow label="Destination" value={destinationLine(detail)} />
                   {(detail.status === 'pending' || detail.status === 'processing') && (
                     <div className="mt-4 flex flex-wrap gap-2">
@@ -413,7 +413,7 @@ export function WithdrawalsPage() {
                           loading={listForP2p.isPending}
                           onClick={() => listForP2p.mutate(detail._id)}
                         >
-                          Approve for P2P pay list
+                          Approve for Platform Payment list
                         </Button>
                       ) : (
                         <Button
@@ -422,7 +422,7 @@ export function WithdrawalsPage() {
                           loading={unlistForP2p.isPending}
                           onClick={() => unlistForP2p.mutate(detail._id)}
                         >
-                          Unlist from P2P
+                          Unlist from Platform Payment
                         </Button>
                       )}
                     </div>

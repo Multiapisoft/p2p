@@ -11,9 +11,10 @@ import { Button } from '@/shared/components/ui/Button';
 import { Input } from '@/shared/components/ui/Input';
 import { Textarea } from '@/shared/components/ui/Textarea';
 import { StatusBadge } from '@/shared/components/ui/Badge';
-import { LoadingScreen, SecretBanner } from '@/shared/components/ui/Icon';
+import { LoadingScreen, SecretBanner, CopyField } from '@/shared/components/ui/Icon';
 import { PageHeader } from '@/shared/components/layout/PageHeader';
 import { getApiErrorMessage, isNotFoundError } from '@/shared/api/client';
+import { normalizePhone, phoneError } from '@/shared/lib/validation';
 import type { PaymentMethod } from '@/shared/types/api.types';
 
 const PAYMENT_METHODS: PaymentMethod[] = ['upi', 'bank', 'usdt'];
@@ -82,7 +83,11 @@ export function ProfilePage() {
   });
 
   const updateUser = useMutation({
-    mutationFn: () => usersApi.updateMe({ name: userName, phone: userPhone || undefined }),
+    mutationFn: () =>
+      usersApi.updateMe({
+        name: userName,
+        phone: userPhone.trim() ? normalizePhone(userPhone) : undefined,
+      }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['user-me'] }),
   });
 
@@ -174,50 +179,19 @@ export function ProfilePage() {
 
       <Card title="Business code">
         <p className="mb-3 text-sm text-on-surface-variant">
-          Share this code or invite link so users can register. Or onboard them via Integration API
-          keys. Their withdrawals will appear here for P2P approval.
+          Code ya invite link share karo — users isse register honge.
         </p>
-        <div className="mb-3 flex flex-wrap items-center gap-2">
-          <code className="rounded-lg border border-outline-variant bg-surface-container-low px-3 py-2 font-mono text-sm">
-            {business?.referralCode || '—'}
-          </code>
-          {business?.referralCode ? (
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              onClick={() => {
-                void navigator.clipboard.writeText(business.referralCode!);
-              }}
-            >
-              Copy code
-            </Button>
-          ) : null}
-        </div>
         {business?.referralCode ? (
-          <div className="space-y-2">
-            <p className="text-xs font-semibold uppercase tracking-wide text-on-surface-variant">
-              User portal invite link
-            </p>
-            <div className="flex flex-wrap items-center gap-2">
-              <code className="max-w-full break-all rounded-lg border border-outline-variant bg-surface-container-low px-3 py-2 font-mono text-xs">
-                {`${USER_APP_URL}/register?code=${encodeURIComponent(business.referralCode)}`}
-              </code>
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                onClick={() => {
-                  void navigator.clipboard.writeText(
-                    `${USER_APP_URL}/register?code=${encodeURIComponent(business.referralCode!)}`,
-                  );
-                }}
-              >
-                Copy link
-              </Button>
-            </div>
+          <div className="space-y-3">
+            <CopyField label="Business code" value={business.referralCode} />
+            <CopyField
+              label="Invite link"
+              value={`${USER_APP_URL}/register?code=${encodeURIComponent(business.referralCode)}`}
+            />
           </div>
-        ) : null}
+        ) : (
+          <p className="text-sm text-on-surface-variant">Business code abhi available nahi hai.</p>
+        )}
       </Card>
 
       <Card title="Business Details">
@@ -240,7 +214,7 @@ export function ProfilePage() {
           />
           <div>
             <p className="mb-2 text-sm font-semibold">Payment Methods</p>
-            <div className="flex flex-wrap gap-2">
+            <div className="chip-scroll">
               {PAYMENT_METHODS.map((m) => (
                 <button
                   key={m}
@@ -248,9 +222,7 @@ export function ProfilePage() {
                   onClick={() =>
                     setMethods((prev) => (prev.includes(m) ? prev.filter((x) => x !== m) : [...prev, m]))
                   }
-                  className={`rounded-full px-4 py-2 text-sm font-semibold capitalize ${
-                    methods.includes(m) ? 'bg-primary text-on-primary' : 'border border-outline-variant'
-                  }`}
+                  className={`chip capitalize ${methods.includes(m) ? 'chip-active' : ''}`}
                 >
                   {m}
                 </button>
@@ -268,12 +240,24 @@ export function ProfilePage() {
           className="space-y-4"
           onSubmit={(e) => {
             e.preventDefault();
+            const pMsg = phoneError(userPhone, false);
+            if (pMsg) {
+              alert(pMsg);
+              return;
+            }
             updateUser.mutate();
           }}
         >
           <Input label="Email" value={user?.email ?? ''} disabled />
           <Input label="Name" value={userName} onChange={(e) => setUserName(e.target.value)} required />
-          <Input label="Phone" value={userPhone} onChange={(e) => setUserPhone(e.target.value)} />
+          <Input
+            label="Phone"
+            value={userPhone}
+            onChange={(e) => setUserPhone(e.target.value)}
+            placeholder="10-digit mobile"
+            inputMode="numeric"
+            maxLength={13}
+          />
           <Button type="submit" loading={updateUser.isPending}>
             Update Account
           </Button>

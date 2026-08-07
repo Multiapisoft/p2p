@@ -151,7 +151,7 @@ export function NotificationsPage() {
             </select>
           </div>
 
-          <div className="flex flex-wrap gap-2">
+          <div className="chip-scroll">
             {UNREAD_FILTERS.map((f) => (
               <button
                 key={f.value}
@@ -160,11 +160,7 @@ export function NotificationsPage() {
                   setUnreadOnly(f.value);
                   setPage(1);
                 }}
-                className={`rounded-full px-3.5 py-1.5 text-xs font-semibold transition ${
-                  unreadOnly === f.value
-                    ? 'bg-primary text-on-primary'
-                    : 'border border-outline-variant'
-                }`}
+                className={`chip ${unreadOnly === f.value ? 'chip-active' : ''}`}
               >
                 {f.label}
               </button>

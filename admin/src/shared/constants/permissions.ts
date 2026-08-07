@@ -9,4 +9,5 @@ export const PERMISSIONS = {
   PAYMENT_CONFIG: 'payment_config.manage',
   AUDIT: 'audit.view',
   WALLET: 'wallet.adjust',
+  PLATFORM_SETTINGS: 'platform_settings.manage',
 } as const;

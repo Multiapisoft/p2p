@@ -37,6 +37,7 @@ export interface UserLookupResult {
     email: string;
     phone?: string;
     externalRef?: string;
+    businessUserCode?: string;
   };
   partnerBalance: PartnerBalance | null;
   balance: {

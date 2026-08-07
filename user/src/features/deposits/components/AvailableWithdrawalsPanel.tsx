@@ -7,6 +7,7 @@ import {
   type AvailableWithdrawal,
 } from '@/features/deposits/api/p2p-pay.api';
 import { ProofUpload } from '@/shared/components/ProofUpload';
+import { AddressQr } from '@/shared/components/AddressQr';
 import { Card } from '@/shared/components/ui/Card';
 import { Button } from '@/shared/components/ui/Button';
 import { Input } from '@/shared/components/ui/Input';
@@ -15,6 +16,8 @@ import { Modal } from '@/shared/components/ui/Modal';
 import { Pagination } from '@/shared/components/ui/Pagination';
 import { LoadingScreen, EmptyState } from '@/shared/components/ui/Icon';
 import { apiErrorMessage, formatCurrency, formatDate } from '@/shared/lib/utils';
+import { normalizeUtr, normalizeTxHash, paymentRefErrorForMethod } from '@/shared/lib/validation';
+import { buildUpiPayUri, formatSecondsMmSs } from '@/shared/lib/upi-qr';
 import type { PaymentMethod } from '@/shared/types/api.types';
 
 const PAGE_SIZES = [5, 10, 20];
@@ -47,7 +50,19 @@ function CopyBtn({ text }: { text: string }) {
   );
 }
 
-function PaymentDetails({ w }: { w: AvailableWithdrawal }) {
+function PaymentDetails({
+  w,
+  payAmount,
+}: {
+  w: AvailableWithdrawal;
+  payAmount?: number;
+}) {
+  const upiAmount =
+    payAmount != null && payAmount > 0
+      ? payAmount
+      : w.maxPayable != null
+        ? Math.min(w.maxPayable, w.remainingAmount)
+        : w.remainingAmount;
   return (
     <div className="rounded-xl border border-outline-variant bg-surface-container-low/60 p-3 text-sm">
       <p className="mb-2 text-xs font-bold uppercase tracking-wide text-on-surface-variant">
@@ -67,6 +82,16 @@ function PaymentDetails({ w }: { w: AvailableWithdrawal }) {
               <span className="text-on-surface-variant">Name</span>
               <span className="font-medium">{w.upiDetails.payerName}</span>
             </div>
+          )}
+          {w.upiDetails?.upiId && (
+            <AddressQr
+              value={buildUpiPayUri({
+                upiId: w.upiDetails.upiId,
+                name: w.upiDetails.payerName,
+                amount: upiAmount > 0 ? upiAmount : undefined,
+              })}
+              label="Scan UPI QR"
+            />
           )}
         </div>
       )}
@@ -105,6 +130,12 @@ function PaymentDetails({ w }: { w: AvailableWithdrawal }) {
               {w.usdtDetails?.walletAddress && <CopyBtn text={w.usdtDetails.walletAddress} />}
             </span>
           </div>
+          {w.usdtDetails?.walletAddress && (
+            <AddressQr
+              value={w.usdtDetails.walletAddress}
+              label={`Scan ${w.usdtDetails.network || 'TRC20'} address`}
+            />
+          )}
         </div>
       )}
     </div>
@@ -123,11 +154,14 @@ export function AvailableWithdrawalsPanel({
   const [method, setMethod] = useState<PaymentMethod | 'all'>('all');
   const [sort, setSort] = useState('newest');
   const [target, setTarget] = useState<AvailableWithdrawal | null>(null);
+  const [claimPayDeadline, setClaimPayDeadline] = useState<string | null>(null);
+  const [claimingId, setClaimingId] = useState<string | null>(null);
   const [payAmount, setPayAmount] = useState('');
   const [utr, setUtr] = useState('');
   const [proofKey, setProofKey] = useState('');
   const [proofUrl, setProofUrl] = useState('');
   const [formError, setFormError] = useState('');
+  const [now, setNow] = useState(() => Date.now());
   const qc = useQueryClient();
 
   useEffect(() => {
@@ -137,6 +171,12 @@ export function AvailableWithdrawalsPanel({
     }, 350);
     return () => clearTimeout(t);
   }, [searchInput]);
+
+  useEffect(() => {
+    if (!claimPayDeadline && !target) return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [claimPayDeadline, target]);
 
   const listQuery = useMemo(
     () => ({ page, limit, search, sort, method }),
@@ -160,7 +200,8 @@ export function AvailableWithdrawalsPanel({
     mutationFn: () =>
       p2pPayApi.submitPayment(target!._id, {
         amount: Number(payAmount),
-        utr: utr.trim(),
+        utr:
+          moneyCurrency(target!) === 'USDT' ? normalizeTxHash(utr) : normalizeUtr(utr),
         proofImageKey: proofKey,
         proofImageUrl: proofUrl,
       }),
@@ -168,8 +209,7 @@ export function AvailableWithdrawalsPanel({
       qc.invalidateQueries({ queryKey: ['available-withdrawals'] });
       qc.invalidateQueries({ queryKey: ['my-p2p-payments'] });
       qc.invalidateQueries({ queryKey: ['wallet-balance'] });
-      setTarget(null);
-      resetForm();
+      closePay();
 
       try {
         const raw = sessionStorage.getItem('partner_deposit_ctx');
@@ -207,21 +247,44 @@ export function AvailableWithdrawalsPanel({
     setFormError('');
   };
 
-  const openPay = (w: AvailableWithdrawal) => {
-    setTarget(w);
+  const closePay = () => {
+    setTarget(null);
+    setClaimPayDeadline(null);
     resetForm();
-    const maxPay =
-      w.maxPayable != null ? Math.min(w.maxPayable, w.remainingAmount) : w.remainingAmount;
-    const pref =
-      preferredAmount && preferredAmount >= 1
-        ? Math.min(preferredAmount, maxPay)
-        : maxPay;
-    setPayAmount(String(pref > 0 ? pref : maxPay));
+  };
+
+  const openPay = async (w: AvailableWithdrawal) => {
+    setFormError('');
+    setClaimingId(w._id);
+    try {
+      const claimed = await p2pPayApi.claimWithdrawal(w._id);
+      setTarget({ ...w, ...claimed });
+      setClaimPayDeadline(claimed.claimPayDeadline);
+      resetForm();
+      const maxPay =
+        claimed.maxPayable != null
+          ? Math.min(claimed.maxPayable, claimed.remainingAmount)
+          : claimed.remainingAmount;
+      const pref =
+        preferredAmount && preferredAmount >= 1
+          ? Math.min(preferredAmount, maxPay)
+          : maxPay;
+      setPayAmount(String(pref > 0 ? pref : maxPay));
+      qc.invalidateQueries({ queryKey: ['available-withdrawals'] });
+    } catch (err: unknown) {
+      setFormError(apiErrorMessage(err, 'Could not claim this withdrawal'));
+    } finally {
+      setClaimingId(null);
+    }
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setFormError('');
+    if (payExpired) {
+      setFormError('Submit window ended. Payment will not be accepted.');
+      return;
+    }
     const num = Number(payAmount);
     if (!target || !num || num < 1) {
       setFormError('Enter a valid amount');
@@ -239,8 +302,9 @@ export function AvailableWithdrawalsPanel({
       );
       return;
     }
-    if (!utr || utr.length < 6) {
-      setFormError(moneyCurrency(target) === 'USDT' ? 'TxID is required' : 'UTR is required');
+    const refErr = paymentRefErrorForMethod(utr, target.method);
+    if (refErr) {
+      setFormError(refErr);
       return;
     }
     if (!proofKey || !proofUrl) {
@@ -253,9 +317,19 @@ export function AvailableWithdrawalsPanel({
   const items = data?.items ?? [];
   const total = data?.total ?? 0;
   const totalPages = data?.totalPages ?? 1;
+  const claimLockMinutes = data?.claimLockMinutes ?? 7;
+  const paySecondsLeft = claimPayDeadline
+    ? Math.max(0, Math.ceil((new Date(claimPayDeadline).getTime() - now) / 1000))
+    : 0;
+  const payExpired = !!claimPayDeadline && paySecondsLeft <= 0;
 
   return (
     <>
+      {formError && !target && (
+        <div className="mb-3 rounded-lg bg-error-container px-3 py-2 text-sm text-on-error-container">
+          {formError}
+        </div>
+      )}
       <Card title="Open withdrawal requests">
         <div className="mb-3 space-y-2">
           <Input
@@ -331,7 +405,7 @@ export function AvailableWithdrawalsPanel({
             message={
               search || method !== 'all'
                 ? 'No requests match your filters'
-                : 'No approved P2P requests yet. Withdrawals appear here only after business or admin approval.'
+                : 'No approved Platform Payment requests yet. Withdrawals appear here only after business or admin approval.'
             }
             icon="payments"
           />
@@ -379,13 +453,13 @@ export function AvailableWithdrawalsPanel({
                   <Button
                     size="sm"
                     className="w-full sm:w-auto"
-                    disabled={w.remainingAmount <= 0}
+                    disabled={w.remainingAmount <= 0 || claimingId === w._id}
+                    loading={claimingId === w._id}
                     onClick={() => openPay(w)}
                   >
                     Pay now
                   </Button>
                 </div>
-                <PaymentDetails w={w} />
               </div>
             ))}
             <Pagination page={page} totalPages={totalPages} total={total} limit={limit} onPageChange={setPage} />
@@ -393,9 +467,28 @@ export function AvailableWithdrawalsPanel({
         )}
       </Card>
 
-      <Modal open={!!target} onClose={() => setTarget(null)} title="Pay withdrawal request" className="sm:max-w-md">
+      <Modal open={!!target} onClose={closePay} title="Pay withdrawal request" className="sm:max-w-md">
         {target && (
           <form onSubmit={handleSubmit} className="space-y-3">
+            <div
+              className={`rounded-xl border px-3 py-2.5 ${
+                payExpired
+                  ? 'border-error/40 bg-error-container/40'
+                  : 'border-amber-500/40 bg-amber-500/10'
+              }`}
+            >
+              <p className="text-xs font-bold uppercase tracking-wide">
+                Submit within {formatSecondsMmSs(paySecondsLeft)}
+              </p>
+              <p className="mt-1 text-[11px] font-medium text-on-surface">
+                If you submit after time ends, payment will not be accepted
+              </p>
+              <p className="mt-1 text-[10px] text-on-surface-variant">
+                This withdrawal stays locked for others for {claimLockMinutes} min
+                (claim lock).
+              </p>
+            </div>
+
             <div className="grid grid-cols-3 gap-2 rounded-xl bg-surface-container-low p-2.5 text-center text-xs">
               <div>
                 <p className="text-on-surface-variant">Total</p>
@@ -422,11 +515,14 @@ export function AvailableWithdrawalsPanel({
 
             {target.p2pPayRemainingInr != null && (
               <p className="text-[11px] text-amber-700">
-                Business P2P limit remaining: ₹{target.p2pPayRemainingInr}
+                Business Platform Payment limit remaining: ₹{target.p2pPayRemainingInr}
               </p>
             )}
 
-            <PaymentDetails w={target} />
+            <PaymentDetails
+              w={target}
+              payAmount={payAmountNum >= 1 ? payAmountNum : undefined}
+            />
 
             <Input
               label={moneyCurrency(target) === 'USDT' ? 'Amount (USDT)' : 'Amount (₹)'}
@@ -440,6 +536,7 @@ export function AvailableWithdrawalsPanel({
               value={payAmount}
               onChange={(e) => setPayAmount(e.target.value)}
               required
+              disabled={payExpired}
             />
 
             {payAmountNum >= 1 && creditPreview && (
@@ -467,6 +564,7 @@ export function AvailableWithdrawalsPanel({
                 setProofKey(key);
                 setProofUrl(url);
               }}
+              disabled={payExpired}
               referenceKind={moneyCurrency(target) === 'USDT' ? 'txid' : 'utr'}
             />
 
@@ -476,8 +574,8 @@ export function AvailableWithdrawalsPanel({
               </p>
             )}
 
-            <Button type="submit" className="w-full" loading={submit.isPending}>
-              Submit payment
+            <Button type="submit" className="w-full" loading={submit.isPending} disabled={payExpired}>
+              {payExpired ? 'Time expired' : 'Submit payment'}
             </Button>
           </form>
         )}
@@ -500,7 +598,7 @@ export function MyP2pPaymentsPanel() {
   const totalPages = data?.totalPages ?? 1;
 
   return (
-    <Card title="My P2P payments">
+    <Card title="My Platform payments">
       {isLoading ? (
         <LoadingScreen />
       ) : isError ? (
@@ -511,7 +609,7 @@ export function MyP2pPaymentsPanel() {
           </Button>
         </div>
       ) : !items.length ? (
-        <EmptyState message="No P2P payments yet" icon="receipt_long" />
+        <EmptyState message="No Platform payments yet" icon="receipt_long" />
       ) : (
         <div className={`space-y-2 ${isFetching ? 'opacity-70' : ''}`}>
           {items.map((p) => (

@@ -13,6 +13,7 @@ import { StatusBadge } from '@/shared/components/ui/Badge';
 import { Pagination } from '@/shared/components/ui/Pagination';
 import { LoadingScreen, EmptyState } from '@/shared/components/ui/Icon';
 import { formatDate } from '@/shared/lib/utils';
+import { getApiErrorMessage } from '@/shared/lib/api-error';
 import type { SupportTicket } from '@/shared/types/api.types';
 
 const STATUS_FILTERS = [
@@ -64,6 +65,7 @@ export function SupportPage() {
   const [search, setSearch] = useState('');
   const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
   const [reply, setReply] = useState('');
+  const [statusError, setStatusError] = useState('');
   const qc = useQueryClient();
 
   useEffect(() => {
@@ -104,7 +106,11 @@ export function SupportPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['support-ticket'] });
       qc.invalidateQueries({ queryKey: ['support'] });
+      setSelectedTicketId(null);
+      setReply('');
+      setStatusError('');
     },
+    onError: (err) => setStatusError(getApiErrorMessage(err, 'Status update failed')),
   });
 
   const items = data?.items ?? [];
@@ -283,6 +289,7 @@ export function SupportPage() {
         onClose={() => {
           setSelectedTicketId(null);
           setReply('');
+          setStatusError('');
         }}
         title={ticket ? `#${ticket.ticketId}` : 'Ticket'}
         className="sm:max-w-2xl"
@@ -309,12 +316,21 @@ export function SupportPage() {
                   key={s}
                   size="sm"
                   variant={ticket.status === s ? 'secondary' : 'outline'}
-                  onClick={() => updateStatus.mutate(s)}
+                  loading={updateStatus.isPending}
+                  onClick={() => {
+                    setStatusError('');
+                    updateStatus.mutate(s);
+                  }}
                 >
                   {s.replace('_', ' ')}
                 </Button>
               ))}
             </div>
+            {statusError && (
+              <div className="rounded-lg bg-error-container px-4 py-3 text-sm text-on-error-container">
+                {statusError}
+              </div>
+            )}
 
             <TicketMessageBody message={ticket.message} />
 

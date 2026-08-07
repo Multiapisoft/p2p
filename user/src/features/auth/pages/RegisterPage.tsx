@@ -9,6 +9,12 @@ import { useAuthStore } from '@/features/auth/store/auth.store';
 import { Button } from '@/shared/components/ui/Button';
 import { Input } from '@/shared/components/ui/Input';
 import { toast } from '@/shared/ui/toast/toast.store';
+import {
+  emailError,
+  normalizeEmail,
+  normalizePhone,
+  phoneError,
+} from '@/shared/lib/validation';
 
 function RegisterForm() {
   const router = useRouter();
@@ -38,9 +44,9 @@ function RegisterForm() {
     mutationFn: () =>
       registerApi({
         name,
-        email,
+        email: normalizeEmail(email),
         password,
-        phone: phone || undefined,
+        phone: phone.trim() ? normalizePhone(phone) : undefined,
         referralCode: referralCode.trim(),
       }),
     onSuccess: (data) => {
@@ -62,7 +68,7 @@ function RegisterForm() {
 
   return (
     <div className="flex min-h-screen flex-col md:flex-row">
-      <div className="relative flex min-h-[160px] w-full items-center justify-center overflow-hidden bg-primary-container sm:min-h-[200px] md:min-h-screen md:w-1/2">
+      <div className="relative flex min-h-[160px] w-full items-center justify-center overflow-hidden bg-primary sm:min-h-[200px] md:min-h-screen md:w-1/2">
         <div className="absolute inset-0 bg-gradient-to-tr from-on-background/60 to-secondary/40" />
         <div className="relative z-10 px-5 text-center text-white sm:px-6 md:px-12 md:text-left">
           <h1 className="font-[family-name:var(--font-headline)] text-2xl font-bold sm:text-3xl md:text-4xl">Join FinGuard</h1>
@@ -93,6 +99,16 @@ function RegisterForm() {
             onSubmit={(e) => {
               e.preventDefault();
               setError('');
+              const eMsg = emailError(email);
+              if (eMsg) {
+                setError(eMsg);
+                return;
+              }
+              const pMsg = phoneError(phone, false);
+              if (pMsg) {
+                setError(pMsg);
+                return;
+              }
               if (!referralCode.trim()) {
                 setError('Business code is required. Use the invite link from your business.');
                 return;
@@ -107,6 +123,7 @@ function RegisterForm() {
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
+              placeholder="name@example.com"
               required
             />
             <Input
@@ -115,6 +132,9 @@ function RegisterForm() {
               type="tel"
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
+              placeholder="10-digit mobile"
+              inputMode="numeric"
+              maxLength={13}
             />
             <Input
               label="Business code"

@@ -68,6 +68,15 @@ export class WithdrawalPaymentController {
     return this.paymentService.findById(withdrawalId, user.userId);
   }
 
+  @Post('withdrawal/:withdrawalId/claim')
+  @Roles(UserRole.USER, UserRole.INVESTOR)
+  claimWithdrawal(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('withdrawalId') withdrawalId: string,
+  ) {
+    return this.paymentService.claimWithdrawal(user.userId, withdrawalId);
+  }
+
   @Post('withdrawal/:withdrawalId')
   submitPayment(
     @CurrentUser() user: AuthenticatedUser,

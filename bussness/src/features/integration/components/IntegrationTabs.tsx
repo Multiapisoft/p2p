@@ -20,20 +20,20 @@ export function IntegrationTabs({
   onChange: (tab: TabId) => void;
 }) {
   return (
-    <div className="flex gap-1 overflow-x-auto rounded-xl border border-outline-variant bg-surface-container-low p-1">
+    <div className="chip-scroll rounded-xl border border-outline-variant bg-surface-container-low p-1">
       {TABS.map((tab) => (
         <button
           key={tab.id}
           type="button"
           onClick={() => onChange(tab.id)}
           className={cn(
-            'flex shrink-0 items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold transition-colors',
+            'flex shrink-0 items-center gap-1 rounded-lg px-2.5 py-1.5 text-[11px] font-semibold transition-colors sm:gap-2 sm:px-4 sm:py-2.5 sm:text-sm',
             active === tab.id
               ? 'bg-surface text-on-surface shadow-sm'
               : 'text-on-surface-variant hover:text-on-surface',
           )}
         >
-          <span className="material-symbols-outlined text-lg">{tab.icon}</span>
+          <span className="material-symbols-outlined text-base sm:text-lg">{tab.icon}</span>
           {tab.label}
         </button>
       ))}

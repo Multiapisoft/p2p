@@ -9,6 +9,7 @@ import { Button } from '@/shared/components/ui/Button';
 import { Input } from '@/shared/components/ui/Input';
 import { LoadingScreen } from '@/shared/components/ui/Icon';
 import { formatDate } from '@/shared/lib/utils';
+import { normalizePhone, phoneError } from '@/shared/lib/validation';
 
 export function ProfilePage() {
   const user = useAuthStore((s) => s.user);
@@ -32,7 +33,11 @@ export function ProfilePage() {
   }, [profile]);
 
   const update = useMutation({
-    mutationFn: () => profileApi.updateMe({ name, phone: phone || undefined }),
+    mutationFn: () =>
+      profileApi.updateMe({
+        name,
+        phone: phone.trim() ? normalizePhone(phone) : undefined,
+      }),
     onSuccess: () => {
       setMessage('Profile updated successfully');
       qc.invalidateQueries({ queryKey: ['profile'] });
@@ -76,11 +81,25 @@ export function ProfilePage() {
           onSubmit={(e) => {
             e.preventDefault();
             setMessage('');
+            const pMsg = phoneError(phone, false);
+            if (pMsg) {
+              setMessage(pMsg);
+              return;
+            }
             update.mutate();
           }}
         >
           <Input label="Full Name" icon="person" value={name} onChange={(e) => setName(e.target.value)} required />
-          <Input label="Phone" icon="phone" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} />
+          <Input
+            label="Phone"
+            icon="phone"
+            type="tel"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            placeholder="10-digit mobile"
+            inputMode="numeric"
+            maxLength={13}
+          />
 
           {message && (
             <p

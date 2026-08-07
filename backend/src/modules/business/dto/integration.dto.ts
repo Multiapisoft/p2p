@@ -1,7 +1,8 @@
-import { IsEmail, IsString, MinLength, IsOptional } from 'class-validator';
+import { IsString, MinLength, IsOptional } from 'class-validator';
+import { IsAppEmail, IsOptionalAppPhone } from '../../../common/validators/contact.validators';
 
 export class IntegrationRegisterUserDto {
-  @IsEmail()
+  @IsAppEmail()
   email!: string;
 
   @IsString()
@@ -11,8 +12,7 @@ export class IntegrationRegisterUserDto {
   @IsString()
   name!: string;
 
-  @IsOptional()
-  @IsString()
+  @IsOptionalAppPhone()
   phone?: string;
 
   /** Partner platform user id, e.g. `bitfarming:{mongoId}` */

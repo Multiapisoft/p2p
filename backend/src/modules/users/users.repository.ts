@@ -1,15 +1,38 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { User, UserDocument } from './schemas/user.schema';
 import { RedisService } from '../../redis/redis.service';
 
 @Injectable()
-export class UsersRepository {
+export class UsersRepository implements OnModuleInit {
+  private readonly logger = new Logger(UsersRepository.name);
+
   constructor(
     @InjectModel(User.name) private userModel: Model<UserDocument>,
     private redis: RedisService,
   ) {}
+
+  /** Drop legacy sparse unique index that collided on externalRef: null */
+  async onModuleInit() {
+    try {
+      const indexes = await this.userModel.collection.indexes();
+      const legacy = indexes.find(
+        (idx) =>
+          idx.name === 'referredByBusiness_1_externalRef_1' &&
+          !(idx as { partialFilterExpression?: unknown }).partialFilterExpression,
+      );
+      if (legacy?.name) {
+        await this.userModel.collection.dropIndex(legacy.name);
+        this.logger.log(`Dropped legacy index ${legacy.name}`);
+      }
+      await this.userModel.syncIndexes();
+    } catch (err) {
+      this.logger.warn(
+        `Could not migrate users externalRef index: ${err instanceof Error ? err.message : err}`,
+      );
+    }
+  }
 
   async create(data: Partial<User>): Promise<UserDocument> {
     const user = await this.userModel.create(data);
@@ -26,7 +49,49 @@ export class UsersRepository {
   }
 
   async findByEmail(email: string): Promise<UserDocument | null> {
-    return this.userModel.findOne({ email: email.toLowerCase() }).exec();
+    return this.userModel.findOne({ email: email.toLowerCase().trim() }).exec();
+  }
+
+  /** Match phone with flexible formatting (+91 / 91 / 10-digit). */
+  async findByPhone(phone: string): Promise<UserDocument | null> {
+    const raw = phone.trim();
+    if (!raw) return null;
+
+    const digits = raw.replace(/\D/g, '');
+    const variants = new Set<string>([raw]);
+    if (digits) {
+      variants.add(digits);
+      if (digits.length === 10) {
+        variants.add(`+91${digits}`);
+        variants.add(`91${digits}`);
+        variants.add(`0${digits}`);
+      }
+      if (digits.length === 12 && digits.startsWith('91')) {
+        const local = digits.slice(2);
+        variants.add(local);
+        variants.add(`+${digits}`);
+        variants.add(`+91${local}`);
+      }
+      if (digits.length === 11 && digits.startsWith('0')) {
+        const local = digits.slice(1);
+        variants.add(local);
+        variants.add(`+91${local}`);
+        variants.add(`91${local}`);
+      }
+    }
+
+    const exact = await this.userModel
+      .findOne({ phone: { $in: [...variants] } })
+      .exec();
+    if (exact) return exact;
+
+    if (digits.length >= 10) {
+      const last10 = digits.slice(-10);
+      return this.userModel
+        .findOne({ phone: { $regex: `${last10}$` } })
+        .exec();
+    }
+    return null;
   }
 
   async findByExternalRefForBusiness(
@@ -59,7 +124,13 @@ export class UsersRepository {
     sort: Record<string, 1 | -1> = { createdAt: -1 },
   ) {
     const [items, total] = await Promise.all([
-      this.userModel.find(filter).skip(skip).limit(limit).sort(sort).exec(),
+      this.userModel
+        .find(filter)
+        .populate('referredByBusiness', 'name referralCode')
+        .skip(skip)
+        .limit(limit)
+        .sort(sort)
+        .exec(),
       this.userModel.countDocuments(filter).exec(),
     ]);
     return { items, total };

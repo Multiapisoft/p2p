@@ -62,6 +62,10 @@ export function UsersPage() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [passwordError, setPasswordError] = useState('');
   const [passwordSuccess, setPasswordSuccess] = useState('');
+  const [codeUser, setCodeUser] = useState<User | null>(null);
+  const [userCode, setUserCode] = useState('');
+  const [codeError, setCodeError] = useState('');
+  const [codeSuccess, setCodeSuccess] = useState('');
   const qc = useQueryClient();
 
   useEffect(() => {
@@ -103,6 +107,20 @@ export function UsersPage() {
     },
   });
 
+  const saveUserCode = useMutation({
+    mutationFn: () => usersApi.setUserCode(codeUser!._id, userCode.trim()),
+    onSuccess: () => {
+      setCodeSuccess('Identification code saved');
+      setCodeError('');
+      qc.invalidateQueries({ queryKey: ['business-users'] });
+      qc.invalidateQueries({ queryKey: ['business-user-detail'] });
+    },
+    onError: (err) => {
+      setCodeSuccess('');
+      setCodeError(getApiErrorMessage(err, 'Could not save code'));
+    },
+  });
+
   const items = data?.items ?? [];
   const total = data?.total ?? 0;
   const totalPages = data?.totalPages ?? 1;
@@ -113,6 +131,13 @@ export function UsersPage() {
     setConfirmPassword('');
     setPasswordError('');
     setPasswordSuccess('');
+  }
+
+  function openCodeModal(u: User) {
+    setCodeUser(u);
+    setUserCode(u.businessUserCode || '');
+    setCodeError('');
+    setCodeSuccess('');
   }
 
   function submitPassword(e: FormEvent) {
@@ -128,6 +153,17 @@ export function UsersPage() {
       return;
     }
     resetPassword.mutate();
+  }
+
+  function submitCode(e: FormEvent) {
+    e.preventDefault();
+    setCodeError('');
+    setCodeSuccess('');
+    if (!userCode.trim()) {
+      setCodeError('Code is required');
+      return;
+    }
+    saveUserCode.mutate();
   }
 
   return (
@@ -220,7 +256,7 @@ export function UsersPage() {
             </select>
           </div>
 
-          <div className="flex flex-wrap gap-2">
+          <div className="chip-scroll">
             {STATUS_FILTERS.map((s) => (
               <button
                 key={s.value}
@@ -229,11 +265,7 @@ export function UsersPage() {
                   setStatus(s.value);
                   setPage(1);
                 }}
-                className={`rounded-full px-3.5 py-1.5 text-xs font-semibold transition ${
-                  status === s.value
-                    ? 'bg-primary text-on-primary'
-                    : 'border border-outline-variant'
-                }`}
+                className={`chip ${status === s.value ? 'chip-active' : ''}`}
               >
                 {s.label}
               </button>
@@ -270,6 +302,7 @@ export function UsersPage() {
                     <th className="pb-3 pr-4 font-semibold text-on-surface-variant">Name</th>
                     <th className="pb-3 pr-4 font-semibold text-on-surface-variant">Email</th>
                     <th className="pb-3 pr-4 font-semibold text-on-surface-variant">Phone</th>
+                    <th className="pb-3 pr-4 font-semibold text-on-surface-variant">Code</th>
                     <th className="pb-3 pr-4 font-semibold text-on-surface-variant">Role</th>
                     <th className="pb-3 pr-4 font-semibold text-on-surface-variant">Status</th>
                     <th className="pb-3 pr-4 font-semibold text-on-surface-variant">Joined</th>
@@ -282,6 +315,9 @@ export function UsersPage() {
                       <td className="py-3 pr-4 font-medium">{u.name}</td>
                       <td className="py-3 pr-4 text-on-surface-variant">{u.email}</td>
                       <td className="py-3 pr-4 text-on-surface-variant">{u.phone || '—'}</td>
+                      <td className="py-3 pr-4 font-mono text-xs text-on-surface-variant">
+                        {u.businessUserCode || '—'}
+                      </td>
                       <td className="py-3 pr-4 capitalize text-on-surface-variant">{u.role}</td>
                       <td className="py-3 pr-4">
                         <StatusBadge status={u.status} />
@@ -295,6 +331,13 @@ export function UsersPage() {
                             className="text-sm font-semibold text-secondary hover:underline"
                           >
                             Details
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openCodeModal(u)}
+                            className="text-sm font-semibold text-on-surface-variant hover:underline"
+                          >
+                            {u.businessUserCode ? 'Edit code' : 'Set code'}
                           </button>
                           <button
                             type="button"
@@ -342,6 +385,14 @@ export function UsersPage() {
               <DetailRow label="Email" value={detail.user.email} />
               <DetailRow label="Phone" value={detail.user.phone || '—'} />
               <DetailRow label="External ref" value={detail.user.externalRef || '—'} />
+              <DetailRow
+                label="User code"
+                value={
+                  detail.user.businessUserCode ||
+                  items.find((x) => x._id === selectedId)?.businessUserCode ||
+                  '—'
+                }
+              />
               <DetailRow label="User ID" value={detail.user._id || detail.user.userId} />
             </div>
 
@@ -401,6 +452,27 @@ export function UsersPage() {
             </div>
 
             <div className="flex flex-col gap-2 sm:flex-row">
+              <Button
+                className="flex-1"
+                variant="secondary"
+                onClick={() => {
+                  const u = items.find((x) => x._id === selectedId);
+                  if (u) openCodeModal(u);
+                  else if (selectedId) {
+                    openCodeModal({
+                      _id: selectedId,
+                      email: detail.user.email,
+                      name: detail.user.name,
+                      role: 'user',
+                      status: 'active',
+                      createdAt: '',
+                      businessUserCode: detail.user.businessUserCode,
+                    } as User);
+                  }
+                }}
+              >
+                Set / edit code
+              </Button>
               <Button
                 className="flex-1"
                 variant="secondary"
@@ -480,6 +552,50 @@ export function UsersPage() {
             ) : null}
             <Button type="submit" className="w-full" loading={resetPassword.isPending}>
               Update password
+            </Button>
+          </form>
+        ) : null}
+      </Modal>
+
+      <Modal
+        open={!!codeUser}
+        onClose={() => {
+          if (saveUserCode.isPending) return;
+          setCodeUser(null);
+          setCodeError('');
+          setCodeSuccess('');
+        }}
+        title={codeUser?.businessUserCode ? 'Edit user code' : 'Set user code'}
+        className="sm:max-w-md"
+      >
+        {codeUser ? (
+          <form className="space-y-4" onSubmit={submitCode}>
+            <p className="text-sm text-on-surface-variant">
+              Assign an identification code for{' '}
+              <strong>
+                {codeUser.name} ({codeUser.email})
+              </strong>{' '}
+              so your team can recognize this user.
+            </p>
+            <Input
+              label="Identification code"
+              value={userCode}
+              onChange={(e) => setUserCode(e.target.value)}
+              placeholder="e.g. MAH-001"
+              required
+            />
+            {codeError ? (
+              <p className="rounded-lg border border-error/30 bg-error/5 px-3 py-2 text-sm text-error">
+                {codeError}
+              </p>
+            ) : null}
+            {codeSuccess ? (
+              <p className="rounded-lg border border-secondary/30 bg-secondary/5 px-3 py-2 text-sm text-secondary">
+                {codeSuccess}
+              </p>
+            ) : null}
+            <Button type="submit" className="w-full" loading={saveUserCode.isPending}>
+              Save code
             </Button>
           </form>
         ) : null}
