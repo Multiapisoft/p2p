@@ -38,6 +38,7 @@ import {
   normalizeListOpts,
   type ListQueryOpts,
 } from '../../common/dto/list-query.dto';
+import { withOptionalTransaction } from '../../common/utils/mongo-transaction';
 import { PlatformSettingsService } from '../platform-settings/platform-settings.service';
 
 export type WithdrawalListOpts = ListQueryOpts & { method?: string };
@@ -250,11 +251,10 @@ export class WithdrawalService {
   }
 
   async approve(withdrawalId: string, dto: ProcessWithdrawalDto, processedBy: string) {
-    const session = await this.connection.startSession();
-    session.startTransaction();
-
-    try {
-      const withdrawal = await this.withdrawalModel.findById(withdrawalId).session(session);
+    return withOptionalTransaction(this.connection, async (session) => {
+      const withdrawal = await this.withdrawalModel
+        .findById(withdrawalId)
+        .session(session || null);
       if (!withdrawal) throw new NotFoundException('Withdrawal not found');
       if (withdrawal.status !== TransactionStatus.PENDING) {
         throw new BadRequestException('Withdrawal is not pending');
@@ -267,14 +267,14 @@ export class WithdrawalService {
           withdrawalId: withdrawal._id,
           status: TransactionStatus.PENDING,
         })
-        .session(session);
+        .session(session || null);
       if (pendingPayments) {
         throw new BadRequestException('Reject or approve pending split payments first');
       }
 
       const lockAmt = this.lockAmountFor(withdrawal);
       const wallet =
-        (await this.walletService.findById(withdrawal.walletId.toString(), session)) ||
+        (await this.walletService.findById(withdrawal.walletId.toString(), session || undefined)) ||
         (await this.walletService.getOrCreate(
           withdrawal.userId.toString(),
           withdrawal.currency,
@@ -301,12 +301,12 @@ export class WithdrawalService {
 
       // Debit only what was locked — commission is recorded, not taken from unlocked shortfall
       const balanceBefore = wallet.balance;
-      await this.walletService.unlock(wallet._id.toString(), lockAmt, session);
+      await this.walletService.unlock(wallet._id.toString(), lockAmt, session || undefined);
       const updatedWallet = await this.walletService.debit(
         wallet._id.toString(),
         lockAmt,
         'totalWithdrawn',
-        session,
+        session || undefined,
       );
 
       if (dto.utr && withdrawal.upiDetails) withdrawal.upiDetails.utr = dto.utr;
@@ -317,7 +317,7 @@ export class WithdrawalService {
       withdrawal.processedBy = processedBy;
       withdrawal.completedAt = new Date();
       withdrawal.p2pAdvanceCredited = false;
-      await withdrawal.save({ session });
+      await withdrawal.save({ session: session || undefined });
 
       await this.transactionService.record({
         userId: withdrawal.userId.toString(),
@@ -334,7 +334,9 @@ export class WithdrawalService {
       });
 
       if (withdrawal.businessId) {
-        const business = await this.businessModel.findById(withdrawal.businessId).session(session);
+        const business = await this.businessModel
+          .findById(withdrawal.businessId)
+          .session(session || null);
         if (business) {
           await this.businessFloatService.creditFloatOnWithdrawalApprove(
             withdrawal.businessId.toString(),
@@ -346,14 +348,65 @@ export class WithdrawalService {
         }
       }
 
-      await session.commitTransaction();
       return withdrawal;
-    } catch (error) {
-      await session.abortTransaction();
-      throw error;
-    } finally {
-      session.endSession();
+    });
+  }
+
+  /**
+   * Business-owner approve: only for withdrawals belonging to their business.
+   */
+  async approveForBusiness(
+    withdrawalId: string,
+    businessId: string,
+    dto: ProcessWithdrawalDto,
+    processedBy: string,
+  ) {
+    const withdrawal = await this.withdrawalModel.findById(withdrawalId).exec();
+    if (!withdrawal) throw new NotFoundException('Withdrawal not found');
+    if (withdrawal.businessId?.toString() !== businessId) {
+      throw new ForbiddenException('Withdrawal does not belong to your business');
     }
+    return this.approve(withdrawalId, dto, processedBy);
+  }
+
+  async rejectForBusiness(
+    withdrawalId: string,
+    businessId: string,
+    dto: RejectWithdrawalDto,
+  ) {
+    const withdrawal = await this.withdrawalModel.findById(withdrawalId).exec();
+    if (!withdrawal) throw new NotFoundException('Withdrawal not found');
+    if (withdrawal.businessId?.toString() !== businessId) {
+      throw new ForbiddenException('Withdrawal does not belong to your business');
+    }
+    return this.reject(withdrawalId, dto);
+  }
+
+  /** Admin/sub-admin: only withdrawals without a business owner. */
+  async approveAsAdmin(
+    withdrawalId: string,
+    dto: ProcessWithdrawalDto,
+    processedBy: string,
+  ) {
+    const withdrawal = await this.withdrawalModel.findById(withdrawalId).exec();
+    if (!withdrawal) throw new NotFoundException('Withdrawal not found');
+    if (withdrawal.businessId) {
+      throw new ForbiddenException(
+        'This withdrawal belongs to a business. Only that business can approve it.',
+      );
+    }
+    return this.approve(withdrawalId, dto, processedBy);
+  }
+
+  async rejectAsAdmin(withdrawalId: string, dto: RejectWithdrawalDto) {
+    const withdrawal = await this.withdrawalModel.findById(withdrawalId).exec();
+    if (!withdrawal) throw new NotFoundException('Withdrawal not found');
+    if (withdrawal.businessId) {
+      throw new ForbiddenException(
+        'This withdrawal belongs to a business. Only that business can reject it.',
+      );
+    }
+    return this.reject(withdrawalId, dto);
   }
 
   async reject(withdrawalId: string, dto: RejectWithdrawalDto) {
@@ -422,17 +475,7 @@ export class WithdrawalService {
       return withdrawal;
     }
 
-    const tatMs = await this.platformSettingsService.getTatMs();
-    const createdAt = (withdrawal as unknown as { createdAt?: Date }).createdAt;
-    if (createdAt && Date.now() - new Date(createdAt).getTime() < tatMs) {
-      const remainingSec = Math.ceil(
-        (tatMs - (Date.now() - new Date(createdAt).getTime())) / 1000,
-      );
-      throw new BadRequestException(
-        `User edit window still active (${remainingSec}s remaining). Wait until TAT expires before listing for Platform Payment.`,
-      );
-    }
-
+    // List immediately — user cancel TAT is separate and does not block business listing.
     withdrawal.p2pListStatus = 'listed';
     withdrawal.p2pListedAt = new Date();
     withdrawal.p2pListedBy = actor.email || actor.userId;
@@ -525,15 +568,10 @@ export class WithdrawalService {
       .sort({ createdAt: -1 })
       .exec();
 
-    const tatMs = await this.platformSettingsService.getTatMs();
-    const createdAt = (withdrawal as unknown as { createdAt?: Date }).createdAt;
-    const readyForListApproval =
-      !!createdAt && Date.now() - new Date(createdAt).getTime() >= tatMs;
-
     return {
       ...withdrawal.toObject(),
       remainingAmount: Math.max(0, withdrawal.amount - (withdrawal.paidAmount || 0)),
-      readyForListApproval,
+      readyForListApproval: true,
       payments: payments.map((p) => this.toPaymentBrief(p)),
     };
   }
@@ -598,20 +636,14 @@ export class WithdrawalService {
       byWithdrawal.set(key, list);
     }
 
-    const tatMs = await this.platformSettingsService.getTatMs();
-    const now = Date.now();
-
     return {
       items: items.map((w) => {
         const list = byWithdrawal.get(w._id.toString()) || [];
-        const createdAt = (w as unknown as { createdAt?: Date }).createdAt;
-        const readyForListApproval =
-          !!createdAt && now - new Date(createdAt).getTime() >= tatMs;
         return {
           ...w.toObject(),
           remainingAmount: Math.max(0, w.amount - (w.paidAmount || 0)),
           paymentCount: list.length,
-          readyForListApproval,
+          readyForListApproval: true,
           payments: list.map((p) => this.toPaymentBrief(p)),
         };
       }),

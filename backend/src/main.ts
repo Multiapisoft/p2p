@@ -1,8 +1,12 @@
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe } from '@nestjs/common';
+import { Logger, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
+import { installProcessGuards } from './common/utils/process-guard';
+
+// Must run before Nest boots so early async failures never kill the process.
+installProcessGuards();
 
 const DEFAULT_PROD_ORIGINS = [
   'https://dev.app.fairplayoffical.com',
@@ -20,7 +24,10 @@ function normalizeOrigin(origin: string) {
 }
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, {
+    // Don't kill the process if a provider throws during init — log instead.
+    abortOnError: false,
+  });
 
   const config = app.get(ConfigService);
   const apiPrefix = config.get<string>('app.apiPrefix') || 'api/v1';
@@ -38,21 +45,25 @@ async function bootstrap() {
       origin: string | undefined,
       callback: (err: Error | null, allow?: boolean) => void,
     ) => {
-      // Non-browser / same-origin proxy / curl — no Origin header
-      if (!origin) {
-        callback(null, true);
-        return;
+      try {
+        if (!origin) {
+          callback(null, true);
+          return;
+        }
+        if (nodeEnv !== 'production') {
+          callback(null, true);
+          return;
+        }
+        const normalized = normalizeOrigin(origin);
+        callback(null, allowedOrigins.has(normalized));
+      } catch (err) {
+        Logger.error(
+          `CORS callback error: ${err instanceof Error ? err.message : String(err)}`,
+          undefined,
+          'Bootstrap',
+        );
+        callback(null, false);
       }
-      if (nodeEnv !== 'production') {
-        callback(null, true);
-        return;
-      }
-      const normalized = normalizeOrigin(origin);
-      if (allowedOrigins.has(normalized)) {
-        callback(null, true);
-        return;
-      }
-      callback(null, false);
     },
     credentials: true,
     methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
@@ -85,8 +96,15 @@ async function bootstrap() {
     .addApiKey({ type: 'apiKey', name: 'X-API-Secret', in: 'header' }, 'api-secret')
     .build();
 
-  const document = SwaggerModule.createDocument(app, swaggerConfig);
-  SwaggerModule.setup('api/docs', app, document);
+  try {
+    const document = SwaggerModule.createDocument(app, swaggerConfig);
+    SwaggerModule.setup('api/docs', app, document);
+  } catch (err) {
+    Logger.warn(
+      `Swagger setup skipped: ${err instanceof Error ? err.message : String(err)}`,
+      'Bootstrap',
+    );
+  }
 
   const port = config.get<number>('port') || 9091;
   await app.listen(port);
@@ -94,4 +112,12 @@ async function bootstrap() {
   console.log(`P2P Platform: http://localhost:${port}/${apiPrefix}`);
   console.log(`Swagger Docs: http://localhost:${port}/api/docs`);
 }
-bootstrap();
+
+bootstrap().catch((err) => {
+  const logger = new Logger('Bootstrap');
+  logger.error(
+    `Failed to start: ${err instanceof Error ? err.stack || err.message : String(err)}`,
+  );
+  // Startup-only exit so PM2 can restart a broken boot. Runtime errors never reach here.
+  process.exit(1);
+});

@@ -330,7 +330,7 @@ export function WithdrawalsPage() {
                     )}
                     {(w.status === 'pending' || w.status === 'processing') && canCancel && tatLeft > 0 && (
                       <p className="mt-1 text-[11px] font-medium text-secondary">
-                        You can cancel/edit for {formatSecondsMmSs(tatLeft)}
+                        You can cancel for {formatSecondsMmSs(tatLeft)}
                       </p>
                     )}
                     {(w.status === 'pending' || w.status === 'processing') && !canCancel && (

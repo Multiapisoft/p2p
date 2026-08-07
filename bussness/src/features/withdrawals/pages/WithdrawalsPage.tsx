@@ -78,6 +78,11 @@ export function WithdrawalsPage() {
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [approveTarget, setApproveTarget] = useState<Withdrawal | null>(null);
+  const [rejectTarget, setRejectTarget] = useState<Withdrawal | null>(null);
+  const [utr, setUtr] = useState('');
+  const [txHash, setTxHash] = useState('');
+  const [rejectReason, setRejectReason] = useState('');
   const [actionError, setActionError] = useState('');
   const qc = useQueryClient();
 
@@ -124,6 +129,36 @@ export function WithdrawalsPage() {
       qc.invalidateQueries({ queryKey: ['business-withdrawal'] });
     },
     onError: (err) => setActionError(getApiErrorMessage(err, 'Failed to unlist')),
+  });
+
+  const approveMutation = useMutation({
+    mutationFn: (id: string) =>
+      withdrawalsApi.approve(id, {
+        utr: utr.trim() || undefined,
+        txHash: txHash.trim() || undefined,
+      }),
+    onSuccess: () => {
+      setActionError('');
+      setApproveTarget(null);
+      setUtr('');
+      setTxHash('');
+      qc.invalidateQueries({ queryKey: ['business-withdrawals'] });
+      qc.invalidateQueries({ queryKey: ['business-withdrawal'] });
+    },
+    onError: (err) => setActionError(getApiErrorMessage(err, 'Approve failed')),
+  });
+
+  const rejectMutation = useMutation({
+    mutationFn: ({ id, reason }: { id: string; reason: string }) =>
+      withdrawalsApi.reject(id, reason),
+    onSuccess: () => {
+      setActionError('');
+      setRejectTarget(null);
+      setRejectReason('');
+      qc.invalidateQueries({ queryKey: ['business-withdrawals'] });
+      qc.invalidateQueries({ queryKey: ['business-withdrawal'] });
+    },
+    onError: (err) => setActionError(getApiErrorMessage(err, 'Reject failed')),
   });
 
   const items = data?.items ?? [];
@@ -317,17 +352,46 @@ export function WithdrawalsPage() {
                           {p2pLabel(w)}
                         </span>
                       </div>
+                      {w.status === 'pending' && (w.paidAmount || 0) <= 0 && (
+                        <div className="flex gap-2">
+                          <Button
+                            size="sm"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setActionError('');
+                              setUtr('');
+                              setTxHash('');
+                              setApproveTarget(w);
+                            }}
+                          >
+                            Approve payout
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="danger"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setActionError('');
+                              setRejectReason('');
+                              setRejectTarget(w);
+                            }}
+                          >
+                            Reject
+                          </Button>
+                        </div>
+                      )}
                       {(w.status === 'pending' || w.status === 'processing') &&
                         (w.p2pListStatus || 'awaiting') !== 'listed' && (
                           <Button
                             size="sm"
+                            variant="secondary"
                             onClick={(e) => {
                               e.stopPropagation();
                               listForP2p.mutate(w._id);
                             }}
                             loading={listForP2p.isPending}
                           >
-                            Approve for Platform Payment
+                            List for Platform Payment
                           </Button>
                         )}
                       {(w.status === 'pending' || w.status === 'processing') &&
@@ -405,15 +469,42 @@ export function WithdrawalsPage() {
                     <DetailRow label="User code" value={user.businessUserCode} />
                   ) : null}
                   <DetailRow label="Destination" value={destinationLine(detail)} />
-                  {(detail.status === 'pending' || detail.status === 'processing') && (
+                  {detail.status === 'pending' && (detail.paidAmount || 0) <= 0 && (
                     <div className="mt-4 flex flex-wrap gap-2">
+                      <Button
+                        className="flex-1"
+                        onClick={() => {
+                          setActionError('');
+                          setUtr('');
+                          setTxHash('');
+                          setApproveTarget(detail);
+                        }}
+                      >
+                        Approve payout
+                      </Button>
+                      <Button
+                        className="flex-1"
+                        variant="danger"
+                        onClick={() => {
+                          setActionError('');
+                          setRejectReason('');
+                          setRejectTarget(detail);
+                        }}
+                      >
+                        Reject
+                      </Button>
+                    </div>
+                  )}
+                  {(detail.status === 'pending' || detail.status === 'processing') && (
+                    <div className="mt-3 flex flex-wrap gap-2">
                       {(detail.p2pListStatus || 'awaiting') !== 'listed' ? (
                         <Button
                           className="flex-1"
+                          variant="secondary"
                           loading={listForP2p.isPending}
                           onClick={() => listForP2p.mutate(detail._id)}
                         >
-                          Approve for Platform Payment list
+                          List for Platform Payment
                         </Button>
                       ) : (
                         <Button
@@ -532,6 +623,93 @@ export function WithdrawalsPage() {
             })()}
           </div>
         )}
+      </Modal>
+
+      <Modal
+        open={!!approveTarget}
+        onClose={() => {
+          setApproveTarget(null);
+          setActionError('');
+        }}
+        title="Approve payout"
+      >
+        <form
+          className="space-y-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!approveTarget) return;
+            setActionError('');
+            approveMutation.mutate(approveTarget._id);
+          }}
+        >
+          <p className="text-sm text-on-surface-variant">
+            Mark this withdrawal as paid and complete. Optional UTR / tx hash for records.
+          </p>
+          {approveTarget?.method !== 'usdt' ? (
+            <Input
+              label="UTR (optional)"
+              value={utr}
+              onChange={(e) => setUtr(e.target.value)}
+              placeholder="UTR / RRN"
+              maxLength={22}
+            />
+          ) : (
+            <Input
+              label="Tx Hash (optional)"
+              value={txHash}
+              onChange={(e) => setTxHash(e.target.value)}
+              placeholder="Tx hash"
+              maxLength={66}
+            />
+          )}
+          {actionError && (
+            <div className="rounded-lg bg-error-container px-4 py-3 text-sm text-on-error-container">
+              {actionError}
+            </div>
+          )}
+          <Button type="submit" loading={approveMutation.isPending} className="w-full">
+            Confirm Approve
+          </Button>
+        </form>
+      </Modal>
+
+      <Modal
+        open={!!rejectTarget}
+        onClose={() => {
+          setRejectTarget(null);
+          setActionError('');
+        }}
+        title="Reject withdrawal"
+      >
+        <form
+          className="space-y-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!rejectTarget || !rejectReason.trim()) return;
+            setActionError('');
+            rejectMutation.mutate({ id: rejectTarget._id, reason: rejectReason.trim() });
+          }}
+        >
+          <Input
+            label="Reason"
+            value={rejectReason}
+            onChange={(e) => setRejectReason(e.target.value)}
+            required
+          />
+          {actionError && (
+            <div className="rounded-lg bg-error-container px-4 py-3 text-sm text-on-error-container">
+              {actionError}
+            </div>
+          )}
+          <Button
+            type="submit"
+            variant="danger"
+            loading={rejectMutation.isPending}
+            className="w-full"
+          >
+            Confirm Reject
+          </Button>
+        </form>
       </Modal>
     </div>
   );

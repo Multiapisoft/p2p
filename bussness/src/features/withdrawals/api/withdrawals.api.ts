@@ -28,4 +28,8 @@ export const withdrawalsApi = {
   listForP2p: (id: string) => apiPatch<Withdrawal>(`/withdrawals/${id}/list-for-p2p`, {}),
   unlistForP2p: (id: string, reason?: string) =>
     apiPatch<Withdrawal>(`/withdrawals/${id}/unlist-for-p2p`, { reason }),
+  approve: (id: string, body?: { utr?: string; txHash?: string }) =>
+    apiPatch<Withdrawal>(`/withdrawals/${id}/approve`, body || {}),
+  reject: (id: string, reason: string) =>
+    apiPatch<Withdrawal>(`/withdrawals/${id}/reject`, { reason }),
 };

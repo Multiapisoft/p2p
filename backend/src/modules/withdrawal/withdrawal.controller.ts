@@ -104,14 +104,24 @@ export class WithdrawalController {
   }
 
   @Patch(':id/approve')
-  @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN)
-  @Permissions(Permission.WITHDRAWALS_MANAGE)
-  approve(
+  @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN, UserRole.BUSINESS)
+  async approve(
     @Param('id') id: string,
     @Body() dto: ProcessWithdrawalDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.withdrawalService.approve(id, dto, user.email);
+    // Business-linked withdrawals: only owning business can approve.
+    // Admin may only approve withdrawals with no business owner.
+    if (user.role === UserRole.BUSINESS) {
+      const business = await this.businessService.findByOwner(user.userId);
+      return this.withdrawalService.approveForBusiness(
+        id,
+        business._id.toString(),
+        dto,
+        user.email,
+      );
+    }
+    return this.withdrawalService.approveAsAdmin(id, dto, user.email);
   }
 
   @Patch(':id/list-for-p2p')
@@ -139,9 +149,20 @@ export class WithdrawalController {
   }
 
   @Patch(':id/reject')
-  @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN)
-  @Permissions(Permission.WITHDRAWALS_MANAGE)
-  reject(@Param('id') id: string, @Body() dto: RejectWithdrawalDto) {
-    return this.withdrawalService.reject(id, dto);
+  @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN, UserRole.BUSINESS)
+  async reject(
+    @Param('id') id: string,
+    @Body() dto: RejectWithdrawalDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    if (user.role === UserRole.BUSINESS) {
+      const business = await this.businessService.findByOwner(user.userId);
+      return this.withdrawalService.rejectForBusiness(
+        id,
+        business._id.toString(),
+        dto,
+      );
+    }
+    return this.withdrawalService.rejectAsAdmin(id, dto);
   }
 }

@@ -63,6 +63,7 @@ export interface Withdrawal {
   currency: string;
   method: string;
   status: TransactionStatus;
+  businessId?: string;
   paidAmount?: number;
   commissionAmount?: number;
   p2pListStatus?: 'awaiting' | 'listed' | 'rejected';

@@ -31,6 +31,7 @@ import {
   normalizeListOpts,
   type ListQueryOpts,
 } from '../../common/dto/list-query.dto';
+import { withOptionalTransaction } from '../../common/utils/mongo-transaction';
 
 export type DepositListOpts = ListQueryOpts & { method?: string };
 
@@ -162,48 +163,45 @@ export class DepositService {
   }
 
   async approve(depositId: string, dto: ApproveDepositDto, approvedBy: string, actorId?: string) {
-    const session = await this.connection.startSession();
-    session.startTransaction();
-
-    try {
-      const deposit = await this.depositModel.findById(depositId).session(session);
-      if (!deposit) throw new NotFoundException('Deposit not found');
-      if (deposit.status !== TransactionStatus.PENDING) {
+    const deposit = await withOptionalTransaction(this.connection, async (session) => {
+      const doc = await this.depositModel.findById(depositId).session(session || null);
+      if (!doc) throw new NotFoundException('Deposit not found');
+      if (doc.status !== TransactionStatus.PENDING) {
         throw new BadRequestException('Deposit is not pending');
       }
 
-      if (dto.utr && deposit.upiDetails) deposit.upiDetails.utr = dto.utr;
-      if (dto.utr && deposit.bankDetails) deposit.bankDetails.utr = dto.utr;
-      if (dto.txHash && deposit.usdtDetails) deposit.usdtDetails.txHash = dto.txHash;
+      if (dto.utr && doc.upiDetails) doc.upiDetails.utr = dto.utr;
+      if (dto.utr && doc.bankDetails) doc.bankDetails.utr = dto.utr;
+      if (dto.txHash && doc.usdtDetails) doc.usdtDetails.txHash = dto.txHash;
 
       const wallet = await this.walletService.getOrCreate(
-        deposit.userId.toString(),
-        deposit.currency,
+        doc.userId.toString(),
+        doc.currency,
       );
       const balanceBefore = wallet.balance;
 
       let businessCommission = 0;
       let platformCommission = 0;
 
-      if (deposit.businessId) {
+      if (doc.businessId) {
         const commission = await this.commissionService.calculate(
-          deposit.amount,
+          doc.amount,
           CommissionTarget.BUSINESS,
-          deposit.businessId.toString(),
-          deposit.method,
+          doc.businessId.toString(),
+          doc.method,
         );
         businessCommission = commission.amount;
-        deposit.commissionAmount = businessCommission;
-        deposit.commissionPaidTo = deposit.businessId;
+        doc.commissionAmount = businessCommission;
+        doc.commissionPaidTo = doc.businessId;
 
         await this.businessService.incrementStats(
-          deposit.businessId.toString(),
+          doc.businessId.toString(),
           'totalDeposits',
-          deposit.amount,
+          doc.amount,
         );
         if (businessCommission > 0) {
           await this.businessService.incrementStats(
-            deposit.businessId.toString(),
+            doc.businessId.toString(),
             'totalCommissionEarned',
             businessCommission,
           );
@@ -211,108 +209,118 @@ export class DepositService {
       }
 
       const platformFee = await this.commissionService.calculate(
-        deposit.amount,
+        doc.amount,
         CommissionTarget.PLATFORM,
         undefined,
-        deposit.method,
+        doc.method,
       );
       platformCommission = platformFee.amount;
 
       const totalCommission = businessCommission + platformCommission;
-      const netAmount = deposit.amount - totalCommission;
+      const netAmount = doc.amount - totalCommission;
 
       const updatedWallet = await this.walletService.credit(
         wallet._id.toString(),
         netAmount,
         'totalDeposited',
-        session,
+        session || undefined,
       );
 
-      deposit.status = TransactionStatus.COMPLETED;
-      deposit.completedAt = new Date();
-      await deposit.save({ session });
+      doc.status = TransactionStatus.COMPLETED;
+      doc.completedAt = new Date();
+      await doc.save({ session: session || undefined });
 
-      const floatLock = deposit.metadata?.businessFloatLock as
+      const floatLock = doc.metadata?.businessFloatLock as
         | { ownerWalletId: string; ownerId: string; amount: number }
         | undefined;
-      if (floatLock && deposit.businessId) {
+      if (floatLock && doc.businessId) {
         await this.businessFloatService.debitFloatOnDepositApprove(
-          deposit.businessId.toString(),
+          doc.businessId.toString(),
           floatLock.ownerWalletId,
           floatLock.amount,
-          deposit.currency,
-          deposit._id.toString(),
+          doc.currency,
+          doc._id.toString(),
           floatLock.ownerId,
         );
       }
 
       await this.transactionService.record({
-        userId: deposit.userId.toString(),
+        userId: doc.userId.toString(),
         walletId: wallet._id.toString(),
         type: LedgerType.DEPOSIT,
         amount: netAmount,
-        currency: deposit.currency,
+        currency: doc.currency,
         balanceBefore,
         balanceAfter: updatedWallet.balance,
         referenceType: 'deposit',
-        referenceId: deposit._id.toString(),
+        referenceId: doc._id.toString(),
         description: `Deposit approved by ${approvedBy}`,
-        businessId: deposit.businessId?.toString(),
+        businessId: doc.businessId?.toString(),
       });
 
       if (totalCommission > 0) {
         await this.transactionService.record({
-          userId: deposit.userId.toString(),
+          userId: doc.userId.toString(),
           walletId: wallet._id.toString(),
           type: LedgerType.COMMISSION,
           amount: totalCommission,
-          currency: deposit.currency,
+          currency: doc.currency,
           balanceBefore: updatedWallet.balance,
           balanceAfter: updatedWallet.balance,
           referenceType: 'deposit',
-          referenceId: deposit._id.toString(),
+          referenceId: doc._id.toString(),
           description: `Commission on deposit (business: ${businessCommission}, platform: ${platformCommission})`,
-          businessId: deposit.businessId?.toString(),
+          businessId: doc.businessId?.toString(),
         });
       }
 
-      await session.commitTransaction();
+      return { deposit: doc, netAmount, totalCommission };
+    });
 
+    const { deposit: approved, netAmount, totalCommission } = deposit;
+
+    // Side-effects after DB commit — never roll back money ops if these fail
+    try {
       await this.notificationService.send(
-        deposit.userId.toString(),
+        approved.userId.toString(),
         'Deposit Approved',
-        `Your deposit of ${deposit.amount} ${deposit.currency} has been approved`,
+        `Your deposit of ${approved.amount} ${approved.currency} has been approved`,
         'success',
         'deposit',
-        deposit._id.toString(),
+        approved._id.toString(),
       );
+    } catch {
+      /* non-fatal */
+    }
 
-      if (deposit.businessId) {
-        await this.webhookService.dispatch(deposit.businessId.toString(), 'deposit.approved', {
-          referenceId: deposit.referenceId,
-          amount: deposit.amount,
+    if (approved.businessId) {
+      try {
+        await this.webhookService.dispatch(approved.businessId.toString(), 'deposit.approved', {
+          referenceId: approved.referenceId,
+          amount: approved.amount,
           netAmount,
           commission: totalCommission,
-          status: deposit.status,
+          status: approved.status,
         });
+      } catch {
+        /* non-fatal */
       }
+    }
 
+    try {
       await this.auditService.log({
         actorId,
         actorEmail: approvedBy,
         action: 'deposit.approve',
         resource: 'deposit',
-        resourceId: deposit._id.toString(),
-        metadata: { amount: deposit.amount, netAmount },
+        resourceId: approved._id.toString(),
+        metadata: { amount: approved.amount, netAmount },
       });
-
-      return deposit;
-    } catch (error) {
-      await session.abortTransaction();
-      throw error;
-    } finally {
-      session.endSession();
+    } catch {
+      /* non-fatal */
     }
+
+    return approved;
   }
 
   async reject(depositId: string, dto: RejectDepositDto, rejectedBy?: string, actorId?: string) {

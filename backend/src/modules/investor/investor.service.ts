@@ -30,6 +30,7 @@ import {
   normalizeListOpts,
   type ListQueryOpts,
 } from '../../common/dto/list-query.dto';
+import { withOptionalTransaction } from '../../common/utils/mongo-transaction';
 
 export type InvestorListOpts = ListQueryOpts & { method?: string };
 
@@ -96,11 +97,10 @@ export class InvestorService {
   }
 
   async approve(redemptionId: string, dto: ProcessRedemptionDto, processedBy: string) {
-    const session = await this.connection.startSession();
-    session.startTransaction();
-
-    try {
-      const redemption = await this.redemptionModel.findById(redemptionId).session(session);
+    return withOptionalTransaction(this.connection, async (session) => {
+      const redemption = await this.redemptionModel
+        .findById(redemptionId)
+        .session(session || null);
       if (!redemption) throw new NotFoundException('Redemption not found');
       if (redemption.status !== TransactionStatus.PENDING) {
         throw new BadRequestException('Redemption is not pending');
@@ -109,7 +109,7 @@ export class InvestorService {
       const walletId = redemption.walletId.toString();
       const investorId = redemption.investorId.toString();
       const wallet =
-        (await this.walletService.findById(walletId, session)) ||
+        (await this.walletService.findById(walletId, session || undefined)) ||
         (await this.walletService.getOrCreate(investorId));
 
       // Request already locked `amount`. getRedeemableAmount() excludes locked funds,
@@ -129,14 +129,14 @@ export class InvestorService {
 
       const lockRelease = Math.min(wallet.lockedBalance || 0, redemption.amount);
       if (lockRelease > 0) {
-        await this.walletService.unlock(walletId, lockRelease, session);
+        await this.walletService.unlock(walletId, lockRelease, session || undefined);
       }
 
       let updatedWallet = await this.walletService.debit(
         walletId,
         redemption.amount,
         'totalRedeemed',
-        session,
+        session || undefined,
       );
 
       if (fee > 0) {
@@ -147,14 +147,19 @@ export class InvestorService {
             `Insufficient balance for redemption fee of ₹${fee}`,
           );
         }
-        updatedWallet = await this.walletService.debit(walletId, fee, false, session);
+        updatedWallet = await this.walletService.debit(
+          walletId,
+          fee,
+          false,
+          session || undefined,
+        );
       }
 
       redemption.status = TransactionStatus.COMPLETED;
       redemption.processedBy = processedBy;
       redemption.completedAt = new Date();
       if (dto.note) redemption.note = dto.note;
-      await redemption.save({ session });
+      await redemption.save({ session: session || undefined });
 
       await this.transactionService.record({
         userId: investorId,
@@ -171,14 +176,8 @@ export class InvestorService {
             : `Investor redemption processed by ${processedBy}`,
       });
 
-      await session.commitTransaction();
       return redemption;
-    } catch (error) {
-      await session.abortTransaction();
-      throw error;
-    } finally {
-      session.endSession();
-    }
+    });
   }
 
   async reject(redemptionId: string, dto: RejectRedemptionDto) {
@@ -250,11 +249,10 @@ export class InvestorService {
   }
 
   async approveInvestment(investmentId: string, processedBy: string, actorId?: string) {
-    const session = await this.connection.startSession();
-    session.startTransaction();
-
-    try {
-      const investment = await this.investmentModel.findById(investmentId).session(session);
+    return withOptionalTransaction(this.connection, async (session) => {
+      const investment = await this.investmentModel
+        .findById(investmentId)
+        .session(session || null);
       if (!investment) throw new NotFoundException('Investment not found');
       if (investment.status !== TransactionStatus.PENDING) {
         throw new BadRequestException('Investment is not pending');
@@ -267,13 +265,13 @@ export class InvestorService {
         wallet._id.toString(),
         investment.amount,
         'totalInvested',
-        session,
+        session || undefined,
       );
 
       investment.status = TransactionStatus.COMPLETED;
       investment.processedBy = processedBy;
       investment.completedAt = new Date();
-      await investment.save({ session });
+      await investment.save({ session: session || undefined });
 
       await this.transactionService.record({
         userId: investment.investorId.toString(),
@@ -287,14 +285,8 @@ export class InvestorService {
         description: `Investment approved by ${processedBy}`,
       });
 
-      await session.commitTransaction();
       return investment;
-    } catch (error) {
-      await session.abortTransaction();
-      throw error;
-    } finally {
-      session.endSession();
-    }
+    });
   }
 
   async rejectInvestment(investmentId: string, dto: RejectRedemptionDto) {
