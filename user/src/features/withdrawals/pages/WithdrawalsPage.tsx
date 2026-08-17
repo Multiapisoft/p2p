@@ -1181,9 +1181,6 @@ export function WithdrawalsPage() {
               >
                 {editingId ? 'Confirm & save' : 'Confirm & submit'}
               </Button>
-              >
-                Confirm & submit
-              </Button>
             </div>
           </div>
         )}
