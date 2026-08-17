@@ -32,6 +32,15 @@ const METHODS: { value: PaymentMethod; label: string }[] = [
   { value: 'usdt', label: 'USDT' },
 ];
 
+const STATUS_FILTERS: { value: string; label: string }[] = [
+  { value: 'all', label: 'All' },
+  { value: 'pending', label: 'Pending' },
+  { value: 'processing', label: 'Processing' },
+  { value: 'completed', label: 'Completed' },
+  { value: 'cancelled', label: 'Cancelled' },
+  { value: 'rejected', label: 'Rejected' },
+];
+
 function DestinationLine({ w }: { w: Withdrawal }) {
   if (w.method === 'upi' && w.upiDetails?.upiId) {
     const name = w.upiDetails.payerName?.trim();
@@ -64,6 +73,7 @@ function DestinationLine({ w }: { w: Withdrawal }) {
 export function WithdrawalsPage() {
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
+  const [status, setStatus] = useState('all');
   const [showForm, setShowForm] = useState(false);
   const [method, setMethod] = useState<PaymentMethod>('upi');
   const [amount, setAmount] = useState('');
@@ -91,7 +101,10 @@ export function WithdrawalsPage() {
     queryFn: () => walletApi.getBalance(),
   });
 
-  const listQuery = useMemo(() => ({ page, limit, sort: 'newest' }), [page, limit]);
+  const listQuery = useMemo(
+    () => ({ page, limit, sort: 'newest', status }),
+    [page, limit, status],
+  );
 
   const { data, isLoading, isFetching } = useQuery({
     queryKey: ['my-withdrawals', listQuery],
@@ -282,7 +295,7 @@ export function WithdrawalsPage() {
           USDT method: enter INR amount — open request converts to USDT at live rate.
         </p>
         <p className="mt-2 text-[11px] text-on-surface-variant">
-          Once listed for Platform Payment / approved by business, you cannot cancel. Contact
+          Once approved (verified for payout), you cannot cancel. Contact
           business/admin.
         </p>
       </div>
@@ -402,10 +415,36 @@ export function WithdrawalsPage() {
       )}
 
       <Card>
+        <div className="mb-3 flex flex-wrap gap-1.5">
+          {STATUS_FILTERS.map((s) => (
+            <button
+              key={s.value}
+              type="button"
+              onClick={() => {
+                setStatus(s.value);
+                setPage(1);
+              }}
+              className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${
+                status === s.value
+                  ? 'bg-primary text-on-primary'
+                  : 'border border-outline-variant'
+              }`}
+            >
+              {s.label}
+            </button>
+          ))}
+        </div>
         {isLoading ? (
           <LoadingScreen />
         ) : !items.length ? (
-          <EmptyState message="No withdrawals yet" icon="north_east" />
+          <EmptyState
+            message={
+              status !== 'all'
+                ? `No ${status} withdrawals`
+                : 'No withdrawals yet'
+            }
+            icon="north_east"
+          />
         ) : (
           <div className={`space-y-3 ${isFetching ? 'opacity-70' : ''}`}>
             {items.map((w: Withdrawal) => {
@@ -432,6 +471,12 @@ export function WithdrawalsPage() {
                     <p className="font-mono text-[11px] text-on-surface-variant">
                       {w.referenceId} · {w.method.toUpperCase()} · {formatDate(w.createdAt)}
                     </p>
+                    {w.p2pListStatus === 'listed' &&
+                    (w.status === 'pending' || w.status === 'processing') ? (
+                      <p className="mt-1 text-[11px] font-medium text-secondary">
+                        Approved — verified for payout
+                      </p>
+                    ) : null}
                     <DestinationLine w={w} />
                     {(w.status === 'pending' || w.status === 'processing') && canCancel && tatLeft > 0 && (
                       <p className="mt-1 text-[11px] font-medium text-secondary">
@@ -440,7 +485,7 @@ export function WithdrawalsPage() {
                     )}
                     {(w.status === 'pending' || w.status === 'processing') && !canCancel && (
                       <p className="mt-1 text-[11px] text-on-surface-variant">
-                        Once listed for Platform Payment / approved by business, you cannot cancel.
+                        Once approved (verified for payout), you cannot cancel.
                         Contact business/admin.
                       </p>
                     )}

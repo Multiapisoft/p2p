@@ -225,7 +225,7 @@ export function WithdrawalsPage() {
       resetForm();
       toast.success(
         'Withdrawal submitted',
-        'Waiting for business/admin approval before others can pay this request.',
+        'Waiting for business approval. After it is approved (verified), others can pay this request.',
       );
     },
     onError: (err) => {
@@ -622,8 +622,7 @@ export function WithdrawalsPage() {
 
       <Card title="My withdrawals">
         <p className="mb-4 text-[11px] text-on-surface-variant sm:text-xs">
-          Once listed for Platform Payment / approved by business, you cannot cancel. Contact
-          business/admin.
+          Once approved (verified for payout), you cannot cancel. Contact business/admin.
         </p>
         <div className="mb-4 space-y-3 sm:mb-5 sm:space-y-4">
           <div className="flex flex-col gap-2.5 lg:flex-row lg:items-end lg:gap-3">
@@ -779,10 +778,10 @@ export function WithdrawalsPage() {
                               }`}
                             >
                               {w.p2pListStatus === 'listed'
-                                ? 'Open for Platform Payment'
+                                ? 'Approved'
                                 : w.p2pListStatus === 'rejected'
-                                  ? 'Platform Payment rejected'
-                                  : 'Awaiting Platform Payment approval'}
+                                  ? 'Approval rejected'
+                                  : 'Awaiting approval'}
                             </span>
                           )}
                         </div>
@@ -807,8 +806,8 @@ export function WithdrawalsPage() {
                           )}
                         {(w.status === 'pending' || w.status === 'processing') && !canCancel && (
                           <p className="text-[11px] text-on-surface-variant sm:text-xs">
-                            Once listed for Platform Payment / approved by business, you cannot
-                            cancel. Contact business/admin.
+                            Once approved (verified for payout), you cannot cancel. Contact
+                            business/admin.
                           </p>
                         )}
                       </div>

@@ -111,9 +111,9 @@ export function WithdrawalsPage() {
 
   function p2pListLabel(w: WithdrawalRow) {
     const s = w.p2pListStatus || 'awaiting';
-    if (s === 'listed') return 'Platform Payment listed';
-    if (s === 'rejected') return 'Platform Payment rejected';
-    return 'Awaiting Platform Payment';
+    if (s === 'listed') return 'Approved';
+    if (s === 'rejected') return 'Approval rejected';
+    return 'Awaiting approval';
   }
 
   function destinationLines(w: WithdrawalRow): string[] {
@@ -343,7 +343,7 @@ export function WithdrawalsPage() {
                                 loading={listForP2p.isPending}
                                 onClick={() => listForP2p.mutate(w._id)}
                               >
-                                List for Platform Payment
+                                Approve
                               </Button>
                             )}
                           {(w.status === 'pending' || w.status === 'processing') &&

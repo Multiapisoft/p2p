@@ -200,16 +200,16 @@ export function WithdrawalsPage() {
 
   function p2pLabel(w: Withdrawal) {
     const s = w.p2pListStatus || 'awaiting';
-    if (s === 'listed') return 'Platform Payment listed';
-    if (s === 'rejected') return 'Platform Payment rejected';
-    return 'Awaiting Platform Payment';
+    if (s === 'listed') return 'Approved';
+    if (s === 'rejected') return 'Approval rejected';
+    return 'Awaiting approval';
   }
 
   return (
     <div className="mx-auto max-w-7xl space-y-6">
       <PageHeader
         title="Withdrawals"
-        description="Approve withdrawals for the Platform Payment list — then any user can pay them"
+        description="Approve means the request is verified and open for payout. It is not marked paid. Use Mark paid by business only if you paid the user yourself."
       />
 
       {actionError ? (
@@ -378,18 +378,18 @@ export function WithdrawalsPage() {
                       </div>
                       {w.status === 'pending' && (w.paidAmount || 0) <= 0 && (
                         <div className="flex gap-2">
-                          <Button
-                            size="sm"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setActionError('');
-                              setUtr('');
-                              setTxHash('');
-                              setApproveTarget(w);
-                            }}
-                          >
-                            Approve payout
-                          </Button>
+                          {(w.p2pListStatus || 'awaiting') !== 'listed' ? (
+                            <Button
+                              size="sm"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                listForP2p.mutate(w._id);
+                              }}
+                              loading={listForP2p.isPending}
+                            >
+                              Approve
+                            </Button>
+                          ) : null}
                           <Button
                             size="sm"
                             variant="danger"
@@ -411,11 +411,13 @@ export function WithdrawalsPage() {
                             variant="secondary"
                             onClick={(e) => {
                               e.stopPropagation();
-                              listForP2p.mutate(w._id);
+                              setActionError('');
+                              setUtr('');
+                              setTxHash('');
+                              setApproveTarget(w);
                             }}
-                            loading={listForP2p.isPending}
                           >
-                            List for Platform Payment
+                            Mark paid by business
                           </Button>
                         )}
                       {(w.status === 'pending' || w.status === 'processing') &&
@@ -497,17 +499,15 @@ export function WithdrawalsPage() {
                   ))}
                   {detail.status === 'pending' && (detail.paidAmount || 0) <= 0 && (
                     <div className="mt-4 flex flex-wrap gap-2">
-                      <Button
-                        className="flex-1"
-                        onClick={() => {
-                          setActionError('');
-                          setUtr('');
-                          setTxHash('');
-                          setApproveTarget(detail);
-                        }}
-                      >
-                        Approve payout
-                      </Button>
+                      {(detail.p2pListStatus || 'awaiting') !== 'listed' ? (
+                        <Button
+                          className="flex-1"
+                          loading={listForP2p.isPending}
+                          onClick={() => listForP2p.mutate(detail._id)}
+                        >
+                              Approve
+                        </Button>
+                      ) : null}
                       <Button
                         className="flex-1"
                         variant="danger"
@@ -527,10 +527,14 @@ export function WithdrawalsPage() {
                         <Button
                           className="flex-1"
                           variant="secondary"
-                          loading={listForP2p.isPending}
-                          onClick={() => listForP2p.mutate(detail._id)}
+                          onClick={() => {
+                            setActionError('');
+                            setUtr('');
+                            setTxHash('');
+                            setApproveTarget(detail);
+                          }}
                         >
-                          List for Platform Payment
+                          Mark paid by business
                         </Button>
                       ) : (
                         <Button
@@ -642,7 +646,7 @@ export function WithdrawalsPage() {
           setApproveTarget(null);
           setActionError('');
         }}
-        title="Approve payout"
+        title="Mark paid by business"
       >
         <form
           className="space-y-4"
@@ -654,7 +658,10 @@ export function WithdrawalsPage() {
           }}
         >
           <p className="text-sm text-on-surface-variant">
-            Mark this withdrawal as paid and complete. If you enter a UTR / TxID it must be unique.
+            Use this only if your business paid the user directly. This marks the request{' '}
+            <span className="font-semibold">Completed</span> — it will{' '}
+            <span className="font-semibold">not</span> show on the investor Invest list.
+            To let investors pay, use <span className="font-semibold">Approve</span> instead.
           </p>
           {approveTarget?.method !== 'usdt' ? (
             <Input
@@ -679,7 +686,7 @@ export function WithdrawalsPage() {
             </div>
           )}
           <Button type="submit" loading={approveMutation.isPending} className="w-full">
-            Confirm Approve
+            Confirm paid
           </Button>
         </form>
       </Modal>
