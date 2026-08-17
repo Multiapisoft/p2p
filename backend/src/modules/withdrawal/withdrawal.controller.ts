@@ -5,6 +5,7 @@ import {
   ProcessWithdrawalDto,
   RejectWithdrawalDto,
   RejectP2pListDto,
+  UpdateWithdrawalDestinationDto,
   WithdrawalListQueryDto,
 } from './dto/withdrawal.dto';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -101,6 +102,15 @@ export class WithdrawalController {
   @Patch(':id/cancel')
   cancel(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
     return this.withdrawalService.cancel(id, user.userId);
+  }
+
+  @Patch(':id/destination')
+  updateDestination(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() dto: UpdateWithdrawalDestinationDto,
+  ) {
+    return this.withdrawalService.updateDestination(id, user.userId, dto);
   }
 
   @Patch(':id/approve')

@@ -31,6 +31,8 @@ import {
   type ListQueryOpts,
 } from '../../common/dto/list-query.dto';
 import { withOptionalTransaction } from '../../common/utils/mongo-transaction';
+import { User, UserDocument } from '../users/schemas/user.schema';
+import { UserRole } from '../../common/enums/role.enum';
 
 export type InvestorListOpts = ListQueryOpts & { method?: string };
 
@@ -41,6 +43,7 @@ export class InvestorService {
     @InjectModel(Investment.name) private investmentModel: Model<InvestmentDocument>,
     @InjectModel(WithdrawalPayment.name)
     private paymentModel: Model<WithdrawalPaymentDocument>,
+    @InjectModel(User.name) private userModel: Model<UserDocument>,
     @InjectConnection() private connection: Connection,
     private walletService: WalletService,
     private commissionService: CommissionService,
@@ -352,14 +355,11 @@ export class InvestorService {
     };
   }
 
-  async findPendingInvestments(opts: InvestorListOpts = {}) {
-    const { page, limit, skip, search, status, sort } = normalizeListOpts({
-      ...opts,
-      status: opts.status || TransactionStatus.PENDING,
-    });
+  async findInvestments(opts: InvestorListOpts = {}) {
+    const { page, limit, skip, search, status, sort } = normalizeListOpts(opts);
     const and: Record<string, unknown>[] = [];
 
-    if (status) and.push({ status });
+    if (status && status !== 'all') and.push({ status });
     if (opts.method && opts.method !== 'all') and.push({ method: opts.method });
     if (search) {
       const investorIds = await this.connection
@@ -395,6 +395,57 @@ export class InvestorService {
         .sort(this.moneySort(sort))
         .exec(),
       this.investmentModel.countDocuments(filter).exec(),
+    ]);
+    return {
+      items,
+      total,
+      page,
+      limit,
+      totalPages: Math.max(1, Math.ceil(total / limit) || 1),
+    };
+  }
+
+  async findPendingInvestments(opts: InvestorListOpts = {}) {
+    return this.findInvestments({
+      ...opts,
+      status: opts.status || TransactionStatus.PENDING,
+    });
+  }
+
+  async findInvestorPayments(opts: InvestorListOpts = {}) {
+    const { page, limit, skip, search, status, sort } = normalizeListOpts(opts);
+    const investors = await this.userModel
+      .find({ role: UserRole.INVESTOR })
+      .select('_id')
+      .lean()
+      .exec();
+    const investorIds = investors.map((u) => u._id);
+    const and: Record<string, unknown>[] = [
+      { payerUserId: { $in: investorIds } },
+    ];
+
+    if (status && status !== 'all') and.push({ status });
+    if (search) {
+      and.push({
+        $or: [
+          { referenceId: { $regex: search, $options: 'i' } },
+          { utr: { $regex: search, $options: 'i' } },
+          { notes: { $regex: search, $options: 'i' } },
+        ],
+      });
+    }
+
+    const filter = { $and: and };
+    const [items, total] = await Promise.all([
+      this.paymentModel
+        .find(filter)
+        .populate('payerUserId', 'name email phone role')
+        .populate('withdrawalId', 'referenceId amount method currency')
+        .skip(skip)
+        .limit(limit)
+        .sort(this.moneySort(sort))
+        .exec(),
+      this.paymentModel.countDocuments(filter).exec(),
     ]);
     return {
       items,

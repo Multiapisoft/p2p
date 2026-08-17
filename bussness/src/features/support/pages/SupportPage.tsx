@@ -47,6 +47,12 @@ function isDisputeTicket(t: Pick<SupportTicket, 'category' | 'subject' | 'messag
   );
 }
 
+function ticketUserLabel(t: SupportTicket) {
+  const u = t.userId;
+  if (!u || typeof u === 'string') return '';
+  return [u.name, u.businessUserCode, u.email].filter(Boolean).join(' · ');
+}
+
 function ticketPreview(t: SupportTicket) {
   if (isDisputeTicket(t)) {
     return t.message.match(/^Reason:\s*(.+)$/im)?.[1] || 'Withdrawal payment dispute';
@@ -261,6 +267,7 @@ export function SupportPage() {
                         </p>
                         <p className="mt-2 text-xs text-outline">
                           {t.ticketId} • {formatDate(t.createdAt)}
+                          {ticketUserLabel(t) ? ` • ${ticketUserLabel(t)}` : ''}
                         </p>
                       </div>
                       <StatusBadge status={t.status} />

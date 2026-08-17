@@ -6,6 +6,7 @@ import {
   WithdrawalPayment,
   WithdrawalPaymentSchema,
 } from '../withdrawal/schemas/withdrawal-payment.schema';
+import { User, UserSchema } from '../users/schemas/user.schema';
 import { InvestorService } from './investor.service';
 import { InvestorController } from './investor.controller';
 import { WalletModule } from '../wallet/wallet.module';
@@ -18,6 +19,7 @@ import { TransactionModule } from '../transaction/transaction.module';
       { name: Redemption.name, schema: RedemptionSchema },
       { name: Investment.name, schema: InvestmentSchema },
       { name: WithdrawalPayment.name, schema: WithdrawalPaymentSchema },
+      { name: User.name, schema: UserSchema },
     ]),
     WalletModule,
     CommissionModule,

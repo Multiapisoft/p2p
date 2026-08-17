@@ -66,10 +66,8 @@ export function assertValidWithdrawalDestination(dto: WithdrawalDestinationInput
       if (!dto.upiDetails?.upiId) throw new BadRequestException('UPI destination required');
       const upiErr = validateUpiId(dto.upiDetails.upiId);
       if (upiErr) throw new BadRequestException(upiErr);
-      if (dto.upiDetails.payerName) {
-        const nameErr = validatePersonName(dto.upiDetails.payerName, false);
-        if (nameErr) throw new BadRequestException(nameErr);
-      }
+      const nameErr = validatePersonName(dto.upiDetails.payerName || '', true);
+      if (nameErr) throw new BadRequestException(nameErr);
       break;
     }
     case PaymentMethod.BANK:

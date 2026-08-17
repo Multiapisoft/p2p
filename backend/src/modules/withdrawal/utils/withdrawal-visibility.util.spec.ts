@@ -6,6 +6,7 @@ import {
   remainingTatSeconds,
   tatCutoffDate,
   userCanCancelWithdrawal,
+  userCanEditWithdrawal,
 } from './withdrawal-visibility.util';
 
 describe('withdrawal-visibility.util (#8 #24)', () => {
@@ -105,6 +106,36 @@ describe('withdrawal-visibility.util (#8 #24)', () => {
           p2pListStatus: 'awaiting',
           paidAmount: 100,
           createdAt: created,
+          nowMs: now,
+          tatMs,
+        }),
+      ).toBe(false);
+    });
+  });
+
+  describe('userCanEditWithdrawal', () => {
+    const created = new Date(now - 20_000);
+
+    it('matches cancel rules inside TAT', () => {
+      expect(
+        userCanEditWithdrawal({
+          status: 'pending',
+          p2pListStatus: 'awaiting',
+          paidAmount: 0,
+          createdAt: created,
+          nowMs: now,
+          tatMs,
+        }),
+      ).toBe(true);
+    });
+
+    it('hides edit after TAT expires', () => {
+      expect(
+        userCanEditWithdrawal({
+          status: 'pending',
+          p2pListStatus: 'awaiting',
+          paidAmount: 0,
+          createdAt: new Date(now - tatMs - 1000),
           nowMs: now,
           tatMs,
         }),

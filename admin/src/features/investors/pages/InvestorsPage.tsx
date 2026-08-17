@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { investorsApi } from '../api/investors.api';
+import { investorsApi, type InvestorPayRecord } from '../api/investors.api';
 import { Card } from '@/shared/components/ui/Card';
 import { Button } from '@/shared/components/ui/Button';
 import { Input } from '@/shared/components/ui/Input';
@@ -23,7 +23,7 @@ const SORT_OPTIONS = [
 
 const PAGE_SIZES = [5, 10, 20];
 
-function investorLabel(investorId: Redemption['investorId'] | Investment['investorId']) {
+function investorLabel(investorId: Redemption['investorId'] | Investment['investorId'] | InvestorPayRecord['payerUserId']) {
   if (!investorId) return '—';
   if (typeof investorId === 'string') return investorId;
   const parts = [investorId.name, investorId.email, investorId.phone].filter(Boolean);
@@ -31,7 +31,8 @@ function investorLabel(investorId: Redemption['investorId'] | Investment['invest
 }
 
 export function InvestorsPage() {
-  const [tab, setTab] = useState<'redemptions' | 'investments'>('redemptions');
+  const [tab, setTab] = useState<'redemptions' | 'investments' | 'payments'>('redemptions');
+  const [invStatus, setInvStatus] = useState('all');
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
   const [sort, setSort] = useState('newest');
@@ -52,8 +53,14 @@ export function InvestorsPage() {
   }, [searchInput]);
 
   const listQuery = useMemo(
-    () => ({ page, limit, sort, search }),
-    [page, limit, sort, search],
+    () => ({
+      page,
+      limit,
+      sort,
+      search,
+      status: tab === 'redemptions' ? undefined : invStatus,
+    }),
+    [page, limit, sort, search, tab, invStatus],
   );
 
   const {
@@ -76,13 +83,26 @@ export function InvestorsPage() {
     error: errI,
   } = useQuery({
     queryKey: ['investor-investments', listQuery],
-    queryFn: () => investorsApi.getPendingInvestments(listQuery),
+    queryFn: () => investorsApi.getAllInvestments(listQuery),
     enabled: tab === 'investments',
+  });
+
+  const {
+    data: payments,
+    isLoading: loadingP,
+    isFetching: fetchingP,
+    isError: errorP,
+    error: errP,
+  } = useQuery({
+    queryKey: ['investor-payments', listQuery],
+    queryFn: () => investorsApi.getInvestorPayments(listQuery),
+    enabled: tab === 'payments',
   });
 
   const refresh = () => {
     void qc.invalidateQueries({ queryKey: ['investor-redemptions'] });
     void qc.invalidateQueries({ queryKey: ['investor-investments'] });
+    void qc.invalidateQueries({ queryKey: ['investor-payments'] });
   };
 
   const approveR = useMutation({
@@ -141,11 +161,14 @@ export function InvestorsPage() {
     },
   });
 
-  const isLoading = tab === 'redemptions' ? loadingR : loadingI;
-  const isFetching = tab === 'redemptions' ? fetchingR : fetchingI;
-  const listError = tab === 'redemptions' ? errorR : errorI;
-  const listErrObj = tab === 'redemptions' ? errR : errI;
-  const data = tab === 'redemptions' ? redemptions : investments;
+  const isLoading =
+    tab === 'redemptions' ? loadingR : tab === 'investments' ? loadingI : loadingP;
+  const isFetching =
+    tab === 'redemptions' ? fetchingR : tab === 'investments' ? fetchingI : fetchingP;
+  const listError = tab === 'redemptions' ? errorR : tab === 'investments' ? errorI : errorP;
+  const listErrObj = tab === 'redemptions' ? errR : tab === 'investments' ? errI : errP;
+  const data =
+    tab === 'redemptions' ? redemptions : tab === 'investments' ? investments : payments;
   const items = data?.items ?? [];
   const total = data?.total ?? 0;
   const totalPages = data?.totalPages ?? 1;
@@ -158,7 +181,7 @@ export function InvestorsPage() {
           Investors
         </h1>
         <p className="mt-0.5 text-sm text-on-surface-variant">
-          Approve or reject pending redemptions (payout) and investments (credit).
+          Approve pending redemptions, review all investments, and monitor investor Platform Payments.
         </p>
       </div>
 
@@ -177,7 +200,7 @@ export function InvestorsPage() {
       <div className="grid grid-cols-3 gap-2 sm:gap-3">
         <div className="rounded-xl border border-outline-variant bg-surface-container-lowest p-2.5 sm:rounded-2xl sm:p-4">
           <p className="text-[10px] font-bold uppercase tracking-wide text-on-surface-variant sm:text-[11px]">
-            Total pending
+            Total
           </p>
           <p className="mt-1 text-lg font-bold sm:text-2xl">{total}</p>
         </div>
@@ -196,20 +219,26 @@ export function InvestorsPage() {
       </div>
 
       <div className="chip-scroll">
-        {(['redemptions', 'investments'] as const).map((t) => (
+        {(
+          [
+            { id: 'redemptions', label: 'Redemptions' },
+            { id: 'investments', label: 'Investments' },
+            { id: 'payments', label: 'Platform Payments' },
+          ] as const
+        ).map((t) => (
           <button
-            key={t}
+            key={t.id}
             type="button"
             onClick={() => {
-              setTab(t);
+              setTab(t.id);
               setPage(1);
               setBanner(null);
             }}
-            className={`rounded-full px-2.5 py-1 text-[11px] font-semibold capitalize sm:px-4 sm:py-2 sm:text-sm ${
-              tab === t ? 'bg-primary text-on-primary' : 'border border-outline-variant'
+            className={`rounded-full px-2.5 py-1 text-[11px] font-semibold sm:px-4 sm:py-2 sm:text-sm ${
+              tab === t.id ? 'bg-primary text-on-primary' : 'border border-outline-variant'
             }`}
           >
-            {t}
+            {t.label}
           </button>
         ))}
       </div>
@@ -250,26 +279,49 @@ export function InvestorsPage() {
               </option>
             ))}
           </select>
+          {(tab === 'investments' || tab === 'payments') && (
+            <select
+              className="rounded-lg border border-outline-variant bg-surface-container-lowest px-2.5 py-2 text-sm"
+              value={invStatus}
+              onChange={(e) => {
+                setInvStatus(e.target.value);
+                setPage(1);
+              }}
+            >
+              <option value="all">All statuses</option>
+              <option value="pending">Pending</option>
+              <option value="completed">Completed</option>
+              <option value="rejected">Rejected</option>
+            </select>
+          )}
         </div>
 
         {isLoading ? (
           <LoadingScreen />
         ) : listError ? (
           <EmptyState
-            message={getApiErrorMessage(listErrObj, `Failed to load pending ${tab}`)}
+            message={getApiErrorMessage(listErrObj, `Failed to load ${tab}`)}
             icon="error"
           />
         ) : !items.length ? (
-          <EmptyState message={`No pending ${tab}`} icon="savings" />
+          <EmptyState message={`No ${tab} found`} icon="savings" />
         ) : (
           <div className={`space-y-2 sm:space-y-3 ${isFetching ? 'opacity-70' : ''}`}>
             {items.map((item) => {
-              const rdm =
-                tab === 'redemptions'
-                  ? (item as Redemption)
-                  : null;
+              const rdm = tab === 'redemptions' ? (item as Redemption) : null;
               const inv = tab === 'investments' ? (item as Investment) : null;
+              const pay = tab === 'payments' ? (item as InvestorPayRecord) : null;
               const busy = actionId === item._id;
+              const canModerate =
+                (tab === 'redemptions' || tab === 'investments') && item.status === 'pending';
+              const person =
+                pay != null
+                  ? investorLabel(pay.payerUserId)
+                  : investorLabel((item as Redemption | Investment).investorId);
+              const wdRef =
+                pay?.withdrawalId && typeof pay.withdrawalId === 'object'
+                  ? pay.withdrawalId.referenceId
+                  : undefined;
 
               return (
                 <div
@@ -281,9 +333,7 @@ export function InvestorsPage() {
                     <p className="text-xs text-on-surface-variant sm:text-sm">
                       {formatDate(item.createdAt)}
                     </p>
-                    <p className="mt-1 truncate text-xs text-on-surface-variant">
-                      {investorLabel(item.investorId)}
-                    </p>
+                    <p className="mt-1 truncate text-xs text-on-surface-variant">{person}</p>
                     {rdm?.method ? (
                       <p className="mt-1 text-xs font-semibold uppercase text-secondary">
                         {rdm.method}
@@ -293,6 +343,10 @@ export function InvestorsPage() {
                       <p className="mt-1 text-xs font-semibold uppercase text-secondary">
                         {inv.method}
                       </p>
+                    ) : null}
+                    {pay?.utr ? <p className="text-xs">UTR: {pay.utr}</p> : null}
+                    {wdRef ? (
+                      <p className="text-xs text-on-surface-variant">Withdrawal {wdRef}</p>
                     ) : null}
                     {rdm?.method === 'upi' && rdm.upiDetails?.upiId ? (
                       <p className="text-xs">UPI: {rdm.upiDetails.upiId}</p>
@@ -318,31 +372,35 @@ export function InvestorsPage() {
                   <div className="flex flex-wrap items-center gap-2 sm:gap-4">
                     <p className="font-bold text-secondary">{formatCurrency(item.amount)}</p>
                     <StatusBadge status={item.status} />
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      loading={busy && (approveR.isPending || approveI.isPending)}
-                      disabled={!!actionId && !busy}
-                      onClick={() => {
-                        setBanner(null);
-                        if (tab === 'redemptions') approveR.mutate(item._id);
-                        else approveI.mutate(item._id);
-                      }}
-                    >
-                      Approve
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="danger"
-                      disabled={!!actionId}
-                      onClick={() => {
-                        setBanner(null);
-                        setRejectId(item._id);
-                        setRejectReason('');
-                      }}
-                    >
-                      Reject
-                    </Button>
+                    {canModerate ? (
+                      <>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          loading={busy && (approveR.isPending || approveI.isPending)}
+                          disabled={!!actionId && !busy}
+                          onClick={() => {
+                            setBanner(null);
+                            if (tab === 'redemptions') approveR.mutate(item._id);
+                            else approveI.mutate(item._id);
+                          }}
+                        >
+                          Approve
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="danger"
+                          disabled={!!actionId}
+                          onClick={() => {
+                            setBanner(null);
+                            setRejectId(item._id);
+                            setRejectReason('');
+                          }}
+                        >
+                          Reject
+                        </Button>
+                      </>
+                    ) : null}
                   </div>
                 </div>
               );

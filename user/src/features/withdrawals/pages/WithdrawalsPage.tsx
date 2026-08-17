@@ -153,6 +153,7 @@ export function WithdrawalsPage() {
   const [network, setNetwork] = useState('TRC20');
   const [formError, setFormError] = useState('');
   const [pendingPayload, setPendingPayload] = useState<CreateWithdrawalPayload | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [actionError, setActionError] = useState('');
   const [disputeFor, setDisputeFor] = useState<WithdrawalSplitPayment | null>(null);
   const [disputeReason, setDisputeReason] = useState('');
@@ -244,6 +245,28 @@ export function WithdrawalsPage() {
     onError: (err) => toast.error('Cancel failed', withdrawalErrorMessage(err)),
   });
 
+  const updateDestination = useMutation({
+    mutationFn: ({
+      id,
+      payload,
+    }: {
+      id: string;
+      payload: Pick<CreateWithdrawalPayload, 'upiDetails' | 'bankDetails' | 'usdtDetails'>;
+    }) => withdrawalsApi.updateDestination(id, payload),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['withdrawals'] });
+      setPendingPayload(null);
+      setShowForm(false);
+      resetForm();
+      toast.success('Withdrawal details updated');
+    },
+    onError: (err) => {
+      const msg = withdrawalErrorMessage(err);
+      setFormError(msg);
+      toast.error('Update failed', msg);
+    },
+  });
+
   const confirmReceived = useMutation({
     mutationFn: (paymentId: string) => withdrawalsApi.confirmPaymentReceived(paymentId),
     onSuccess: async () => {
@@ -289,6 +312,24 @@ export function WithdrawalsPage() {
     setWalletAddress('');
     setFormError('');
     setPendingPayload(null);
+    setEditingId(null);
+  };
+
+  const startEdit = (w: Withdrawal) => {
+    setEditingId(w._id);
+    setShowForm(true);
+    setMethod(w.method);
+    setAmount(String(w.amount));
+    setUpiId(w.upiDetails?.upiId || '');
+    setPayerName(w.upiDetails?.payerName || '');
+    setAccountNumber(w.bankDetails?.accountNumber || '');
+    setIfscCode(w.bankDetails?.ifscCode || '');
+    setAccountHolderName(w.bankDetails?.accountHolderName || '');
+    setBankName(w.bankDetails?.bankName || '');
+    setWalletAddress(w.usdtDetails?.walletAddress || '');
+    setNetwork(w.usdtDetails?.network || 'TRC20');
+    setFormError('');
+    setPendingPayload(null);
   };
 
   const displayCurrency = balance?.currency || 'INR';
@@ -321,7 +362,7 @@ export function WithdrawalsPage() {
       setFormError('Enter a valid amount');
       return;
     }
-    if (balance && !isBusinessLinked) {
+    if (balance && !isBusinessLinked && !editingId) {
       if (amountIsInrPayout) {
         const needUsdt = Math.ceil((numAmount / usdtInrRate) * 1e6) / 1e6;
         if (needUsdt > balance.availableBalance) {
@@ -344,14 +385,14 @@ export function WithdrawalsPage() {
         setFormError(upiErr);
         return;
       }
-      const nameErr = personNameError(payerName, false);
+      const nameErr = personNameError(payerName, true);
       if (nameErr) {
         setFormError(nameErr);
         return;
       }
       payload.upiDetails = {
         upiId: upiId.trim(),
-        payerName: payerName.trim() || undefined,
+        payerName: payerName.trim(),
       };
     } else if (method === 'bank') {
       const accErr = accountNumberError(accountNumber);
@@ -405,8 +446,13 @@ export function WithdrawalsPage() {
         <Button
           className="w-full sm:w-auto"
           onClick={() => {
-            setShowForm((v) => !v);
-            setFormError('');
+            if (showForm) {
+              setShowForm(false);
+              resetForm();
+            } else {
+              setShowForm(true);
+              setFormError('');
+            }
           }}
         >
           {showForm ? 'Close form' : 'New withdrawal'}
@@ -450,14 +496,17 @@ export function WithdrawalsPage() {
       </div>
 
       {showForm && (
-        <Card title="Request withdrawal">
+        <Card title={editingId ? 'Edit withdrawal details' : 'Request withdrawal'}>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="chip-scroll">
               {METHODS.map((m) => (
                 <button
                   key={m.value}
                   type="button"
-                  onClick={() => setMethod(m.value)}
+                  onClick={() => {
+                    if (editingId) return;
+                    setMethod(m.value);
+                  }}
                   className={`rounded-full px-3 py-1.5 text-xs font-semibold transition sm:px-4 sm:py-2 sm:text-sm ${
                     method === m.value
                       ? 'bg-primary text-on-primary'
@@ -489,6 +538,7 @@ export function WithdrawalsPage() {
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               required
+              disabled={!!editingId}
             />
 
             {isBusinessLinked ? (
@@ -513,9 +563,10 @@ export function WithdrawalsPage() {
               <div className="grid gap-4 sm:grid-cols-2">
                 <Input label="UPI ID" value={upiId} onChange={(e) => setUpiId(e.target.value)} required />
                 <Input
-                  label="Account name (optional)"
+                  label="Account name"
                   value={payerName}
                   onChange={(e) => setPayerName(e.target.value)}
+                  required
                 />
               </div>
             )}
@@ -751,7 +802,7 @@ export function WithdrawalsPage() {
                           canCancel &&
                           tatLeft > 0 && (
                             <p className="text-[11px] font-medium text-secondary sm:text-xs">
-                              You can cancel for {formatSecondsMmSs(tatLeft)}
+                              You can edit or cancel for {formatSecondsMmSs(tatLeft)}
                             </p>
                           )}
                         {(w.status === 'pending' || w.status === 'processing') && !canCancel && (
@@ -772,24 +823,34 @@ export function WithdrawalsPage() {
                           {expanded ? 'Hide' : 'Details'}
                         </Button>
                         {canCancel && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="flex-1 sm:flex-none"
-                            loading={cancel.isPending}
-                            onClick={async () => {
-                              const ok = await confirmDialog({
-                                title: 'Cancel withdrawal?',
-                                description: `Cancel ${w.referenceId} for ${formatCurrency(w.amount, w.currency)}? Locked balance will be released.`,
-                                confirmLabel: 'Yes, cancel',
-                                cancelLabel: 'Keep request',
-                                variant: 'danger',
-                              });
-                              if (ok) cancel.mutate(w._id);
-                            }}
-                          >
-                            Cancel
-                          </Button>
+                          <>
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              className="flex-1 sm:flex-none"
+                              onClick={() => startEdit(w)}
+                            >
+                              Edit
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="flex-1 sm:flex-none"
+                              loading={cancel.isPending}
+                              onClick={async () => {
+                                const ok = await confirmDialog({
+                                  title: 'Cancel withdrawal?',
+                                  description: `Cancel ${w.referenceId} for ${formatCurrency(w.amount, w.currency)}? Locked balance will be released.`,
+                                  confirmLabel: 'Yes, cancel',
+                                  cancelLabel: 'Keep request',
+                                  variant: 'danger',
+                                });
+                                if (ok) cancel.mutate(w._id);
+                              }}
+                            >
+                              Cancel
+                            </Button>
+                          </>
                         )}
                       </div>
                     </div>
@@ -997,14 +1058,16 @@ export function WithdrawalsPage() {
       <Modal
         open={!!pendingPayload}
         onClose={() => {
-          if (!create.isPending) setPendingPayload(null);
+          if (!create.isPending && !updateDestination.isPending) setPendingPayload(null);
         }}
-        title="Confirm withdrawal"
+        title={editingId ? 'Confirm updated details' : 'Confirm withdrawal'}
       >
         {pendingPayload && (
           <div className="space-y-4">
             <p className="text-sm text-on-surface-variant">
-              Check amount, method and destination before submitting.
+              {editingId
+                ? 'Verify Name, Bank, Account, IFSC and UPI before saving.'
+                : 'Check amount, method and destination before submitting.'}
             </p>
             <dl className="space-y-2 rounded-xl border border-outline-variant bg-surface-container-low/50 px-4 py-3 text-sm">
               <div className="flex justify-between gap-3">
@@ -1092,18 +1155,32 @@ export function WithdrawalsPage() {
               <Button
                 type="button"
                 variant="outline"
-                disabled={create.isPending}
+                disabled={create.isPending || updateDestination.isPending}
                 onClick={() => setPendingPayload(null)}
               >
                 Back
               </Button>
               <Button
                 type="button"
-                loading={create.isPending}
+                loading={create.isPending || updateDestination.isPending}
                 onClick={() => {
                   setFormError('');
-                  create.mutate(pendingPayload);
+                  if (editingId) {
+                    updateDestination.mutate({
+                      id: editingId,
+                      payload: {
+                        upiDetails: pendingPayload.upiDetails,
+                        bankDetails: pendingPayload.bankDetails,
+                        usdtDetails: pendingPayload.usdtDetails,
+                      },
+                    });
+                  } else {
+                    create.mutate(pendingPayload);
+                  }
                 }}
+              >
+                {editingId ? 'Confirm & save' : 'Confirm & submit'}
+              </Button>
               >
                 Confirm & submit
               </Button>

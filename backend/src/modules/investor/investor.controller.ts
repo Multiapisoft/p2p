@@ -56,6 +56,20 @@ export class InvestorController {
     });
   }
 
+  @Get('investments/all')
+  @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN)
+  @Permissions(Permission.INVESTORS_MANAGE)
+  getAllInvestments(@Query() query: InvestorListQueryDto) {
+    return this.investorService.findInvestments(query);
+  }
+
+  @Get('payments')
+  @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN)
+  @Permissions(Permission.INVESTORS_MANAGE)
+  getInvestorPayments(@Query() query: InvestorListQueryDto) {
+    return this.investorService.findInvestorPayments(query);
+  }
+
   @Patch('investments/:id/approve')
   @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN)
   @Permissions(Permission.INVESTORS_MANAGE)

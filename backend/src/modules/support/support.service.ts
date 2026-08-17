@@ -76,10 +76,29 @@ export class SupportService {
     ];
 
     if (role === UserRole.BUSINESS) {
-      const biz = await this.businessModel.findOne({ ownerId: oid }).select('_id').exec();
+      const biz = await this.businessModel
+        .findOne({
+          $or: [{ ownerId: oid }, { ownerId: userId }],
+        })
+        .select('_id')
+        .exec();
       if (biz) {
         or.push({ businessId: biz._id });
         or.push({ businessId: biz._id.toString() });
+        const referred = await this.userModel
+          .find({
+            $or: [
+              { referredByBusiness: biz._id },
+              { referredByBusiness: biz._id.toString() },
+            ],
+          })
+          .select('_id')
+          .lean()
+          .exec();
+        if (referred.length) {
+          const ids = referred.map((u) => u._id);
+          or.push({ userId: { $in: ids } });
+        }
       }
     }
 
@@ -138,15 +157,25 @@ export class SupportService {
     if (ticket.userId?.toString() === userId) return;
     if (ticket.participantIds?.some((id) => id.toString() === userId)) return;
 
-    if (role === UserRole.BUSINESS && ticket.businessId) {
+    if (role === UserRole.BUSINESS) {
       const biz = await this.businessModel
         .findOne({
-          _id: ticket.businessId,
           $or: [{ ownerId: new Types.ObjectId(userId) }, { ownerId: userId }],
         })
         .select('_id')
         .exec();
-      if (biz) return;
+      if (biz) {
+        if (ticket.businessId && ticket.businessId.toString() === biz._id.toString()) {
+          return;
+        }
+        const opener = await this.userModel
+          .findById(ticket.userId)
+          .select('referredByBusiness')
+          .exec();
+        if (opener?.referredByBusiness?.toString() === biz._id.toString()) {
+          return;
+        }
+      }
     }
 
     throw new ForbiddenException('Not your ticket');
@@ -161,7 +190,13 @@ export class SupportService {
     const sort = this.sortSpec(opts.sort);
 
     const [items, total] = await Promise.all([
-      this.ticketModel.find(filter).skip(skip).limit(limit).sort(sort).exec(),
+      this.ticketModel
+        .find(filter)
+        .populate('userId', 'name email phone businessUserCode')
+        .skip(skip)
+        .limit(limit)
+        .sort(sort)
+        .exec(),
       this.ticketModel.countDocuments(filter).exec(),
     ]);
     return {
@@ -199,7 +234,10 @@ export class SupportService {
   }
 
   async findByTicketId(ticketId: string, userId?: string, role?: UserRole) {
-    const ticket = await this.ticketModel.findOne({ ticketId }).exec();
+    const ticket = await this.ticketModel
+      .findOne({ ticketId })
+      .populate('userId', 'name email phone businessUserCode')
+      .exec();
     if (!ticket) throw new NotFoundException('Ticket not found');
     if (userId && role) {
       await this.assertCanAccess(ticket, userId, role);

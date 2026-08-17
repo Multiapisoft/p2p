@@ -1,5 +1,5 @@
 import { apiGet, apiPatch } from '@/shared/api/client';
-import type { Redemption, Investment, Paginated } from '@/shared/types/api.types';
+import type { Redemption, Investment, Paginated, TransactionStatus } from '@/shared/types/api.types';
 
 export type InvestorListQuery = {
   page?: number;
@@ -7,7 +7,33 @@ export type InvestorListQuery = {
   search?: string;
   sort?: string;
   method?: string;
+  status?: string;
 };
+
+export interface InvestorPayRecord {
+  _id: string;
+  referenceId: string;
+  amount: number;
+  currency?: string;
+  utr?: string;
+  status: TransactionStatus;
+  createdAt: string;
+  payerUserId:
+    | string
+    | {
+        _id: string;
+        name?: string;
+        email?: string;
+        phone?: string;
+      };
+  withdrawalId?:
+    | string
+    | {
+        _id: string;
+        referenceId?: string;
+        method?: string;
+      };
+}
 
 function cleanQuery(query: InvestorListQuery = {}) {
   return {
@@ -16,6 +42,7 @@ function cleanQuery(query: InvestorListQuery = {}) {
     search: query.search?.trim() || undefined,
     sort: query.sort || 'newest',
     method: query.method && query.method !== 'all' ? query.method : undefined,
+    status: query.status && query.status !== 'all' ? query.status : undefined,
   };
 }
 
@@ -24,6 +51,10 @@ export const investorsApi = {
     apiGet<Paginated<Redemption>>('/investor/redemptions/pending', cleanQuery(query)),
   getPendingInvestments: (query: InvestorListQuery = {}) =>
     apiGet<Paginated<Investment>>('/investor/investments/pending', cleanQuery(query)),
+  getAllInvestments: (query: InvestorListQuery = {}) =>
+    apiGet<Paginated<Investment>>('/investor/investments/all', cleanQuery(query)),
+  getInvestorPayments: (query: InvestorListQuery = {}) =>
+    apiGet<Paginated<InvestorPayRecord>>('/investor/payments', cleanQuery(query)),
   approveRedemption: (id: string) =>
     apiPatch<Redemption>(`/investor/redemptions/${id}/approve`, {}),
   rejectRedemption: (id: string, reason: string) =>

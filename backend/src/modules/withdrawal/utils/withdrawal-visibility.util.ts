@@ -82,3 +82,10 @@ export function userCanCancelWithdrawal(opts: {
   const withinTat = isWithinUserEditTat(opts.createdAt, opts.nowMs, opts.tatMs);
   return cancellable && !listed && withinTat && (opts.paidAmount || 0) === 0;
 }
+
+/** Same TAT window as cancel — destination edit only. */
+export function userCanEditWithdrawal(
+  opts: Parameters<typeof userCanCancelWithdrawal>[0],
+): boolean {
+  return userCanCancelWithdrawal(opts);
+}

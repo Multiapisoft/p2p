@@ -88,6 +88,7 @@ export interface Withdrawal {
   p2pListStatus?: 'awaiting' | 'listed' | 'rejected';
   /** True while within cancel TAT and not yet listed for Platform Payment. */
   userCanCancel?: boolean;
+  userCanEdit?: boolean;
   userEditExpiresAt?: string;
   tatSecondsRemaining?: number;
   createdAt: string;
@@ -96,12 +97,12 @@ export interface Withdrawal {
 export interface CreateWithdrawalPayload {
   amount: number;
   method: PaymentMethod;
-  upiDetails?: { upiId: string; payerName?: string };
+  upiDetails?: { upiId: string; payerName: string };
   bankDetails?: {
     accountNumber: string;
     ifscCode: string;
     accountHolderName: string;
-    bankName?: string;
+    bankName: string;
   };
   usdtDetails?: { walletAddress: string; network?: string };
 }

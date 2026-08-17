@@ -281,6 +281,15 @@ export interface SupportTicket {
   status: string;
   priority: string;
   category?: string;
+  userId?:
+    | string
+    | {
+        _id: string;
+        name?: string;
+        email?: string;
+        phone?: string;
+        businessUserCode?: string;
+      };
   replies?: { authorId: string; message: string; createdAt: string }[];
   createdAt: string;
 }

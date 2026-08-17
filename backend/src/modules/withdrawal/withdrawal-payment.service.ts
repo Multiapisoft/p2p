@@ -52,6 +52,7 @@ import {
   paymentReceivedNotification,
   shouldCreditInvestorBonus,
 } from './utils/payment-notification.util';
+import { assertUniquePaymentRef } from './utils/payment-ref-uniqueness.util';
 
 const VERIFICATION_WINDOW_MS = 24 * 60 * 60 * 1000;
 const CLAIM_REDIS_PREFIX = 'withdrawal-claim:';
@@ -645,23 +646,12 @@ export class WithdrawalPaymentService {
     const utrNorm = isUsdtPayout
       ? String(normalizeTxHash(refRaw))
       : String(normalizeUtr(refRaw));
-    const utrAlreadyUsed = await this.paymentModel.exists({
-      utr: { $regex: `^${this.escapeRegex(utrNorm)}$`, $options: 'i' },
-      status: {
-        $in: [
-          TransactionStatus.PENDING,
-          TransactionStatus.PROCESSING,
-          TransactionStatus.COMPLETED,
-        ],
-      },
+    await assertUniquePaymentRef({
+      paymentModel: this.paymentModel,
+      withdrawalModel: this.withdrawalModel,
+      ref: utrNorm,
+      isUsdt: isUsdtPayout,
     });
-    if (utrAlreadyUsed) {
-      throw new BadRequestException(
-        isUsdtPayout
-          ? 'This USDT / TRX TxID is already submitted. Please use a different transaction hash.'
-          : 'This UTR is already submitted. Please use a different valid UTR.',
-      );
-    }
 
     this.storageService.validateProofKey(dto.proofImageKey, payerUserId);
 
@@ -1965,10 +1955,6 @@ export class WithdrawalPaymentService {
       ? this.exchangeRateService.usdtToInr(payment.amount)
       : payment.amount;
     return Math.round(inr * 100) / 100;
-  }
-
-  private escapeRegex(value: string) {
-    return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   }
 
   private maskUtr(utr: string) {

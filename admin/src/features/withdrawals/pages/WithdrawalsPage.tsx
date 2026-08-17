@@ -416,6 +416,15 @@ export function WithdrawalsPage() {
               ) : (
                 <p className="text-on-surface-variant">No destination details</p>
               )}
+              {detail.upiDetails?.utr ? (
+                <p className="font-medium">UTR: {detail.upiDetails.utr}</p>
+              ) : null}
+              {detail.bankDetails?.utr ? (
+                <p className="font-medium">UTR: {detail.bankDetails.utr}</p>
+              ) : null}
+              {detail.usdtDetails?.txHash ? (
+                <p className="break-all font-medium">Tx hash: {detail.usdtDetails.txHash}</p>
+              ) : null}
             </div>
           </div>
         )}

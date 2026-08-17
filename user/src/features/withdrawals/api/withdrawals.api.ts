@@ -21,6 +21,10 @@ export const withdrawalsApi = {
       method: query.method && query.method !== 'all' ? query.method : undefined,
     }),
   create: (payload: CreateWithdrawalPayload) => apiPost<Withdrawal>('/withdrawals', payload),
+  updateDestination: (
+    id: string,
+    payload: Pick<CreateWithdrawalPayload, 'upiDetails' | 'bankDetails' | 'usdtDetails'>,
+  ) => apiPatch<Withdrawal>(`/withdrawals/${id}/destination`, payload),
   cancel: (id: string) => apiPatch<Withdrawal>(`/withdrawals/${id}/cancel`),
   confirmPaymentReceived: (paymentId: string) =>
     apiPatch(`/withdrawal-payments/${paymentId}/confirm-received`),

@@ -82,6 +82,15 @@ describe('withdrawal-destination.validation (#15)', () => {
       ).toThrow(BadRequestException);
     });
 
+    it('requires UPI name', () => {
+      expect(() =>
+        assertValidWithdrawalDestination({
+          method: PaymentMethod.UPI,
+          upiDetails: { upiId: 'abc@okaxis' },
+        }),
+      ).toThrow(/Name is required/);
+    });
+
     it('accepts valid UPI', () => {
       expect(() =>
         assertValidWithdrawalDestination({

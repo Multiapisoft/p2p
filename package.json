@@ -1,0 +1,15 @@
+{
+  "name": "p2p-platform",
+  "private": true,
+  "version": "0.1.2",
+  "description": "Monorepo root — each app has its own package.json. Run builds from the app folder, or use the scripts below.",
+  "scripts": {
+    "build": "pnpm run build:backend && pnpm run build:user && pnpm run build:admin && pnpm run build:bussness && pnpm run build:investor",
+    "build:backend": "pnpm --dir backend build",
+    "build:user": "pnpm --dir user build",
+    "build:admin": "pnpm --dir admin build",
+    "build:bussness": "pnpm --dir bussness build",
+    "build:investor": "pnpm --dir investor build",
+    "build:integration": "pnpm --dir integration build"
+  }
+}

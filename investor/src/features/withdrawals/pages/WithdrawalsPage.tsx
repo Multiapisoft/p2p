@@ -77,6 +77,7 @@ export function WithdrawalsPage() {
   const [network, setNetwork] = useState('TRC20');
   const [formError, setFormError] = useState('');
   const [pendingPayload, setPendingPayload] = useState<CreateWithdrawalPayload | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const qc = useQueryClient();
 
@@ -109,6 +110,24 @@ export function WithdrawalsPage() {
     setNetwork('TRC20');
     setFormError('');
     setPendingPayload(null);
+    setEditingId(null);
+  };
+
+  const startEdit = (w: Withdrawal) => {
+    setEditingId(w._id);
+    setShowForm(true);
+    setMethod(w.method);
+    setAmount(String(w.sourceAmount ?? w.amount));
+    setUpiId(w.upiDetails?.upiId || '');
+    setPayerName(w.upiDetails?.payerName || '');
+    setAccountNumber(w.bankDetails?.accountNumber || '');
+    setIfscCode(w.bankDetails?.ifscCode || '');
+    setAccountHolderName(w.bankDetails?.accountHolderName || '');
+    setBankName(w.bankDetails?.bankName || '');
+    setWalletAddress(w.usdtDetails?.walletAddress || '');
+    setNetwork(w.usdtDetails?.network || 'TRC20');
+    setFormError('');
+    setPendingPayload(null);
   };
 
   const create = useMutation({
@@ -123,6 +142,25 @@ export function WithdrawalsPage() {
     },
     onError: (err: unknown) => {
       setFormError(apiErrorMessage(err, 'Withdrawal failed'));
+    },
+  });
+
+  const updateDestination = useMutation({
+    mutationFn: ({
+      id,
+      payload,
+    }: {
+      id: string;
+      payload: Pick<CreateWithdrawalPayload, 'upiDetails' | 'bankDetails' | 'usdtDetails'>;
+    }) => withdrawalsApi.updateDestination(id, payload),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['my-withdrawals'] });
+      setPendingPayload(null);
+      setShowForm(false);
+      resetForm();
+    },
+    onError: (err: unknown) => {
+      setFormError(apiErrorMessage(err, 'Update failed'));
     },
   });
 
@@ -144,7 +182,7 @@ export function WithdrawalsPage() {
       setFormError('Enter a valid amount');
       return;
     }
-    if (num > available) {
+    if (num > available && !editingId) {
       setFormError(`Insufficient balance (${formatCurrency(available)})`);
       return;
     }
@@ -156,14 +194,14 @@ export function WithdrawalsPage() {
         setFormError(upiErr);
         return;
       }
-      const nameErr = personNameError(payerName, false);
+      const nameErr = personNameError(payerName, true);
       if (nameErr) {
         setFormError(nameErr);
         return;
       }
       payload.upiDetails = {
         upiId: upiId.trim(),
-        payerName: payerName.trim() || undefined,
+        payerName: payerName.trim(),
       };
     } else if (method === 'bank') {
       const accErr = accountNumberError(accountNumber);
@@ -223,8 +261,17 @@ export function WithdrawalsPage() {
             Open a payout request (UPI / Bank / USDT). Others can fulfill it on Invest.
           </p>
         </div>
-        <Button onClick={() => setShowForm((v) => !v)}>
-          {showForm ? 'Close' : 'New Withdrawal'}
+        <Button
+          onClick={() => {
+            if (showForm) {
+              setShowForm(false);
+              resetForm();
+            } else {
+              setShowForm(true);
+            }
+          }}
+        >
+          {showForm ? 'Close' : editingId ? 'Edit withdrawal' : 'New Withdrawal'}
         </Button>
       </div>
 
@@ -250,7 +297,9 @@ export function WithdrawalsPage() {
                   <button
                     key={m.value}
                     type="button"
-                    onClick={() => setMethod(m.value)}
+                    onClick={() => {
+                      if (!editingId) setMethod(m.value);
+                    }}
                     className={`rounded-full px-3 py-1.5 text-sm font-semibold ${
                       method === m.value
                         ? 'bg-primary text-on-primary'
@@ -272,6 +321,7 @@ export function WithdrawalsPage() {
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               required
+              disabled={!!editingId}
             />
 
             {method === 'upi' && (
@@ -284,9 +334,10 @@ export function WithdrawalsPage() {
                   required
                 />
                 <Input
-                  label="Name (optional)"
+                  label="Name *"
                   value={payerName}
                   onChange={(e) => setPayerName(e.target.value)}
+                  required
                 />
               </>
             )}
@@ -384,7 +435,7 @@ export function WithdrawalsPage() {
                     <DestinationLine w={w} />
                     {(w.status === 'pending' || w.status === 'processing') && canCancel && tatLeft > 0 && (
                       <p className="mt-1 text-[11px] font-medium text-secondary">
-                        You can cancel for {formatSecondsMmSs(tatLeft)}
+                        You can edit or cancel for {formatSecondsMmSs(tatLeft)}
                       </p>
                     )}
                     {(w.status === 'pending' || w.status === 'processing') && !canCancel && (
@@ -397,6 +448,10 @@ export function WithdrawalsPage() {
                   <div className="flex flex-col items-end gap-2">
                     <StatusBadge status={w.status} />
                     {canCancel && (
+                      <div className="flex flex-col items-end gap-2">
+                        <Button size="sm" variant="secondary" onClick={() => startEdit(w)}>
+                          Edit
+                        </Button>
                         <Button
                           size="sm"
                           variant="danger"
@@ -405,7 +460,8 @@ export function WithdrawalsPage() {
                         >
                           Cancel
                         </Button>
-                      )}
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -419,29 +475,40 @@ export function WithdrawalsPage() {
       <Modal
         open={!!pendingPayload}
         onClose={() => {
-          if (!create.isPending) setPendingPayload(null);
+          if (!create.isPending && !updateDestination.isPending) setPendingPayload(null);
         }}
-        title="Confirm withdrawal"
+        title={editingId ? 'Confirm updated details' : 'Confirm withdrawal'}
         footer={
           pendingPayload ? (
             <div className="flex flex-wrap justify-end gap-2">
               <Button
                 type="button"
                 variant="outline"
-                disabled={create.isPending}
+                disabled={create.isPending || updateDestination.isPending}
                 onClick={() => setPendingPayload(null)}
               >
                 Back
               </Button>
               <Button
                 type="button"
-                loading={create.isPending}
+                loading={create.isPending || updateDestination.isPending}
                 onClick={() => {
                   setFormError('');
-                  create.mutate(pendingPayload);
+                  if (editingId) {
+                    updateDestination.mutate({
+                      id: editingId,
+                      payload: {
+                        upiDetails: pendingPayload.upiDetails,
+                        bankDetails: pendingPayload.bankDetails,
+                        usdtDetails: pendingPayload.usdtDetails,
+                      },
+                    });
+                  } else {
+                    create.mutate(pendingPayload);
+                  }
                 }}
               >
-                Confirm & submit
+                {editingId ? 'Confirm & save' : 'Confirm & submit'}
               </Button>
             </div>
           ) : null
@@ -450,7 +517,9 @@ export function WithdrawalsPage() {
         {pendingPayload && (
           <div className="space-y-4">
             <p className="text-sm text-on-surface-variant">
-              Check amount, method and destination before submitting.
+              {editingId
+                ? 'Verify Name, Bank, Account, IFSC and UPI before saving.'
+                : 'Check amount, method and destination before submitting.'}
             </p>
             <dl className="space-y-2 rounded-xl border border-outline-variant bg-surface-container-low/50 px-4 py-3 text-sm">
               <div className="flex justify-between gap-3">

@@ -12,6 +12,7 @@ import {
   CreateWithdrawalDto,
   ProcessWithdrawalDto,
   RejectWithdrawalDto,
+  UpdateWithdrawalDestinationDto,
 } from './dto/withdrawal.dto';
 import { WalletService } from '../wallet/wallet.service';
 import { CommissionService } from '../commission/commission.service';
@@ -44,7 +45,9 @@ import {
   adminWithdrawalVisibilityFilter,
   businessWithdrawalVisibilityFilter,
   tatCutoffDate,
+  userCanCancelWithdrawal,
 } from './utils/withdrawal-visibility.util';
+import { assertUniquePaymentRef } from './utils/payment-ref-uniqueness.util';
 import { PlatformSettingsService } from '../platform-settings/platform-settings.service';
 
 export type WithdrawalListOpts = ListQueryOpts & { method?: string };
@@ -276,6 +279,18 @@ export class WithdrawalService {
         .session(session || null);
       if (pendingPayments) {
         throw new BadRequestException('Reject or approve pending split payments first');
+      }
+
+      const isUsdtPayout = withdrawal.method === PaymentMethod.USDT;
+      const payoutRef = isUsdtPayout ? dto.txHash?.trim() : dto.utr?.trim();
+      if (payoutRef) {
+        await assertUniquePaymentRef({
+          paymentModel: this.paymentModel,
+          withdrawalModel: this.withdrawalModel,
+          ref: payoutRef,
+          isUsdt: isUsdtPayout,
+          excludeWithdrawalId: withdrawal._id.toString(),
+        });
       }
 
       const lockAmt = this.lockAmountFor(withdrawal);
@@ -537,28 +552,90 @@ export class WithdrawalService {
     return withdrawal;
   }
 
-  async cancel(withdrawalId: string, userId: string) {
-    const withdrawal = await this.withdrawalModel.findById(withdrawalId);
-    if (!withdrawal) throw new NotFoundException('Withdrawal not found');
+  private async assertUserCanMutateDestination(
+    withdrawal: WithdrawalDocument,
+    userId: string,
+    action: 'cancel' | 'edit',
+  ) {
     if (withdrawal.userId.toString() !== userId) {
       throw new ForbiddenException('Not your withdrawal');
     }
 
-    if (withdrawal.p2pListStatus === 'listed') {
-      throw new BadRequestException(
-        'Cannot cancel after Platform Payment list approval. Contact business or admin.',
-      );
-    }
-
     const tatMs = await this.platformSettingsService.getTatMs();
     const createdAt = (withdrawal as unknown as { createdAt?: Date }).createdAt;
-    if (createdAt && Date.now() - new Date(createdAt).getTime() > tatMs) {
+    const can = userCanCancelWithdrawal({
+      status: withdrawal.status,
+      p2pListStatus: withdrawal.p2pListStatus,
+      paidAmount: withdrawal.paidAmount,
+      createdAt,
+      nowMs: Date.now(),
+      tatMs,
+    });
+    if (can) return;
+
+    if (withdrawal.p2pListStatus === 'listed') {
       throw new BadRequestException(
-        'Edit window expired; contact business or admin to cancel.',
+        `Cannot ${action} after Platform Payment list approval. Contact business or admin.`,
       );
     }
+    throw new BadRequestException(
+      `Edit window expired; contact business or admin to ${action}.`,
+    );
+  }
 
+  async cancel(withdrawalId: string, userId: string) {
+    const withdrawal = await this.withdrawalModel.findById(withdrawalId);
+    if (!withdrawal) throw new NotFoundException('Withdrawal not found');
+    await this.assertUserCanMutateDestination(withdrawal, userId, 'cancel');
     return this.cancelWithdrawalRecord(withdrawal);
+  }
+
+  async updateDestination(
+    withdrawalId: string,
+    userId: string,
+    dto: UpdateWithdrawalDestinationDto,
+  ) {
+    const withdrawal = await this.withdrawalModel.findById(withdrawalId);
+    if (!withdrawal) throw new NotFoundException('Withdrawal not found');
+    await this.assertUserCanMutateDestination(withdrawal, userId, 'edit');
+
+    this.validateDestination({
+      method: withdrawal.method,
+      upiDetails: dto.upiDetails,
+      bankDetails: dto.bankDetails,
+      usdtDetails: dto.usdtDetails,
+    });
+
+    if (withdrawal.method === PaymentMethod.UPI) {
+      withdrawal.upiDetails = {
+        upiId: dto.upiDetails!.upiId,
+        payerName: dto.upiDetails!.payerName,
+      };
+      withdrawal.bankDetails = undefined;
+      withdrawal.usdtDetails = undefined;
+    } else if (withdrawal.method === PaymentMethod.BANK) {
+      withdrawal.bankDetails = {
+        accountNumber: dto.bankDetails!.accountNumber,
+        ifscCode: dto.bankDetails!.ifscCode,
+        accountHolderName: dto.bankDetails!.accountHolderName,
+        bankName: dto.bankDetails!.bankName,
+      };
+      withdrawal.upiDetails = undefined;
+      withdrawal.usdtDetails = undefined;
+    } else {
+      withdrawal.usdtDetails = {
+        walletAddress: dto.usdtDetails!.walletAddress,
+        network: dto.usdtDetails?.network || 'TRC20',
+      };
+      withdrawal.upiDetails = undefined;
+      withdrawal.bankDetails = undefined;
+    }
+
+    withdrawal.markModified('upiDetails');
+    withdrawal.markModified('bankDetails');
+    withdrawal.markModified('usdtDetails');
+    await withdrawal.save();
+    return withdrawal;
   }
 
   async findByReferenceForBusiness(businessId: string, referenceId: string) {
@@ -862,6 +939,7 @@ export class WithdrawalService {
           !listed &&
           withinTat &&
           (w.paidAmount || 0) === 0;
+        const userCanEdit = userCanCancel;
         const tatSecondsRemaining =
           createdAt && withinTat
             ? Math.max(
@@ -874,6 +952,7 @@ export class WithdrawalService {
           ...w.toObject(),
           remainingAmount: Math.max(0, w.amount - (w.paidAmount || 0)),
           userCanCancel,
+          userCanEdit,
           userEditExpiresAt,
           tatSecondsRemaining,
           payments: list.map((p) => ({
@@ -956,7 +1035,12 @@ export class WithdrawalService {
     };
   }
 
-  private validateDestination(dto: CreateWithdrawalDto) {
+  private validateDestination(dto: {
+    method: PaymentMethod | string;
+    upiDetails?: CreateWithdrawalDto['upiDetails'];
+    bankDetails?: CreateWithdrawalDto['bankDetails'];
+    usdtDetails?: CreateWithdrawalDto['usdtDetails'];
+  }) {
     assertValidWithdrawalDestination(dto);
   }
 }

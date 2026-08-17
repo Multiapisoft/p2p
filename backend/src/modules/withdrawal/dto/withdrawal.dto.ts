@@ -3,16 +3,14 @@ import {
   IsNumber,
   IsOptional,
   IsString,
-  ValidateNested,
+  Matches,
   Min,
+  MinLength,
+  ValidateNested,
 } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import { PaymentMethod } from '../../../common/enums/payment-method.enum';
-import {
-  UpiDetailsDto,
-  BankDetailsDto,
-  UsdtDetailsDto,
-} from '../../deposit/dto/deposit.dto';
+import { UsdtDetailsDto } from '../../deposit/dto/deposit.dto';
 import { ListQueryDto } from '../../../common/dto/list-query.dto';
 import {
   IsOptionalAppTxHash,
@@ -25,6 +23,50 @@ export class WithdrawalListQueryDto extends ListQueryDto {
   method?: string;
 }
 
+export class WithdrawalUpiDetailsDto {
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @IsString()
+  @Matches(/^(?!.*\d{10,}).+$/, {
+    message: 'UPI ID cannot contain more than 9 consecutive digits',
+  })
+  upiId!: string;
+
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @IsString()
+  @Matches(/^[A-Za-z ]+$/, {
+    message: 'Name must contain alphabets and spaces only (no numbers)',
+  })
+  payerName!: string;
+}
+
+export class WithdrawalBankDetailsDto {
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @IsString()
+  @Matches(/^\d+$/, { message: 'Account number must be numeric only' })
+  accountNumber!: string;
+
+  @Transform(({ value }) =>
+    typeof value === 'string' ? value.trim().toUpperCase() : value,
+  )
+  @IsString()
+  @Matches(/^[A-Z]{4}0[A-Z0-9]{6}$/, {
+    message: 'IFSC must be 11 characters (e.g. SBIN0001234)',
+  })
+  ifscCode!: string;
+
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @IsString()
+  @Matches(/^[A-Za-z ]+$/, {
+    message: 'Name must contain alphabets and spaces only (no numbers)',
+  })
+  accountHolderName!: string;
+
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @IsString()
+  @MinLength(2, { message: 'Bank name is required' })
+  bankName!: string;
+}
+
 export class CreateWithdrawalDto {
   @IsNumber()
   @Min(1)
@@ -35,13 +77,13 @@ export class CreateWithdrawalDto {
 
   @IsOptional()
   @ValidateNested()
-  @Type(() => UpiDetailsDto)
-  upiDetails?: UpiDetailsDto;
+  @Type(() => WithdrawalUpiDetailsDto)
+  upiDetails?: WithdrawalUpiDetailsDto;
 
   @IsOptional()
   @ValidateNested()
-  @Type(() => BankDetailsDto)
-  bankDetails?: BankDetailsDto;
+  @Type(() => WithdrawalBankDetailsDto)
+  bankDetails?: WithdrawalBankDetailsDto;
 
   @IsOptional()
   @ValidateNested()
@@ -51,6 +93,23 @@ export class CreateWithdrawalDto {
   @IsOptional()
   @IsString()
   integrationToken?: string;
+}
+
+export class UpdateWithdrawalDestinationDto {
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => WithdrawalUpiDetailsDto)
+  upiDetails?: WithdrawalUpiDetailsDto;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => WithdrawalBankDetailsDto)
+  bankDetails?: WithdrawalBankDetailsDto;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => UsdtDetailsDto)
+  usdtDetails?: UsdtDetailsDto;
 }
 
 export class ProcessWithdrawalDto {

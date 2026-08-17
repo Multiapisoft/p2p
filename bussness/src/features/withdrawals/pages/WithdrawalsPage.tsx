@@ -52,15 +52,39 @@ function DetailRow({ label, value }: { label: string; value: ReactNode }) {
   );
 }
 
+function destinationRows(w: Withdrawal): { label: string; value: string }[] {
+  if (w.method === 'upi') {
+    return [
+      w.upiDetails?.payerName ? { label: 'Name', value: w.upiDetails.payerName } : null,
+      w.upiDetails?.upiId ? { label: 'UPI ID', value: w.upiDetails.upiId } : null,
+      w.upiDetails?.utr ? { label: 'UTR', value: w.upiDetails.utr } : null,
+    ].filter(Boolean) as { label: string; value: string }[];
+  }
+  if (w.method === 'bank') {
+    const b = w.bankDetails;
+    return [
+      b?.accountHolderName ? { label: 'Name', value: b.accountHolderName } : null,
+      b?.bankName ? { label: 'Bank name', value: b.bankName } : null,
+      b?.accountNumber ? { label: 'Account number', value: b.accountNumber } : null,
+      b?.ifscCode ? { label: 'IFSC', value: b.ifscCode } : null,
+      b?.utr ? { label: 'UTR', value: b.utr } : null,
+    ].filter(Boolean) as { label: string; value: string }[];
+  }
+  if (w.method === 'usdt') {
+    const u = w.usdtDetails;
+    return [
+      u?.walletAddress ? { label: 'USDT wallet', value: u.walletAddress } : null,
+      u?.network ? { label: 'Network', value: u.network } : null,
+      u?.txHash ? { label: 'Tx hash', value: u.txHash } : null,
+    ].filter(Boolean) as { label: string; value: string }[];
+  }
+  return [{ label: 'Method', value: String(w.method).toUpperCase() }];
+}
+
 function destinationLine(w: Withdrawal) {
-  if (w.method === 'upi' && w.upiDetails?.upiId) return `UPI · ${w.upiDetails.upiId}`;
-  if (w.method === 'bank' && w.bankDetails?.accountNumber) {
-    return `Bank · ${w.bankDetails.accountHolderName || ''} · ${w.bankDetails.accountNumber}`;
-  }
-  if (w.method === 'usdt' && w.usdtDetails?.walletAddress) {
-    return `USDT · ${w.usdtDetails.walletAddress.slice(0, 10)}…`;
-  }
-  return String(w.method).toUpperCase();
+  return destinationRows(w)
+    .map((r) => `${r.label} ${r.value}`)
+    .join(' · ');
 }
 
 export function WithdrawalsPage() {
@@ -468,7 +492,9 @@ export function WithdrawalsPage() {
                   {user.businessUserCode ? (
                     <DetailRow label="User code" value={user.businessUserCode} />
                   ) : null}
-                  <DetailRow label="Destination" value={destinationLine(detail)} />
+                  {destinationRows(detail).map((row) => (
+                    <DetailRow key={row.label} label={row.label} value={row.value} />
+                  ))}
                   {detail.status === 'pending' && (detail.paidAmount || 0) <= 0 && (
                     <div className="mt-4 flex flex-wrap gap-2">
                       <Button
@@ -518,21 +544,6 @@ export function WithdrawalsPage() {
                       )}
                     </div>
                   )}
-                  {detail.upiDetails?.utr ? (
-                    <DetailRow label="UTR" value={detail.upiDetails.utr} />
-                  ) : null}
-                  {detail.bankDetails?.ifscCode ? (
-                    <DetailRow label="IFSC" value={detail.bankDetails.ifscCode} />
-                  ) : null}
-                  {detail.bankDetails?.bankName ? (
-                    <DetailRow label="Bank" value={detail.bankDetails.bankName} />
-                  ) : null}
-                  {detail.usdtDetails?.network ? (
-                    <DetailRow label="Network" value={detail.usdtDetails.network} />
-                  ) : null}
-                  {detail.usdtDetails?.txHash ? (
-                    <DetailRow label="Tx hash" value={detail.usdtDetails.txHash} />
-                  ) : null}
                   {(detail.commissionAmount || 0) > 0 ? (
                     <DetailRow
                       label="Commission cut"
@@ -643,7 +654,7 @@ export function WithdrawalsPage() {
           }}
         >
           <p className="text-sm text-on-surface-variant">
-            Mark this withdrawal as paid and complete. Optional UTR / tx hash for records.
+            Mark this withdrawal as paid and complete. If you enter a UTR / TxID it must be unique.
           </p>
           {approveTarget?.method !== 'usdt' ? (
             <Input
