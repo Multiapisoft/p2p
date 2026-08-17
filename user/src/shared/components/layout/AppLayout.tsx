@@ -48,7 +48,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
         </div>
         <nav className="custom-scrollbar flex-1 space-y-1 overflow-y-auto p-4">
           {NAV_ITEMS.map((item) => {
-            const active = pathname === item.to || (item.to !== '/' && pathname.startsWith(item.to));
+            const active = pathname === item.to || pathname.startsWith(`${item.to}/`);
             return (
               <Link
                 key={item.to}
@@ -92,7 +92,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
             </span>
           </div>
           <div className="hidden text-sm text-on-surface-variant md:block">
-            {NAV_ITEMS.find((n) => pathname === n.to || (n.to !== '/' && pathname.startsWith(n.to)))?.label ?? 'Wallet'}
+            {NAV_ITEMS.find((n) => pathname === n.to || pathname.startsWith(`${n.to}/`))?.label ?? 'Wallet'}
           </div>
           <div className="flex shrink-0 items-center gap-1 sm:gap-2">
             <NotificationBell />
@@ -115,7 +115,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
         >
           <div className="flex justify-around">
             {mobilePrimary.map((item) => {
-              const active = pathname === item.to || (item.to !== '/' && pathname.startsWith(item.to));
+              const active = pathname === item.to || pathname.startsWith(`${item.to}/`);
               return (
                 <Link
                   key={item.to}
