@@ -11,6 +11,13 @@ import { Button } from '@/shared/components/ui/Button';
 import { Input } from '@/shared/components/ui/Input';
 import { LoadingScreen } from '@/shared/components/ui/Icon';
 import { toast } from '@/shared/ui/toast/toast.store';
+import {
+  accountNumberError,
+  bankNameError,
+  ifscError,
+  personNameError,
+  upiIdError,
+} from '@/shared/lib/validation';
 import type { PaymentMethod } from '@/shared/types/api.types';
 
 function redirectBack(returnUrl: string, params: Record<string, string>) {
@@ -34,6 +41,7 @@ function IntegrationCheckoutInner({ type }: { type: 'deposit' | 'withdrawal' }) 
   const [accountNumber, setAccountNumber] = useState('');
   const [ifscCode, setIfscCode] = useState('');
   const [accountHolderName, setAccountHolderName] = useState('');
+  const [bankName, setBankName] = useState('');
   const [walletAddress, setWalletAddress] = useState('');
 
   useEffect(() => {
@@ -105,16 +113,44 @@ function IntegrationCheckoutInner({ type }: { type: 'deposit' | 'withdrawal' }) 
   }, [token, type, setAuth, router]);
 
   const submitWithdrawal = useMutation({
-    mutationFn: () =>
-      withdrawalsApi.create({
+    mutationFn: () => {
+      if (method === 'upi') {
+        const err = upiIdError(upiId) || personNameError(payerName, true);
+        if (err) throw new Error(err);
+      } else if (method === 'bank') {
+        const err =
+          accountNumberError(accountNumber) ||
+          ifscError(ifscCode) ||
+          personNameError(accountHolderName, true) ||
+          bankNameError(bankName);
+        if (err) throw new Error(err);
+      } else if (!walletAddress.trim()) {
+        throw new Error('Wallet address is required');
+      }
+
+      return withdrawalsApi.create({
         amount: session!.amount,
         method,
         integrationToken: token,
-        upiDetails: method === 'upi' ? { upiId, payerName } : undefined,
+        upiDetails:
+          method === 'upi'
+            ? { upiId: upiId.trim(), payerName: payerName.trim() }
+            : undefined,
         bankDetails:
-          method === 'bank' ? { accountNumber, ifscCode, accountHolderName } : undefined,
-        usdtDetails: method === 'usdt' ? { walletAddress, network: 'TRC20' } : undefined,
-      }),
+          method === 'bank'
+            ? {
+                accountNumber: accountNumber.trim(),
+                ifscCode: ifscCode.trim().toUpperCase(),
+                accountHolderName: accountHolderName.trim(),
+                bankName: bankName.trim(),
+              }
+            : undefined,
+        usdtDetails:
+          method === 'usdt'
+            ? { walletAddress: walletAddress.trim(), network: 'TRC20' }
+            : undefined,
+      });
+    },
     onSuccess: (withdrawal) => {
       setStep('done');
       toast.success('Withdrawal submitted');
@@ -127,8 +163,11 @@ function IntegrationCheckoutInner({ type }: { type: 'deposit' | 'withdrawal' }) 
         });
       }
     },
-    onError: () => {
-      const msg = 'Withdrawal failed. Check your balance and details.';
+    onError: (err: unknown) => {
+      const msg =
+        err instanceof Error && err.message
+          ? err.message
+          : 'Withdrawal failed. Check your balance and details.';
       setError(msg);
       toast.error('Withdrawal failed', msg);
     },
@@ -198,7 +237,12 @@ function IntegrationCheckoutInner({ type }: { type: 'deposit' | 'withdrawal' }) 
         {method === 'upi' && (
           <>
             <Input label="UPI ID" value={upiId} onChange={(e) => setUpiId(e.target.value)} required />
-            <Input label="Name" value={payerName} onChange={(e) => setPayerName(e.target.value)} />
+            <Input
+              label="Name"
+              value={payerName}
+              onChange={(e) => setPayerName(e.target.value)}
+              required
+            />
           </>
         )}
         {method === 'bank' && (
@@ -206,6 +250,12 @@ function IntegrationCheckoutInner({ type }: { type: 'deposit' | 'withdrawal' }) 
             <Input label="Account Number" value={accountNumber} onChange={(e) => setAccountNumber(e.target.value)} required />
             <Input label="IFSC" value={ifscCode} onChange={(e) => setIfscCode(e.target.value)} required />
             <Input label="Account Holder" value={accountHolderName} onChange={(e) => setAccountHolderName(e.target.value)} required />
+            <Input
+              label="Bank name"
+              value={bankName}
+              onChange={(e) => setBankName(e.target.value)}
+              required
+            />
           </>
         )}
         {method === 'usdt' && (
