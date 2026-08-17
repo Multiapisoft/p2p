@@ -17,6 +17,7 @@ import {
   bankNameError,
   ifscError,
   personNameError,
+  sanitizeAccountNumber,
   upiIdError,
 } from '@/shared/lib/validation';
 import { formatSecondsMmSs } from '@/shared/lib/upi-qr';
@@ -347,7 +348,7 @@ export function WithdrawalsPage() {
                   required
                 />
                 <Input
-                  label="Name *"
+                  label="Account name *"
                   value={payerName}
                   onChange={(e) => setPayerName(e.target.value)}
                   required
@@ -360,7 +361,9 @@ export function WithdrawalsPage() {
                 <Input
                   label="Account number *"
                   value={accountNumber}
-                  onChange={(e) => setAccountNumber(e.target.value)}
+                  onChange={(e) => setAccountNumber(sanitizeAccountNumber(e.target.value))}
+                  inputMode="numeric"
+                  maxLength={18}
                   required
                 />
                 <Input
@@ -538,6 +541,13 @@ export function WithdrawalsPage() {
                 type="button"
                 loading={create.isPending || updateDestination.isPending}
                 onClick={() => {
+                  if (
+                    pendingPayload.method === 'upi' &&
+                    !pendingPayload.upiDetails?.payerName?.trim()
+                  ) {
+                    setFormError('Account name is required');
+                    return;
+                  }
                   setFormError('');
                   if (editingId) {
                     updateDestination.mutate({
@@ -577,14 +587,12 @@ export function WithdrawalsPage() {
               </div>
               {pendingPayload.method === 'upi' && pendingPayload.upiDetails && (
                 <>
-                  {pendingPayload.upiDetails.payerName ? (
-                    <div className="flex justify-between gap-3">
-                      <dt className="text-on-surface-variant">NAME</dt>
-                      <dd className="text-right font-semibold">
-                        {pendingPayload.upiDetails.payerName}
-                      </dd>
-                    </div>
-                  ) : null}
+                  <div className="flex justify-between gap-3">
+                    <dt className="text-on-surface-variant">NAME</dt>
+                    <dd className="text-right font-semibold">
+                      {pendingPayload.upiDetails.payerName || '—'}
+                    </dd>
+                  </div>
                   <div className="flex justify-between gap-3">
                     <dt className="text-on-surface-variant">UPI</dt>
                     <dd className="break-all text-right font-semibold">

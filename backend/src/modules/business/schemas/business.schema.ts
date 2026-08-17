@@ -65,6 +65,10 @@ export class Business {
   @Prop({ default: 0 })
   totalUsers!: number;
 
+  /** Max linked users. 0 = use platform default (`maxUsersPerBusiness`). */
+  @Prop({ default: 0 })
+  maxUsers!: number;
+
   @Prop({ default: 0 })
   totalCommissionEarned!: number;
 

@@ -46,6 +46,9 @@ export function validateAccountNumber(accountNumber: string): string | null {
   const v = accountNumber.trim();
   if (!v) return 'Account number is required';
   if (!/^\d+$/.test(v)) return 'Account number must be numeric only';
+  if (v.length < 9 || v.length > 18) {
+    return 'Account number must be 9 to 18 digits';
+  }
   return null;
 }
 

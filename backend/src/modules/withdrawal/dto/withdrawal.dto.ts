@@ -32,9 +32,10 @@ export class WithdrawalUpiDetailsDto {
   upiId!: string;
 
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
-  @IsString()
+  @IsString({ message: 'Account name is required' })
+  @MinLength(2, { message: 'Account name is required' })
   @Matches(/^[A-Za-z ]+$/, {
-    message: 'Name must contain alphabets and spaces only (no numbers)',
+    message: 'Account name must contain letters and spaces only (no numbers)',
   })
   payerName!: string;
 }
@@ -42,7 +43,9 @@ export class WithdrawalUpiDetailsDto {
 export class WithdrawalBankDetailsDto {
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   @IsString()
-  @Matches(/^\d+$/, { message: 'Account number must be numeric only' })
+  @Matches(/^\d{9,18}$/, {
+    message: 'Account number must be 9 to 18 digits',
+  })
   accountNumber!: string;
 
   @Transform(({ value }) =>
@@ -55,9 +58,10 @@ export class WithdrawalBankDetailsDto {
   ifscCode!: string;
 
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
-  @IsString()
+  @IsString({ message: 'Account holder name is required' })
+  @MinLength(2, { message: 'Account holder name is required' })
   @Matches(/^[A-Za-z ]+$/, {
-    message: 'Name must contain alphabets and spaces only (no numbers)',
+    message: 'Account holder name must contain letters and spaces only (no numbers)',
   })
   accountHolderName!: string;
 

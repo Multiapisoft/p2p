@@ -126,9 +126,9 @@ export function paymentRefErrorForMethod(
 /** Name: alphabets + spaces only */
 export function personNameError(value: string, required = true): string | null {
   const v = value.trim();
-  if (!v) return required ? 'Name is required' : null;
+  if (!v) return required ? 'Account name is required' : null;
   if (!/^[A-Za-z ]+$/.test(v)) {
-    return 'Name must contain alphabets and spaces only (no numbers)';
+    return 'Account name must contain letters and spaces only (no numbers)';
   }
   return null;
 }
@@ -143,10 +143,19 @@ export function upiIdError(value: string, required = true): string | null {
   return null;
 }
 
+export const ACCOUNT_NUMBER_MAX_LEN = 18;
+
+export function sanitizeAccountNumber(value: string): string {
+  return value.replace(/\D/g, '').slice(0, ACCOUNT_NUMBER_MAX_LEN);
+}
+
 export function accountNumberError(value: string, required = true): string | null {
   const v = value.trim();
   if (!v) return required ? 'Account number is required' : null;
   if (!/^\d+$/.test(v)) return 'Account number must be numeric only';
+  if (v.length < 9 || v.length > ACCOUNT_NUMBER_MAX_LEN) {
+    return 'Account number must be 9 to 18 digits';
+  }
   return null;
 }
 

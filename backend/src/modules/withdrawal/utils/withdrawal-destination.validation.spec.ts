@@ -42,6 +42,12 @@ describe('withdrawal-destination.validation (#15)', () => {
       expect(validateAccountNumber('53452637489')).toBeNull();
       expect(validateAccountNumber('AB123')).toMatch(/numeric/);
     });
+    it('account must be 9 to 18 digits', () => {
+      expect(validateAccountNumber('12345678')).toMatch(/9 to 18/);
+      expect(validateAccountNumber('1234567890123456789')).toMatch(/9 to 18/);
+      expect(validateAccountNumber('123456789')).toBeNull();
+      expect(validateAccountNumber('123456789012345678')).toBeNull();
+    });
     it('IFSC pattern AAAA0XXXXXX', () => {
       expect(validateIfsc('SBIN0001234')).toBeNull();
       expect(validateIfsc('sbin0001234')).toBeNull();

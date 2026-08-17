@@ -16,6 +16,7 @@ import {
   bankNameError,
   ifscError,
   personNameError,
+  sanitizeAccountNumber,
   upiIdError,
 } from '@/shared/lib/validation';
 import type { PaymentMethod } from '@/shared/types/api.types';
@@ -238,7 +239,7 @@ function IntegrationCheckoutInner({ type }: { type: 'deposit' | 'withdrawal' }) 
           <>
             <Input label="UPI ID" value={upiId} onChange={(e) => setUpiId(e.target.value)} required />
             <Input
-              label="Name"
+              label="Account name *"
               value={payerName}
               onChange={(e) => setPayerName(e.target.value)}
               required
@@ -247,7 +248,14 @@ function IntegrationCheckoutInner({ type }: { type: 'deposit' | 'withdrawal' }) 
         )}
         {method === 'bank' && (
           <>
-            <Input label="Account Number" value={accountNumber} onChange={(e) => setAccountNumber(e.target.value)} required />
+            <Input
+              label="Account Number"
+              value={accountNumber}
+              onChange={(e) => setAccountNumber(sanitizeAccountNumber(e.target.value))}
+              inputMode="numeric"
+              maxLength={18}
+              required
+            />
             <Input label="IFSC" value={ifscCode} onChange={(e) => setIfscCode(e.target.value)} required />
             <Input label="Account Holder" value={accountHolderName} onChange={(e) => setAccountHolderName(e.target.value)} required />
             <Input

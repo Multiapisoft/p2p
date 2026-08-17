@@ -10,6 +10,7 @@ import { Input } from '@/shared/components/ui/Input';
 import { Textarea } from '@/shared/components/ui/Textarea';
 import { LoadingScreen } from '@/shared/components/ui/Icon';
 import { apiErrorMessage, formatCurrency } from '@/shared/lib/utils';
+import { accountNumberError, sanitizeAccountNumber } from '@/shared/lib/validation';
 import type { CreateRedemptionPayload, PaymentMethod } from '@/shared/types/api.types';
 
 const METHODS: { value: PaymentMethod; label: string }[] = [
@@ -78,7 +79,12 @@ export function RedeemPage() {
       }
       payload.upiDetails = { upiId: upiId.trim(), payerName: payerName.trim() || undefined };
     } else if (method === 'bank') {
-      if (!accountNumber.trim() || !ifscCode.trim() || !accountHolderName.trim()) {
+      const accErr = accountNumberError(accountNumber);
+      if (accErr) {
+        setError(accErr);
+        return;
+      }
+      if (!ifscCode.trim() || !accountHolderName.trim()) {
         setError('Account number, IFSC and holder name required');
         return;
       }
@@ -182,7 +188,9 @@ export function RedeemPage() {
               <Input
                 label="Account number *"
                 value={accountNumber}
-                onChange={(e) => setAccountNumber(e.target.value)}
+                onChange={(e) => setAccountNumber(sanitizeAccountNumber(e.target.value))}
+                inputMode="numeric"
+                maxLength={18}
                 required
               />
               <Input
