@@ -209,7 +209,7 @@ export function WithdrawalsPage() {
     <div className="mx-auto max-w-7xl space-y-6">
       <PageHeader
         title="Withdrawals"
-        description="Approve means the request is verified and open for payout. It is not marked paid. Use Mark paid by business only if you paid the user yourself."
+        description="Approve = verified, now visible to everyone to pay. It is not marked paid. Use Mark paid by business only if you paid the user yourself."
       />
 
       {actionError ? (

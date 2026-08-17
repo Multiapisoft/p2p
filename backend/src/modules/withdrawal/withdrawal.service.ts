@@ -507,6 +507,8 @@ export class WithdrawalService {
       );
     }
 
+    // Approve = verified for payout. Status stays pending; request becomes visible
+    // to all users/investors on the pay list (except the owner).
     withdrawal.p2pListStatus = 'listed';
     withdrawal.p2pListedAt = new Date();
     withdrawal.p2pListedBy = actor.email || actor.userId;
