@@ -18,7 +18,7 @@ import { normalizePhone, phoneError } from '@/shared/lib/validation';
 import type { PaymentMethod } from '@/shared/types/api.types';
 
 const PAYMENT_METHODS: PaymentMethod[] = ['upi', 'bank', 'usdt'];
-const USER_APP_URL = (process.env.NEXT_PUBLIC_USER_APP_URL || 'http://localhost:5174').replace(
+const USER_APP_URL = (process.env.NEXT_PUBLIC_USER_APP_URL || 'http://localhost:4761').replace(
   /\/$/,
   '',
 );

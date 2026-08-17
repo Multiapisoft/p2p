@@ -107,13 +107,15 @@ function DestinationLine({ w }: { w: Withdrawal }) {
       </p>
     );
   }
-  if (w.method === 'bank' && w.bankDetails?.accountNumber) {
+  if (w.method === 'bank') {
+    const accountNumber = w.bankDetails?.accountNumber;
+    if (!accountNumber) return null;
     const b = w.bankDetails;
     const parts = [
-      b.accountHolderName ? `NAME ${b.accountHolderName}` : null,
-      `A/C ****${b.accountNumber.slice(-4)}`,
-      b.ifscCode ? `IFSC ${b.ifscCode}` : null,
-      b.bankName ? `BANK ${b.bankName}` : null,
+      b?.accountHolderName ? `NAME ${b.accountHolderName}` : null,
+      `A/C ****${accountNumber.slice(-4)}`,
+      b?.ifscCode ? `IFSC ${b.ifscCode}` : null,
+      b?.bankName ? `BANK ${b.bankName}` : null,
     ].filter(Boolean);
     return <p className="text-xs text-on-surface-variant">{parts.join(' · ')}</p>;
   }

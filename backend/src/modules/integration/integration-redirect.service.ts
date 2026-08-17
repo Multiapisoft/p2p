@@ -79,7 +79,7 @@ export class IntegrationRedirectService {
 
     const token = `rd_${uuidv4().replace(/-/g, '')}`;
     const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
-    const userAppUrl = this.config.get<string>('app.userAppUrl') || 'http://localhost:5174';
+    const userAppUrl = this.config.get<string>('app.userAppUrl') || 'http://localhost:4761';
 
     // Mongoose treats '' as missing for required String — always keep a usable URL
     const returnUrl =

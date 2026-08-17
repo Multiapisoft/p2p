@@ -30,7 +30,7 @@ export default () => ({
     name: process.env.APP_NAME || 'P2P Payment Platform',
     apiPrefix: process.env.API_PREFIX || 'api/v1',
     webhookSecret: process.env.WEBHOOK_SECRET || 'webhook-signing-secret',
-    userAppUrl: process.env.USER_APP_URL || 'http://localhost:5174',
+    userAppUrl: process.env.USER_APP_URL || 'http://localhost:4761',
     corsOrigins: (process.env.CORS_ORIGINS || '')
       .split(',')
       .map((s) => s.trim())

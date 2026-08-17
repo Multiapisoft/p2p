@@ -22,7 +22,7 @@ export class IntegrationConfigService {
       this.config.get<string>('app.publicApiUrl') ||
       `http://localhost:${this.config.get<number>('port') || 9091}/api/v1`;
 
-    const userAppUrl = this.config.get<string>('app.userAppUrl') || 'http://localhost:5174';
+    const userAppUrl = this.config.get<string>('app.userAppUrl') || 'http://localhost:4761';
     const urls: IntegrationUrls = business.integrationUrls || {};
     const partnerBase = urls.partnerSiteUrl?.replace(/\/$/, '') || '';
 

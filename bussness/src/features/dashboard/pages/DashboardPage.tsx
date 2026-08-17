@@ -17,7 +17,7 @@ import { formatCurrency, formatDate } from '@/shared/lib/utils';
 import { getApiErrorMessage, isNotFoundError } from '@/shared/api/client';
 import { resolveUser } from '@/shared/lib/entity-user';
 
-const USER_APP_URL = (process.env.NEXT_PUBLIC_USER_APP_URL || 'http://localhost:5174').replace(
+const USER_APP_URL = (process.env.NEXT_PUBLIC_USER_APP_URL || 'http://localhost:4761').replace(
   /\/$/,
   '',
 );
