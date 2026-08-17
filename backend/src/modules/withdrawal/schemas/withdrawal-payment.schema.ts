@@ -16,8 +16,13 @@ export class WithdrawalPayment {
   @Prop({ type: Types.ObjectId, ref: 'User', required: true, index: true })
   payerUserId!: Types.ObjectId;
 
+  /** Withdrawal owner's business (commission / P2P limit). */
   @Prop({ type: Types.ObjectId, ref: 'Business', index: true })
   businessId?: Types.ObjectId;
+
+  /** Payer's referred business — so Biz2 can see outbound pays by its users. */
+  @Prop({ type: Types.ObjectId, ref: 'Business', index: true })
+  payerBusinessId?: Types.ObjectId;
 
   @Prop({ required: true })
   amount!: number;

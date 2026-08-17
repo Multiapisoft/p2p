@@ -7,7 +7,7 @@ export interface NavItem {
 
 /** Full sidebar navigation */
 export const NAV_ITEMS: NavItem[] = [
-  { to: '/', label: 'Dashboard', icon: 'dashboard', description: 'Overview & stats' },
+  { to: '/home', label: 'Dashboard', icon: 'dashboard', description: 'Overview & stats' },
   { to: '/integration', label: 'Integration', icon: 'api', description: 'API keys & partner setup' },
   { to: '/users', label: 'Users', icon: 'group', description: 'Integrated users' },
   { to: '/deposits', label: 'Deposits', icon: 'south_west', description: 'Deposit activity' },
@@ -20,7 +20,7 @@ export const NAV_ITEMS: NavItem[] = [
 
 /** Bottom bar on mobile — primary actions */
 export const MOBILE_PRIMARY_NAV: NavItem[] = [
-  { to: '/', label: 'Home', icon: 'dashboard' },
+  { to: '/home', label: 'Home', icon: 'dashboard' },
   { to: '/users', label: 'Users', icon: 'group' },
   { to: '/deposits', label: 'Deposits', icon: 'south_west' },
   { to: '/withdrawals', label: 'Withdraw', icon: 'north_east' },
@@ -35,6 +35,6 @@ export const MOBILE_MORE_NAV: NavItem[] = [
 ];
 
 export function isNavActive(pathname: string, to: string) {
-  if (to === '/') return pathname === '/';
+  if (to === '/home') return pathname === '/home' || pathname === '/';
   return pathname === to || pathname.startsWith(`${to}/`);
 }

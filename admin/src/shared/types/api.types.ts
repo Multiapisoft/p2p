@@ -71,6 +71,15 @@ export interface Withdrawal {
   p2pListedBy?: string;
   p2pListRejectReason?: string;
   createdAt: string;
+  upiDetails?: { upiId?: string; payerName?: string; utr?: string };
+  bankDetails?: {
+    accountNumber?: string;
+    ifscCode?: string;
+    accountHolderName?: string;
+    bankName?: string;
+    utr?: string;
+  };
+  usdtDetails?: { walletAddress?: string; network?: string; txHash?: string };
 }
 
 export interface Business {

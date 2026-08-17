@@ -175,7 +175,7 @@ function IntegrationCheckoutInner({ type }: { type: 'deposit' | 'withdrawal' }) 
         </p>
       </div>
 
-      <Card title="Complete on FinGuard">
+      <Card title="Complete on FairPlay">
         <p className="mb-3 text-sm text-on-surface-variant sm:mb-4">
           Complete your withdrawal here. On approval, funds return to your business partner wallet.
         </p>

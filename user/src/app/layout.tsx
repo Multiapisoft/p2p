@@ -1,21 +1,22 @@
 import type { Metadata, Viewport } from 'next';
-import { Inter, Montserrat } from 'next/font/google';
+import { DM_Sans, Fraunces } from 'next/font/google';
 import './globals.css';
 import { AppProviders } from './providers';
+import { brand } from '@/shared/brand';
 
-const inter = Inter({ subsets: ['latin'], variable: '--font-body' });
-const montserrat = Montserrat({ subsets: ['latin'], variable: '--font-headline' });
+const body = DM_Sans({ subsets: ['latin'], variable: '--font-body' });
+const headline = Fraunces({ subsets: ['latin'], variable: '--font-headline' });
 
 export const metadata: Metadata = {
-  title: 'FinGuard Wallet',
-  description: 'Platform Payment user wallet panel',
+  title: brand.metaTitle,
+  description: brand.metaDescription,
 };
 
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
   viewportFit: 'cover',
-  themeColor: '#f7f8f4',
+  themeColor: brand.themeColor,
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -27,7 +28,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           rel="stylesheet"
         />
       </head>
-      <body className={`${inter.variable} ${montserrat.variable} antialiased`}>
+      <body className={`${body.variable} ${headline.variable} antialiased`}>
         <AppProviders>{children}</AppProviders>
       </body>
     </html>

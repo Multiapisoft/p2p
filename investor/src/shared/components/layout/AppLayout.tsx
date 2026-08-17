@@ -31,7 +31,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
             <span className="material-symbols-outlined text-xl">savings</span>
           </div>
           <div>
-            <h1 className="font-[family-name:var(--font-headline)] text-lg font-bold">FinGuard</h1>
+            <h1 className="font-[family-name:var(--font-headline)] text-lg font-bold">InvesPro</h1>
             <p className="text-xs text-on-surface-variant">Investor Panel</p>
           </div>
         </div>
@@ -76,7 +76,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
             <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-white">
               <span className="material-symbols-outlined text-lg">savings</span>
             </div>
-            <span className="font-[family-name:var(--font-headline)] text-lg font-bold">FinGuard</span>
+            <span className="font-[family-name:var(--font-headline)] text-lg font-bold">InvesPro</span>
           </div>
           <div className="hidden text-sm text-on-surface-variant md:block">
             {NAV_ITEMS.find((n) => pathname === n.to || (n.to !== '/' && pathname.startsWith(n.to)))?.label ??

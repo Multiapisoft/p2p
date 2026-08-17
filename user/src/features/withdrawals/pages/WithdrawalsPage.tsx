@@ -13,7 +13,15 @@ import { StatusBadge } from '@/shared/components/ui/Badge';
 import { Pagination } from '@/shared/components/ui/Pagination';
 import { LoadingScreen, EmptyState } from '@/shared/components/ui/Icon';
 import { formatCurrency, formatDate } from '@/shared/lib/utils';
+import {
+  accountNumberError,
+  bankNameError,
+  ifscError,
+  personNameError,
+  upiIdError,
+} from '@/shared/lib/validation';
 import { formatSecondsMmSs } from '@/shared/lib/upi-qr';
+import { Modal } from '@/shared/components/ui/Modal';
 import { toast } from '@/shared/ui/toast/toast.store';
 import { confirmDialog } from '@/shared/ui/confirm/confirm.store';
 import type {
@@ -92,15 +100,22 @@ function formatWindowLeft(endsAt?: number) {
 
 function DestinationLine({ w }: { w: Withdrawal }) {
   if (w.method === 'upi' && w.upiDetails?.upiId) {
-    return <p className="text-xs text-on-surface-variant">UPI · {w.upiDetails.upiId}</p>;
-  }
-  if (w.method === 'bank' && w.bankDetails?.accountNumber) {
+    const name = w.upiDetails.payerName?.trim();
     return (
       <p className="text-xs text-on-surface-variant">
-        Bank · {w.bankDetails.accountHolderName || 'Account'} · ****
-        {w.bankDetails.accountNumber.slice(-4)}
+        {name ? `NAME ${name} · ` : ''}UPI {w.upiDetails.upiId}
       </p>
     );
+  }
+  if (w.method === 'bank' && w.bankDetails?.accountNumber) {
+    const b = w.bankDetails;
+    const parts = [
+      b.accountHolderName ? `NAME ${b.accountHolderName}` : null,
+      `A/C ****${b.accountNumber.slice(-4)}`,
+      b.ifscCode ? `IFSC ${b.ifscCode}` : null,
+      b.bankName ? `BANK ${b.bankName}` : null,
+    ].filter(Boolean);
+    return <p className="text-xs text-on-surface-variant">{parts.join(' · ')}</p>;
   }
   if (w.method === 'usdt' && w.usdtDetails?.walletAddress) {
     const addr = w.usdtDetails.walletAddress;
@@ -135,6 +150,7 @@ export function WithdrawalsPage() {
   const [walletAddress, setWalletAddress] = useState('');
   const [network, setNetwork] = useState('TRC20');
   const [formError, setFormError] = useState('');
+  const [pendingPayload, setPendingPayload] = useState<CreateWithdrawalPayload | null>(null);
   const [actionError, setActionError] = useState('');
   const [disputeFor, setDisputeFor] = useState<WithdrawalSplitPayment | null>(null);
   const [disputeReason, setDisputeReason] = useState('');
@@ -201,6 +217,7 @@ export function WithdrawalsPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['withdrawals'] });
       qc.invalidateQueries({ queryKey: ['wallet-balance'] });
+      setPendingPayload(null);
       setShowForm(false);
       resetForm();
       toast.success(
@@ -231,7 +248,7 @@ export function WithdrawalsPage() {
       setActionError('');
       await qc.refetchQueries({ queryKey: ['withdrawals'] });
       await qc.invalidateQueries({ queryKey: ['wallet-balance'] });
-      toast.success('Payment confirmed', 'Payer investment unlocked.');
+      toast.success('Payment confirmed', 'Amount unlocked for the payer.');
     },
     onError: async (err) => {
       const msg = withdrawalErrorMessage(err);
@@ -269,6 +286,7 @@ export function WithdrawalsPage() {
     setBankName('');
     setWalletAddress('');
     setFormError('');
+    setPendingPayload(null);
   };
 
   const displayCurrency = balance?.currency || 'INR';
@@ -319,21 +337,46 @@ export function WithdrawalsPage() {
     const payload: CreateWithdrawalPayload = { amount: numAmount, method };
 
     if (method === 'upi') {
-      if (!upiId) {
-        setFormError('UPI ID is required');
+      const upiErr = upiIdError(upiId);
+      if (upiErr) {
+        setFormError(upiErr);
         return;
       }
-      payload.upiDetails = { upiId, payerName: payerName || undefined };
+      const nameErr = personNameError(payerName, false);
+      if (nameErr) {
+        setFormError(nameErr);
+        return;
+      }
+      payload.upiDetails = {
+        upiId: upiId.trim(),
+        payerName: payerName.trim() || undefined,
+      };
     } else if (method === 'bank') {
-      if (!accountNumber || !ifscCode || !accountHolderName) {
-        setFormError('Bank details are required');
+      const accErr = accountNumberError(accountNumber);
+      if (accErr) {
+        setFormError(accErr);
+        return;
+      }
+      const ifscErr = ifscError(ifscCode);
+      if (ifscErr) {
+        setFormError(ifscErr);
+        return;
+      }
+      const holderErr = personNameError(accountHolderName);
+      if (holderErr) {
+        setFormError(holderErr);
+        return;
+      }
+      const bankErr = bankNameError(bankName);
+      if (bankErr) {
+        setFormError(bankErr);
         return;
       }
       payload.bankDetails = {
-        accountNumber,
-        ifscCode,
-        accountHolderName,
-        bankName: bankName || undefined,
+        accountNumber: accountNumber.trim(),
+        ifscCode: ifscCode.trim().toUpperCase(),
+        accountHolderName: accountHolderName.trim(),
+        bankName: bankName.trim(),
       };
     } else {
       if (!walletAddress) {
@@ -343,7 +386,7 @@ export function WithdrawalsPage() {
       payload.usdtDetails = { walletAddress, network };
     }
 
-    create.mutate(payload);
+    setPendingPayload(payload);
   };
 
   return (
@@ -377,7 +420,7 @@ export function WithdrawalsPage() {
             {formatCurrency(balance?.availableBalance ?? 0, displayCurrency)}
           </p>
           <p className="mt-0.5 hidden text-xs text-on-surface-variant sm:block">
-            {balance?.source === 'partner' ? 'Partner wallet' : 'FinGuard wallet'}
+            {balance?.source === 'partner' ? 'Partner wallet' : 'FairPlay wallet'}
           </p>
           {walletIsUsdt && (
             <p className="mt-1 text-[10px] leading-snug text-on-surface-variant sm:mt-2 sm:text-xs">
@@ -491,9 +534,10 @@ export function WithdrawalsPage() {
                   required
                 />
                 <Input
-                  label="Bank name (optional)"
+                  label="Bank name"
                   value={bankName}
                   onChange={(e) => setBankName(e.target.value)}
+                  required
                 />
               </div>
             )}
@@ -516,8 +560,8 @@ export function WithdrawalsPage() {
               </div>
             )}
 
-            <Button type="submit" loading={create.isPending} className="w-full sm:w-auto">
-              Submit withdrawal
+            <Button type="submit" className="w-full sm:w-auto">
+              Review & continue
             </Button>
           </form>
         </Card>
@@ -842,7 +886,7 @@ export function WithdrawalsPage() {
                                           setActionError('');
                                           const ok = await confirmDialog({
                                             title: 'Confirm payment received?',
-                                            description: `You received ${formatCurrency(p.amount, p.currency || w.currency)}. This unlocks the payer investment and cannot be undone easily.`,
+                                            description: `Confirm you received ${formatCurrency(p.amount, p.currency || w.currency)}. This will mark the payment as received.`,
                                             confirmLabel: 'Yes, I received it',
                                             cancelLabel: 'Not yet',
                                             variant: 'secondary',
@@ -947,6 +991,124 @@ export function WithdrawalsPage() {
           </div>
         </div>
       )}
+
+      <Modal
+        open={!!pendingPayload}
+        onClose={() => {
+          if (!create.isPending) setPendingPayload(null);
+        }}
+        title="Confirm withdrawal"
+      >
+        {pendingPayload && (
+          <div className="space-y-4">
+            <p className="text-sm text-on-surface-variant">
+              Check amount, method and destination before submitting.
+            </p>
+            <dl className="space-y-2 rounded-xl border border-outline-variant bg-surface-container-low/50 px-4 py-3 text-sm">
+              <div className="flex justify-between gap-3">
+                <dt className="text-on-surface-variant">Amount</dt>
+                <dd className="font-semibold">
+                  {formatCurrency(
+                    pendingPayload.amount,
+                    amountIsInrPayout ? 'INR' : displayCurrency,
+                  )}
+                </dd>
+              </div>
+              <div className="flex justify-between gap-3">
+                <dt className="text-on-surface-variant">Method</dt>
+                <dd className="font-semibold uppercase">{pendingPayload.method}</dd>
+              </div>
+              {pendingPayload.method === 'upi' && pendingPayload.upiDetails && (
+                <>
+                  {pendingPayload.upiDetails.payerName ? (
+                    <div className="flex justify-between gap-3">
+                      <dt className="text-on-surface-variant">NAME</dt>
+                      <dd className="text-right font-semibold">
+                        {pendingPayload.upiDetails.payerName}
+                      </dd>
+                    </div>
+                  ) : null}
+                  <div className="flex justify-between gap-3">
+                    <dt className="text-on-surface-variant">UPI</dt>
+                    <dd className="break-all text-right font-semibold">
+                      {pendingPayload.upiDetails.upiId}
+                    </dd>
+                  </div>
+                </>
+              )}
+              {pendingPayload.method === 'bank' && pendingPayload.bankDetails && (
+                <>
+                  <div className="flex justify-between gap-3">
+                    <dt className="text-on-surface-variant">NAME</dt>
+                    <dd className="text-right font-semibold">
+                      {pendingPayload.bankDetails.accountHolderName}
+                    </dd>
+                  </div>
+                  <div className="flex justify-between gap-3">
+                    <dt className="text-on-surface-variant">ACCOUNT</dt>
+                    <dd className="font-mono text-right font-semibold">
+                      {pendingPayload.bankDetails.accountNumber}
+                    </dd>
+                  </div>
+                  <div className="flex justify-between gap-3">
+                    <dt className="text-on-surface-variant">IFSC</dt>
+                    <dd className="font-mono text-right font-semibold">
+                      {pendingPayload.bankDetails.ifscCode}
+                    </dd>
+                  </div>
+                  <div className="flex justify-between gap-3">
+                    <dt className="text-on-surface-variant">BANK</dt>
+                    <dd className="text-right font-semibold">
+                      {pendingPayload.bankDetails.bankName}
+                    </dd>
+                  </div>
+                </>
+              )}
+              {pendingPayload.method === 'usdt' && pendingPayload.usdtDetails && (
+                <>
+                  <div className="flex justify-between gap-3">
+                    <dt className="text-on-surface-variant">Wallet</dt>
+                    <dd className="break-all text-right font-semibold">
+                      {pendingPayload.usdtDetails.walletAddress}
+                    </dd>
+                  </div>
+                  <div className="flex justify-between gap-3">
+                    <dt className="text-on-surface-variant">Network</dt>
+                    <dd className="font-semibold">
+                      {pendingPayload.usdtDetails.network || 'TRC20'}
+                    </dd>
+                  </div>
+                </>
+              )}
+            </dl>
+            {formError && (
+              <div className="rounded-lg bg-error-container px-4 py-3 text-sm text-on-error-container">
+                {formError}
+              </div>
+            )}
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                disabled={create.isPending}
+                onClick={() => setPendingPayload(null)}
+              >
+                Back
+              </Button>
+              <Button
+                type="button"
+                loading={create.isPending}
+                onClick={() => {
+                  setFormError('');
+                  create.mutate(pendingPayload);
+                }}
+              >
+                Confirm & submit
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }

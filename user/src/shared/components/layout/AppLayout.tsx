@@ -42,7 +42,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
             <span className="material-symbols-outlined text-xl">account_balance_wallet</span>
           </div>
           <div>
-            <h1 className="font-[family-name:var(--font-headline)] text-lg font-bold">FinGuard</h1>
+            <h1 className="font-[family-name:var(--font-headline)] text-lg font-bold">FairPlay</h1>
             <p className="text-xs text-on-surface-variant">User Wallet</p>
           </div>
         </div>
@@ -88,7 +88,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
               <span className="material-symbols-outlined text-base">account_balance_wallet</span>
             </div>
             <span className="truncate font-[family-name:var(--font-headline)] text-base font-bold">
-              FinGuard
+              FairPlay
             </span>
           </div>
           <div className="hidden text-sm text-on-surface-variant md:block">

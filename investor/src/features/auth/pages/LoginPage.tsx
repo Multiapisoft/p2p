@@ -18,7 +18,7 @@ export function LoginPage() {
   const setAuth = useAuthStore((s) => s.setAuth);
 
   useEffect(() => {
-    if (hydrated && token) router.replace('/');
+    if (hydrated && token) router.replace('/home');
   }, [hydrated, token, router]);
 
   const [email, setEmail] = useState('');
@@ -34,7 +34,7 @@ export function LoginPage() {
         return;
       }
       setAuth(data.accessToken, data.user);
-      router.replace('/');
+      router.replace('/home');
     },
     onError: () => setError('Invalid credentials'),
   });
@@ -42,17 +42,20 @@ export function LoginPage() {
   return (
     <div className="flex min-h-screen flex-col md:flex-row">
       <div className="relative flex min-h-[280px] w-full items-center justify-center overflow-hidden bg-primary md:min-h-screen md:w-1/2">
-        <div className="absolute inset-0 bg-gradient-to-tr from-on-background/60 to-secondary/40" />
+        <div className="absolute inset-0 bg-gradient-to-br from-black via-[#1a1a1a] to-[#c9a227]/50" />
         <div className="relative z-10 max-w-xl px-6 text-center text-white md:px-12 md:text-left">
           <div className="mb-6 inline-flex items-center gap-3">
-            <span className="material-symbols-outlined text-5xl text-secondary-container">savings</span>
-            <h1 className="font-[family-name:var(--font-headline)] text-3xl font-bold md:text-4xl">FinGuard</h1>
+            <span className="material-symbols-outlined text-5xl text-secondary">trending_up</span>
+            <h1 className="font-[family-name:var(--font-headline)] text-3xl font-semibold md:text-4xl">
+              InvesPro
+            </h1>
           </div>
-          <p className="hidden font-[family-name:var(--font-headline)] text-4xl font-bold md:block">
-            Investor Portal
+          <p className="hidden font-[family-name:var(--font-headline)] text-4xl font-semibold md:block">
+            Invest with a clear target
           </p>
-          <p className="mt-4 text-lg text-surface-container-highest/90">
-            Manage investments, track portfolio growth, and redeem earnings securely.
+          <p className="mt-4 text-lg text-white/80">
+            Claim open withdrawals, submit proofs on time, and unlock rewards after you hit your plan
+            goal.
           </p>
         </div>
       </div>

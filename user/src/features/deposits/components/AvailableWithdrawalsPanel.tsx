@@ -295,11 +295,7 @@ export function AvailableWithdrawalsPanel({
         ? Math.min(target.maxPayable, target.remainingAmount)
         : target.remainingAmount;
     if (num > maxPay) {
-      setFormError(
-        target.p2pPayRemainingInr != null
-          ? `Max payable is ${formatCurrency(maxPay, moneyCurrency(target))} (limit remaining ₹${target.p2pPayRemainingInr})`
-          : `Max open amount is ${formatCurrency(maxPay, moneyCurrency(target))}`,
-      );
+      setFormError(`Max open amount is ${formatCurrency(maxPay, moneyCurrency(target))}`);
       return;
     }
     const refErr = paymentRefErrorForMethod(utr, target.method);
@@ -512,12 +508,6 @@ export function AvailableWithdrawalsPanel({
                 </p>
               </div>
             </div>
-
-            {target.p2pPayRemainingInr != null && (
-              <p className="text-[11px] text-amber-700">
-                Business Platform Payment limit remaining: ₹{target.p2pPayRemainingInr}
-              </p>
-            )}
 
             <PaymentDetails
               w={target}

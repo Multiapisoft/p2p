@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useSearchParams } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { businessApi } from '@/features/business/api/business.api';
 import { useAuthStore } from '@/features/auth/store/auth.store';
@@ -11,7 +10,6 @@ import { Input } from '@/shared/components/ui/Input';
 import { CopyField, LoadingScreen, SecretBanner } from '@/shared/components/ui/Icon';
 import { PageHeader } from '@/shared/components/layout/PageHeader';
 import { StatusBadge } from '@/shared/components/ui/Badge';
-import { IntegrationUserTools } from '@/features/integration/components/IntegrationUserTools';
 import { isNotFoundError, getApiErrorMessage } from '@/shared/api/client';
 import type { PaymentMethod } from '@/shared/types/api.types';
 
@@ -19,9 +17,6 @@ const PAYMENT_METHODS: PaymentMethod[] = ['upi', 'bank', 'usdt'];
 const DEMO_BASE = 'http://localhost:5177';
 
 export function IntegrationPage() {
-  const searchParams = useSearchParams();
-  const preselectedUserId = searchParams.get('userId') ?? undefined;
-  const tab = searchParams.get('tab');
   const qc = useQueryClient();
   const setPendingApiCredentials = useAuthStore((s) => s.setPendingApiCredentials);
   const pendingApiSecret = useAuthStore((s) => s.pendingApiSecret);
@@ -53,15 +48,6 @@ export function IntegrationPage() {
     if (partnerApi?.creditUrl) setCreditUrl(partnerApi.creditUrl);
     if (partnerApi?.debitUrl) setDebitUrl(partnerApi.debitUrl);
   }, [partnerApi]);
-
-  useEffect(() => {
-    if (tab !== 'tools' && !preselectedUserId) return;
-    const t = setTimeout(() => {
-      document.getElementById('user-tools')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }, 200);
-    return () => clearTimeout(t);
-  }, [tab, preselectedUserId, business]);
-
   const createBusiness = useMutation({
     mutationFn: () => {
       const hasUrls = balanceUrl.trim() && creditUrl.trim() && debitUrl.trim();
@@ -260,10 +246,6 @@ export function IntegrationPage() {
               </Button>
             </form>
           </Card>
-
-          <div id="user-tools" className="scroll-mt-24">
-            <IntegrationUserTools initialUserId={preselectedUserId} />
-          </div>
         </>
       )}
     </div>

@@ -212,16 +212,41 @@ export interface Withdrawal {
 
 export interface BusinessOverview {
   totalUsers: number;
+  activeUsers?: number;
   depositCount: number;
   completedDeposits: number;
   pendingDeposits: number;
+  failedDeposits?: number;
+  cancelledDeposits?: number;
+  rejectedDeposits?: number;
   totalDepositAmount: number;
+  pendingDepositAmount?: number;
+  depositStatusCounts?: Record<string, number>;
   withdrawalCount?: number;
   completedWithdrawals?: number;
   pendingWithdrawals?: number;
+  pendingWithdrawalsAll?: number;
+  failedWithdrawals?: number;
+  cancelledWithdrawals?: number;
+  rejectedWithdrawals?: number;
   totalWithdrawals: number;
+  pendingWithdrawalAmount?: number;
+  withdrawalStatusCounts?: Record<string, number>;
+  awaitingListCount?: number;
+  listedCount?: number;
+  platformPaymentCount?: number;
+  pendingPlatformPayments?: number;
+  completedPlatformPayments?: number;
+  platformPaymentStatusCounts?: Record<string, number>;
+  inboundPlatformPayments?: number;
+  inboundPlatformPaymentAmount?: number;
+  outboundPlatformPayments?: number;
+  outboundPlatformPaymentAmount?: number;
   totalCommissionEarned: number;
   commissionRate: number;
+  p2pPayLimit?: number;
+  p2pPayUsed?: number;
+  p2pPayRemaining?: number | null;
   businessName?: string;
   businessStatus?: string;
 }

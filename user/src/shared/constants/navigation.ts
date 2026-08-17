@@ -1,6 +1,7 @@
 export const NAV_ITEMS = [
-  { to: '/', label: 'Home', icon: 'home' },
+  { to: '/home', label: 'Home', icon: 'home' },
   { to: '/deposits', label: 'Deposit', icon: 'south_west' },
+  { to: '/my-deposits', label: 'My Deposits', icon: 'history' },
   { to: '/withdrawals', label: 'Withdraw', icon: 'north_east' },
   { to: '/transactions', label: 'Ledger', icon: 'receipt_long' },
   { to: '/notifications', label: 'Alerts', icon: 'notifications' },

@@ -9,9 +9,14 @@ import { TransactionModule } from '../transaction/transaction.module';
 import { BusinessModule } from '../business/business.module';
 import { PaymentConfigModule } from '../payment-config/payment-config.module';
 import { IntegrationModule } from '../integration/integration.module';
+import { PlatformSettingsModule } from '../platform-settings/platform-settings.module';
 import { Business, BusinessSchema } from '../business/schemas/business.schema';
 import { User, UserSchema } from '../users/schemas/user.schema';
 import { Withdrawal, WithdrawalSchema } from '../withdrawal/schemas/withdrawal.schema';
+import {
+  WithdrawalPayment,
+  WithdrawalPaymentSchema,
+} from '../withdrawal/schemas/withdrawal-payment.schema';
 
 @Module({
   imports: [
@@ -20,6 +25,7 @@ import { Withdrawal, WithdrawalSchema } from '../withdrawal/schemas/withdrawal.s
       { name: Business.name, schema: BusinessSchema },
       { name: User.name, schema: UserSchema },
       { name: Withdrawal.name, schema: WithdrawalSchema },
+      { name: WithdrawalPayment.name, schema: WithdrawalPaymentSchema },
     ]),
     WalletModule,
     CommissionModule,
@@ -27,6 +33,7 @@ import { Withdrawal, WithdrawalSchema } from '../withdrawal/schemas/withdrawal.s
     forwardRef(() => BusinessModule),
     PaymentConfigModule,
     forwardRef(() => IntegrationModule),
+    PlatformSettingsModule,
   ],
   controllers: [DepositController],
   providers: [DepositService],

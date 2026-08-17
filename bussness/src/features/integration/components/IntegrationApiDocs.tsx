@@ -120,8 +120,8 @@ Response:
             <code className="text-xs">GET /integration/users/lookup?email=...</code> with 3 headers
           </li>
           <li>Business auto-identified from API keys → user + balance in response</li>
-          <li>Show balance on your panel — no FinGuard page URLs needed</li>
-          <li>Deposit/Withdraw → redirect API → user completes on FinGuard panel</li>
+          <li>Show balance on your panel — no FairPlay page URLs needed</li>
+          <li>Deposit/Withdraw → redirect API → user completes on FairPlay panel</li>
           <li>Optional returnUrl in redirect body or default in API Setup tab</li>
         </ol>
       </Card>

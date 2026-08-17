@@ -179,7 +179,7 @@ export function ProfilePage() {
 
       <Card title="Business code">
         <p className="mb-3 text-sm text-on-surface-variant">
-          Code ya invite link share karo — users isse register honge.
+          Share the code or invite link — users will register with it.
         </p>
         {business?.referralCode ? (
           <div className="space-y-3">
@@ -190,7 +190,7 @@ export function ProfilePage() {
             />
           </div>
         ) : (
-          <p className="text-sm text-on-surface-variant">Business code abhi available nahi hai.</p>
+          <p className="text-sm text-on-surface-variant">Business code is not available yet.</p>
         )}
       </Card>
 

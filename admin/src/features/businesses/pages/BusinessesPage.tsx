@@ -323,11 +323,11 @@ export function BusinessesPage() {
               </p>
             </div>
             <div>
-              <p className="text-on-surface-variant">P2P Pay Used</p>
+              <p className="text-on-surface-variant">Platform Payment Used</p>
               <p className="font-semibold">{formatCurrency(stats.p2pPayUsed ?? 0)}</p>
             </div>
             <div className="col-span-2">
-              <p className="text-on-surface-variant">P2P Pay Remaining</p>
+              <p className="text-on-surface-variant">Platform Payment Remaining</p>
               <p className="text-lg font-bold">
                 {stats.p2pPayRemaining == null
                   ? 'Unlimited'
@@ -349,17 +349,17 @@ export function BusinessesPage() {
         ) : (
           <div className="space-y-5">
             <p className="text-sm text-on-surface-variant">
-              Business fee sirf business limit / stats ke liye hai — investor se cut nahi hota.
-              Investor ko pay amount + bonus milta hai. Limit khatam hone par withdrawals open
-              nahi dikhenge.
+              Business fee is for business limit / stats only — it is not deducted from the
+              investor. The investor receives the pay amount plus bonus. When the limit is
+              exhausted, open withdrawals will not be shown.
             </p>
 
             <div className="space-y-2 rounded-xl border border-outline-variant bg-surface-container-low/40 p-3">
               <label className="text-sm font-semibold" htmlFor="p2p-pay-limit">
-                P2P pay limit (₹)
+                Platform Payment pay limit (₹)
               </label>
               <p className="text-xs text-on-surface-variant">
-                Investors is business ke withdrawals pe max itna pay kar sakte hain. 0 = unlimited.
+                Max investors can pay toward this business&apos;s withdrawals. 0 = unlimited.
                 Used: {formatCurrency(businessCommission?.p2pPayUsed ?? 0)}
                 {businessCommission?.p2pPayRemaining != null
                   ? ` · Remaining: ${formatCurrency(businessCommission.p2pPayRemaining)}`
@@ -376,14 +376,14 @@ export function BusinessesPage() {
 
             <CommissionRulesEditor
               title="Business take (tracking / stats)"
-              hint="Ye fee investor se nahi katati — business P2P limit / commission tracking ke liye hai."
+              hint="This fee is not deducted from the investor — it is for business Platform Payment limit / commission tracking."
               rules={businessTake}
               onChange={setBusinessTake}
             />
 
             <CommissionRulesEditor
               title="Investor bonus (extra credit)"
-              hint="Investor ko wallet mein pay amount + ye bonus milta hai."
+              hint="The investor wallet is credited with the pay amount plus this bonus."
               rules={investorBonus}
               onChange={setInvestorBonus}
             />

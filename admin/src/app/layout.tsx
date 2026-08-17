@@ -8,7 +8,7 @@ const montserrat = Montserrat({ subsets: ['latin'], variable: '--font-headline' 
 
 export const metadata: Metadata = {
   title: 'FinGuard Admin',
-  description: 'P2P payment platform admin panel',
+  description: 'Platform Payment admin panel',
 };
 
 export const viewport: Viewport = {

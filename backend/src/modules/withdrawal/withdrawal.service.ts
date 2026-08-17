@@ -39,6 +39,12 @@ import {
   type ListQueryOpts,
 } from '../../common/dto/list-query.dto';
 import { withOptionalTransaction } from '../../common/utils/mongo-transaction';
+import { assertValidWithdrawalDestination } from './utils/withdrawal-destination.validation';
+import {
+  adminWithdrawalVisibilityFilter,
+  businessWithdrawalVisibilityFilter,
+  tatCutoffDate,
+} from './utils/withdrawal-visibility.util';
 import { PlatformSettingsService } from '../platform-settings/platform-settings.service';
 
 export type WithdrawalListOpts = ListQueryOpts & { method?: string };
@@ -475,7 +481,17 @@ export class WithdrawalService {
       return withdrawal;
     }
 
-    // List immediately — user cancel TAT is separate and does not block business listing.
+    const tatMs = await this.platformSettingsService.getTatMs();
+    const createdAt = (withdrawal as unknown as { createdAt?: Date }).createdAt;
+    if (createdAt && Date.now() - new Date(createdAt).getTime() < tatMs) {
+      const remainingSec = Math.ceil(
+        (tatMs - (Date.now() - new Date(createdAt).getTime())) / 1000,
+      );
+      throw new BadRequestException(
+        `User cancel window still active (${remainingSec}s remaining). Wait until TAT expires before listing for Platform Payment.`,
+      );
+    }
+
     withdrawal.p2pListStatus = 'listed';
     withdrawal.p2pListedAt = new Date();
     withdrawal.p2pListedBy = actor.email || actor.userId;
@@ -563,6 +579,12 @@ export class WithdrawalService {
       throw new ForbiddenException('Withdrawal does not belong to this business');
     }
 
+    const tatMs = await this.platformSettingsService.getTatMs();
+    const createdAt = (withdrawal as unknown as { createdAt?: Date }).createdAt;
+    if (createdAt && Date.now() - new Date(createdAt).getTime() < tatMs) {
+      throw new NotFoundException('Withdrawal not found');
+    }
+
     const payments = await this.paymentModel
       .find({ withdrawalId: withdrawal._id })
       .sort({ createdAt: -1 })
@@ -571,7 +593,8 @@ export class WithdrawalService {
     return {
       ...withdrawal.toObject(),
       remainingAmount: Math.max(0, withdrawal.amount - (withdrawal.paidAmount || 0)),
-      readyForListApproval: true,
+      readyForListApproval:
+        !!createdAt && Date.now() - new Date(createdAt).getTime() >= tatMs,
       payments: payments.map((p) => this.toPaymentBrief(p)),
     };
   }
@@ -579,9 +602,13 @@ export class WithdrawalService {
   async findByBusiness(businessId: string, opts: WithdrawalListOpts = {}) {
     const { page, limit, skip, search, status, sort } = normalizeListOpts(opts);
     const bid = new Types.ObjectId(businessId);
+    const tatMs = await this.platformSettingsService.getTatMs();
+    const tatCutoff = tatCutoffDate(Date.now(), tatMs);
 
     const and: Record<string, unknown>[] = [
       { $or: [{ businessId: bid }, { businessId }] },
+      // Hide from business during user cancel TAT (#24)
+      businessWithdrawalVisibilityFilter(tatCutoff),
     ];
 
     if (status) and.push({ status });
@@ -639,11 +666,13 @@ export class WithdrawalService {
     return {
       items: items.map((w) => {
         const list = byWithdrawal.get(w._id.toString()) || [];
+        const createdAt = (w as unknown as { createdAt?: Date }).createdAt;
         return {
           ...w.toObject(),
           remainingAmount: Math.max(0, w.amount - (w.paidAmount || 0)),
           paymentCount: list.length,
-          readyForListApproval: true,
+          readyForListApproval:
+            !!createdAt && Date.now() - new Date(createdAt).getTime() >= tatMs,
           payments: list.map((p) => this.toPaymentBrief(p)),
         };
       }),
@@ -882,7 +911,12 @@ export class WithdrawalService {
 
   async findAll(opts: WithdrawalListOpts = {}) {
     const { page, limit, skip, search, status, sort } = normalizeListOpts(opts);
-    const and: Record<string, unknown>[] = [];
+    const tatMs = await this.platformSettingsService.getTatMs();
+    const tatCutoff = tatCutoffDate(Date.now(), tatMs);
+    const and: Record<string, unknown>[] = [
+      // #24: Admin sees business withdrawals only after Platform Payment list approval
+      adminWithdrawalVisibilityFilter(tatCutoff),
+    ];
 
     if (status) and.push({ status });
     if (opts.method && opts.method !== 'all') {
@@ -900,7 +934,7 @@ export class WithdrawalService {
       });
     }
 
-    const filter = and.length ? { $and: and } : {};
+    const filter = { $and: and };
     const sortSpec = listSortMap(sort, {
       newest: { createdAt: -1 },
       oldest: { createdAt: 1 },
@@ -923,16 +957,6 @@ export class WithdrawalService {
   }
 
   private validateDestination(dto: CreateWithdrawalDto) {
-    switch (dto.method) {
-      case PaymentMethod.UPI:
-        if (!dto.upiDetails?.upiId) throw new BadRequestException('UPI destination required');
-        break;
-      case PaymentMethod.BANK:
-        if (!dto.bankDetails?.accountNumber) throw new BadRequestException('Bank destination required');
-        break;
-      case PaymentMethod.USDT:
-        if (!dto.usdtDetails?.walletAddress) throw new BadRequestException('USDT address required');
-        break;
-    }
+    assertValidWithdrawalDestination(dto);
   }
 }

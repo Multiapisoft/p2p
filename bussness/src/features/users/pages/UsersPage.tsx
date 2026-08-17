@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
-import Link from 'next/link';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { usersApi } from '@/features/users/api/users.api';
 import { integrationApi } from '@/features/integration/api/integration.api';
@@ -171,13 +170,6 @@ export function UsersPage() {
       <PageHeader
         title="Integrated Users"
         description="Users linked via referral / API — view details or reset login password"
-        action={
-          <Link href="/integration?tab=tools">
-            <Button variant="secondary" size="sm">
-              User Tools
-            </Button>
-          </Link>
-        }
       />
 
       <div className="grid gap-3 sm:grid-cols-3">
@@ -346,12 +338,6 @@ export function UsersPage() {
                           >
                             Reset password
                           </button>
-                          <Link
-                            href={`/integration?tab=tools&userId=${u._id}`}
-                            className="text-sm font-semibold text-on-surface-variant hover:underline"
-                          >
-                            Manage
-                          </Link>
                         </div>
                       </td>
                     </tr>
@@ -428,7 +414,7 @@ export function UsersPage() {
             </div>
 
             <div>
-              <p className="mb-2 text-sm font-semibold">FinGuard wallet</p>
+              <p className="mb-2 text-sm font-semibold">FairPlay wallet</p>
               <div className="space-y-1 rounded-xl bg-surface-container-low p-3">
                 <DetailRow
                   label="Available"
@@ -493,11 +479,6 @@ export function UsersPage() {
               >
                 Reset password
               </Button>
-              <Link href={`/integration?tab=tools&userId=${selectedId}`} className="flex-1">
-                <Button className="w-full" variant="secondary">
-                  Open User Tools
-                </Button>
-              </Link>
             </div>
           </div>
         )}

@@ -16,7 +16,7 @@ export function LoginPage() {
   const setAuth = useAuthStore((s) => s.setAuth);
 
   useEffect(() => {
-    if (token) router.replace('/');
+    if (token) router.replace('/home');
   }, [token, router]);
 
   const [email, setEmail] = useState('');
@@ -32,7 +32,7 @@ export function LoginPage() {
         return;
       }
       setAuth(data.accessToken, data.user);
-      router.replace('/');
+      router.replace('/home');
     },
     onError: () => setError('Invalid credentials'),
   });
@@ -40,17 +40,19 @@ export function LoginPage() {
   return (
     <div className="flex min-h-screen flex-col md:flex-row">
       <div className="relative flex min-h-[280px] w-full items-center justify-center overflow-hidden bg-primary md:min-h-screen md:w-1/2">
-        <div className="absolute inset-0 bg-gradient-to-tr from-on-background/60 to-secondary/40" />
+        <div className="absolute inset-0 bg-gradient-to-br from-primary via-[#122744] to-secondary/40" />
         <div className="relative z-10 max-w-xl px-6 text-center text-white md:px-12 md:text-left">
           <div className="mb-6 inline-flex items-center gap-3">
-            <span className="material-symbols-outlined text-5xl text-secondary-container">storefront</span>
-            <h1 className="font-[family-name:var(--font-headline)] text-3xl font-bold md:text-4xl">FinGuard</h1>
+            <span className="material-symbols-outlined text-5xl text-secondary">storefront</span>
+            <h1 className="font-[family-name:var(--font-headline)] text-3xl font-bold md:text-4xl">
+              PaySecure247
+            </h1>
           </div>
           <p className="hidden font-[family-name:var(--font-headline)] text-4xl font-bold md:block">
-            Business Portal
+            Run payouts with confidence
           </p>
-          <p className="mt-4 text-lg text-surface-container-highest/90">
-            Manage deposits, API keys, and integrations for your Platform Payment business.
+          <p className="mt-4 text-lg text-white/85">
+            List Platform Payment requests, verify proofs, and keep every business user identifiable.
           </p>
         </div>
       </div>

@@ -158,7 +158,7 @@ export function InvestorsPage() {
           Investors
         </h1>
         <p className="mt-0.5 text-sm text-on-surface-variant">
-          Pending redemptions (payout) aur investments (credit) approve / reject karo.
+          Approve or reject pending redemptions (payout) and investments (credit).
         </p>
       </div>
 

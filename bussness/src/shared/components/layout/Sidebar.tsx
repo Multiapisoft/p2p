@@ -20,7 +20,9 @@ export function Sidebar({ userEmail, onLogout }: SidebarProps) {
           <span className="material-symbols-outlined text-xl">storefront</span>
         </div>
         <div className="min-w-0">
-          <h1 className="truncate font-[family-name:var(--font-headline)] text-base font-bold">FinGuard</h1>
+          <h1 className="truncate font-[family-name:var(--font-headline)] text-base font-bold">
+            PaySecure247
+          </h1>
           <p className="text-[11px] text-on-surface-variant">Business Portal</p>
         </div>
       </div>

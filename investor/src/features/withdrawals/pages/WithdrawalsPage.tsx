@@ -10,7 +10,15 @@ import { Input } from '@/shared/components/ui/Input';
 import { StatusBadge } from '@/shared/components/ui/Badge';
 import { Pagination } from '@/shared/components/ui/Pagination';
 import { LoadingScreen, EmptyState } from '@/shared/components/ui/Icon';
+import { Modal } from '@/shared/components/ui/Modal';
 import { apiErrorMessage, formatCurrency, formatDate } from '@/shared/lib/utils';
+import {
+  accountNumberError,
+  bankNameError,
+  ifscError,
+  personNameError,
+  upiIdError,
+} from '@/shared/lib/validation';
 import { formatSecondsMmSs } from '@/shared/lib/upi-qr';
 import type {
   CreateWithdrawalPayload,
@@ -23,6 +31,35 @@ const METHODS: { value: PaymentMethod; label: string }[] = [
   { value: 'bank', label: 'Bank Transfer' },
   { value: 'usdt', label: 'USDT' },
 ];
+
+function DestinationLine({ w }: { w: Withdrawal }) {
+  if (w.method === 'upi' && w.upiDetails?.upiId) {
+    const name = w.upiDetails.payerName?.trim();
+    return (
+      <p className="mt-1 text-xs text-on-surface-variant">
+        {name ? `NAME ${name} · ` : ''}UPI {w.upiDetails.upiId}
+      </p>
+    );
+  }
+  if (w.method === 'bank' && w.bankDetails?.accountNumber) {
+    const b = w.bankDetails;
+    const parts = [
+      b.accountHolderName ? `NAME ${b.accountHolderName}` : null,
+      `A/C ****${b.accountNumber.slice(-4)}`,
+      b.ifscCode ? `IFSC ${b.ifscCode}` : null,
+      b.bankName ? `BANK ${b.bankName}` : null,
+    ].filter(Boolean);
+    return <p className="mt-1 text-xs text-on-surface-variant">{parts.join(' · ')}</p>;
+  }
+  if (w.method === 'usdt' && w.usdtDetails?.walletAddress) {
+    return (
+      <p className="mt-1 break-all text-xs text-on-surface-variant">
+        {w.usdtDetails.network || 'TRC20'}: {w.usdtDetails.walletAddress}
+      </p>
+    );
+  }
+  return null;
+}
 
 export function WithdrawalsPage() {
   const [page, setPage] = useState(1);
@@ -39,6 +76,7 @@ export function WithdrawalsPage() {
   const [walletAddress, setWalletAddress] = useState('');
   const [network, setNetwork] = useState('TRC20');
   const [formError, setFormError] = useState('');
+  const [pendingPayload, setPendingPayload] = useState<CreateWithdrawalPayload | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const qc = useQueryClient();
 
@@ -70,6 +108,7 @@ export function WithdrawalsPage() {
     setWalletAddress('');
     setNetwork('TRC20');
     setFormError('');
+    setPendingPayload(null);
   };
 
   const create = useMutation({
@@ -78,6 +117,7 @@ export function WithdrawalsPage() {
       qc.invalidateQueries({ queryKey: ['my-withdrawals'] });
       qc.invalidateQueries({ queryKey: ['wallet-balance'] });
       qc.invalidateQueries({ queryKey: ['portfolio'] });
+      setPendingPayload(null);
       setShowForm(false);
       resetForm();
     },
@@ -111,21 +151,46 @@ export function WithdrawalsPage() {
 
     const payload: CreateWithdrawalPayload = { amount: num, method };
     if (method === 'upi') {
-      if (!upiId.trim()) {
-        setFormError('UPI ID required');
+      const upiErr = upiIdError(upiId);
+      if (upiErr) {
+        setFormError(upiErr);
         return;
       }
-      payload.upiDetails = { upiId: upiId.trim(), payerName: payerName.trim() || undefined };
+      const nameErr = personNameError(payerName, false);
+      if (nameErr) {
+        setFormError(nameErr);
+        return;
+      }
+      payload.upiDetails = {
+        upiId: upiId.trim(),
+        payerName: payerName.trim() || undefined,
+      };
     } else if (method === 'bank') {
-      if (!accountNumber.trim() || !ifscCode.trim() || !accountHolderName.trim()) {
-        setFormError('Account number, IFSC and holder name required');
+      const accErr = accountNumberError(accountNumber);
+      if (accErr) {
+        setFormError(accErr);
+        return;
+      }
+      const ifscErr = ifscError(ifscCode);
+      if (ifscErr) {
+        setFormError(ifscErr);
+        return;
+      }
+      const holderErr = personNameError(accountHolderName);
+      if (holderErr) {
+        setFormError(holderErr);
+        return;
+      }
+      const bankErr = bankNameError(bankName);
+      if (bankErr) {
+        setFormError(bankErr);
         return;
       }
       payload.bankDetails = {
         accountNumber: accountNumber.trim(),
         ifscCode: ifscCode.trim().toUpperCase(),
         accountHolderName: accountHolderName.trim(),
-        bankName: bankName.trim() || undefined,
+        bankName: bankName.trim(),
       };
     } else {
       if (!walletAddress.trim()) {
@@ -137,7 +202,7 @@ export function WithdrawalsPage() {
         network: network.trim() || 'TRC20',
       };
     }
-    create.mutate(payload);
+    setPendingPayload(payload);
   };
 
   const items = data?.items ?? [];
@@ -247,9 +312,10 @@ export function WithdrawalsPage() {
                   required
                 />
                 <Input
-                  label="Bank name (optional)"
+                  label="Bank name *"
                   value={bankName}
                   onChange={(e) => setBankName(e.target.value)}
+                  required
                 />
               </>
             )}
@@ -277,8 +343,8 @@ export function WithdrawalsPage() {
               </div>
             )}
 
-            <Button type="submit" className="w-full" loading={create.isPending} disabled={available <= 0}>
-              Submit Withdrawal
+            <Button type="submit" className="w-full" disabled={available <= 0}>
+              Review & continue
             </Button>
           </form>
         </Card>
@@ -315,19 +381,7 @@ export function WithdrawalsPage() {
                     <p className="font-mono text-[11px] text-on-surface-variant">
                       {w.referenceId} · {w.method.toUpperCase()} · {formatDate(w.createdAt)}
                     </p>
-                    {w.method === 'upi' && w.upiDetails?.upiId && (
-                      <p className="mt-1 text-xs">UPI: {w.upiDetails.upiId}</p>
-                    )}
-                    {w.method === 'bank' && w.bankDetails?.accountNumber && (
-                      <p className="mt-1 text-xs">
-                        Bank: ****{w.bankDetails.accountNumber.slice(-4)} · {w.bankDetails.ifscCode}
-                      </p>
-                    )}
-                    {w.method === 'usdt' && w.usdtDetails?.walletAddress && (
-                      <p className="mt-1 break-all text-xs">
-                        {w.usdtDetails.network || 'TRC20'}: {w.usdtDetails.walletAddress}
-                      </p>
-                    )}
+                    <DestinationLine w={w} />
                     {(w.status === 'pending' || w.status === 'processing') && canCancel && tatLeft > 0 && (
                       <p className="mt-1 text-[11px] font-medium text-secondary">
                         You can cancel for {formatSecondsMmSs(tatLeft)}
@@ -361,6 +415,123 @@ export function WithdrawalsPage() {
           </div>
         )}
       </Card>
+
+      <Modal
+        open={!!pendingPayload}
+        onClose={() => {
+          if (!create.isPending) setPendingPayload(null);
+        }}
+        title="Confirm withdrawal"
+        footer={
+          pendingPayload ? (
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                disabled={create.isPending}
+                onClick={() => setPendingPayload(null)}
+              >
+                Back
+              </Button>
+              <Button
+                type="button"
+                loading={create.isPending}
+                onClick={() => {
+                  setFormError('');
+                  create.mutate(pendingPayload);
+                }}
+              >
+                Confirm & submit
+              </Button>
+            </div>
+          ) : null
+        }
+      >
+        {pendingPayload && (
+          <div className="space-y-4">
+            <p className="text-sm text-on-surface-variant">
+              Check amount, method and destination before submitting.
+            </p>
+            <dl className="space-y-2 rounded-xl border border-outline-variant bg-surface-container-low/50 px-4 py-3 text-sm">
+              <div className="flex justify-between gap-3">
+                <dt className="text-on-surface-variant">Amount</dt>
+                <dd className="font-semibold">{formatCurrency(pendingPayload.amount)}</dd>
+              </div>
+              <div className="flex justify-between gap-3">
+                <dt className="text-on-surface-variant">Method</dt>
+                <dd className="font-semibold uppercase">{pendingPayload.method}</dd>
+              </div>
+              {pendingPayload.method === 'upi' && pendingPayload.upiDetails && (
+                <>
+                  {pendingPayload.upiDetails.payerName ? (
+                    <div className="flex justify-between gap-3">
+                      <dt className="text-on-surface-variant">NAME</dt>
+                      <dd className="text-right font-semibold">
+                        {pendingPayload.upiDetails.payerName}
+                      </dd>
+                    </div>
+                  ) : null}
+                  <div className="flex justify-between gap-3">
+                    <dt className="text-on-surface-variant">UPI</dt>
+                    <dd className="break-all text-right font-semibold">
+                      {pendingPayload.upiDetails.upiId}
+                    </dd>
+                  </div>
+                </>
+              )}
+              {pendingPayload.method === 'bank' && pendingPayload.bankDetails && (
+                <>
+                  <div className="flex justify-between gap-3">
+                    <dt className="text-on-surface-variant">NAME</dt>
+                    <dd className="text-right font-semibold">
+                      {pendingPayload.bankDetails.accountHolderName}
+                    </dd>
+                  </div>
+                  <div className="flex justify-between gap-3">
+                    <dt className="text-on-surface-variant">ACCOUNT</dt>
+                    <dd className="font-mono text-right font-semibold">
+                      {pendingPayload.bankDetails.accountNumber}
+                    </dd>
+                  </div>
+                  <div className="flex justify-between gap-3">
+                    <dt className="text-on-surface-variant">IFSC</dt>
+                    <dd className="font-mono text-right font-semibold">
+                      {pendingPayload.bankDetails.ifscCode}
+                    </dd>
+                  </div>
+                  <div className="flex justify-between gap-3">
+                    <dt className="text-on-surface-variant">BANK</dt>
+                    <dd className="text-right font-semibold">
+                      {pendingPayload.bankDetails.bankName}
+                    </dd>
+                  </div>
+                </>
+              )}
+              {pendingPayload.method === 'usdt' && pendingPayload.usdtDetails && (
+                <>
+                  <div className="flex justify-between gap-3">
+                    <dt className="text-on-surface-variant">Wallet</dt>
+                    <dd className="break-all text-right font-semibold">
+                      {pendingPayload.usdtDetails.walletAddress}
+                    </dd>
+                  </div>
+                  <div className="flex justify-between gap-3">
+                    <dt className="text-on-surface-variant">Network</dt>
+                    <dd className="font-semibold">
+                      {pendingPayload.usdtDetails.network || 'TRC20'}
+                    </dd>
+                  </div>
+                </>
+              )}
+            </dl>
+            {formError && (
+              <div className="rounded-lg bg-error-container px-3 py-2 text-sm text-on-error-container">
+                {formError}
+              </div>
+            )}
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }

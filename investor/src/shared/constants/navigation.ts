@@ -1,5 +1,5 @@
 export const NAV_ITEMS = [
-  { to: '/', label: 'Home', icon: 'dashboard' },
+  { to: '/home', label: 'Home', icon: 'dashboard' },
   { to: '/invest', label: 'Invest', icon: 'add_chart' },
   { to: '/investments', label: 'Investments', icon: 'savings' },
   { to: '/fulfill', label: 'Fulfill & Earn', icon: 'paid' },

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { depositsApi } from '@/features/deposits/api/deposits.api';
+import { platformPaymentsApi } from '@/features/deposits/api/platform-payments.api';
 import { getApiErrorMessage } from '@/shared/api/client';
 import { Card } from '@/shared/components/ui/Card';
 import { Button } from '@/shared/components/ui/Button';
@@ -109,6 +110,11 @@ export function DepositsPage() {
   const { data, isLoading, isFetching, isError, error, refetch } = useQuery({
     queryKey: ['business-deposits', listQuery],
     queryFn: () => depositsApi.getBusinessDeposits(listQuery),
+  });
+
+  const { data: platformPays } = useQuery({
+    queryKey: ['business-platform-payments'],
+    queryFn: () => platformPaymentsApi.list({ page: 1, limit: 10 }),
   });
 
   const { data: detail, isLoading: loadingDetail } = useQuery({
@@ -317,6 +323,47 @@ export function DepositsPage() {
               onPageChange={setPage}
             />
           </>
+        )}
+      </Card>
+
+      <Card title="Platform Payment activity (your users as payers + your WDs)">
+        {(platformPays?.items?.length || 0) === 0 ? (
+          <EmptyState message="No Platform Payment activity yet" icon="inbox" />
+        ) : (
+          <div className="space-y-2">
+            {platformPays!.items.map((p) => {
+              const payer =
+                typeof p.payerUserId === 'object' && p.payerUserId
+                  ? p.payerUserId
+                  : null;
+              const wd =
+                typeof p.withdrawalId === 'object' && p.withdrawalId
+                  ? p.withdrawalId
+                  : null;
+              return (
+                <div
+                  key={p._id}
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-outline-variant p-3"
+                >
+                  <div className="min-w-0">
+                    <p className="font-semibold">
+                      {formatCurrency(p.amount, p.currency)}
+                    </p>
+                    <p className="text-xs text-on-surface-variant">
+                      {p.referenceId}
+                      {wd?.referenceId ? ` · WD ${wd.referenceId}` : ''}
+                    </p>
+                    <p className="text-xs text-outline">
+                      {payer?.name || payer?.email || 'Payer'}
+                      {payer?.businessUserCode ? ` · ${payer.businessUserCode}` : ''}
+                      {p.utr ? ` · UTR ${p.utr}` : ''}
+                    </p>
+                  </div>
+                  <StatusBadge status={p.status} />
+                </div>
+              );
+            })}
+          </div>
         )}
       </Card>
 

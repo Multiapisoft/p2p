@@ -1,0 +1,103 @@
+import { BadRequestException } from '@nestjs/common';
+import { PaymentMethod } from '../../../common/enums/payment-method.enum';
+import {
+  assertValidWithdrawalDestination,
+  validateAccountNumber,
+  validateBankName,
+  validateIfsc,
+  validatePersonName,
+  validateUpiId,
+} from './withdrawal-destination.validation';
+
+describe('withdrawal-destination.validation (#15)', () => {
+  describe('validatePersonName', () => {
+    it('allows alphabets and spaces', () => {
+      expect(validatePersonName('Shaifali Kumar', true)).toBeNull();
+    });
+    it('rejects numbers in name', () => {
+      expect(validatePersonName('Raju123', true)).toMatch(/alphabets/);
+    });
+    it('requires name when required=true', () => {
+      expect(validatePersonName('  ', true)).toBe('Name is required');
+    });
+    it('allows empty when required=false', () => {
+      expect(validatePersonName('', false)).toBeNull();
+    });
+  });
+
+  describe('validateUpiId', () => {
+    it('accepts normal UPI', () => {
+      expect(validateUpiId('user@okaxis')).toBeNull();
+    });
+    it('rejects 10+ consecutive digits', () => {
+      expect(validateUpiId('9876543210@paytm')).toMatch(/9 consecutive/);
+    });
+    it('allows up to 9 consecutive digits', () => {
+      expect(validateUpiId('987654321@ybl')).toBeNull();
+    });
+  });
+
+  describe('validateAccountNumber / IFSC / bank', () => {
+    it('account must be numeric', () => {
+      expect(validateAccountNumber('53452637489')).toBeNull();
+      expect(validateAccountNumber('AB123')).toMatch(/numeric/);
+    });
+    it('IFSC pattern AAAA0XXXXXX', () => {
+      expect(validateIfsc('SBIN0001234')).toBeNull();
+      expect(validateIfsc('sbin0001234')).toBeNull();
+      expect(validateIfsc('SBIN1001234')).toMatch(/11 characters/);
+      expect(validateIfsc('SBIN001')).toMatch(/11 characters/);
+    });
+    it('bank name required', () => {
+      expect(validateBankName('SBI')).toBeNull();
+      expect(validateBankName('  ')).toBe('Bank name is required');
+    });
+  });
+
+  describe('assertValidWithdrawalDestination', () => {
+    it('accepts valid bank destination', () => {
+      expect(() =>
+        assertValidWithdrawalDestination({
+          method: PaymentMethod.BANK,
+          bankDetails: {
+            accountNumber: '1234567890',
+            ifscCode: 'HDFC0001234',
+            accountHolderName: 'Demo User',
+            bankName: 'HDFC Bank',
+          },
+        }),
+      ).not.toThrow();
+    });
+
+    it('rejects bank without bankName', () => {
+      expect(() =>
+        assertValidWithdrawalDestination({
+          method: PaymentMethod.BANK,
+          bankDetails: {
+            accountNumber: '1234567890',
+            ifscCode: 'HDFC0001234',
+            accountHolderName: 'Demo User',
+          },
+        }),
+      ).toThrow(BadRequestException);
+    });
+
+    it('accepts valid UPI', () => {
+      expect(() =>
+        assertValidWithdrawalDestination({
+          method: PaymentMethod.UPI,
+          upiDetails: { upiId: 'abc@okaxis', payerName: 'Demo User' },
+        }),
+      ).not.toThrow();
+    });
+
+    it('rejects USDT without wallet', () => {
+      expect(() =>
+        assertValidWithdrawalDestination({
+          method: PaymentMethod.USDT,
+          usdtDetails: {},
+        }),
+      ).toThrow(/USDT address/);
+    });
+  });
+});

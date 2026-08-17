@@ -1,8 +1,10 @@
 'use client';
 
 import { Suspense, useEffect, useState } from 'react';
+import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { LoadingScreen } from '@/shared/components/ui/Icon';
+import { Button } from '@/shared/components/ui/Button';
 import { AvailableWithdrawalsPanel } from '../components/AvailableWithdrawalsPanel';
 
 function DepositsPageInner() {
@@ -18,13 +20,20 @@ function DepositsPageInner() {
 
   return (
     <div className="mx-auto max-w-5xl space-y-4 sm:space-y-6">
-      <div>
-        <h1 className="font-[family-name:var(--font-headline)] text-xl font-bold tracking-tight sm:text-2xl">
-          Deposits
-        </h1>
-        <p className="mt-0.5 text-sm text-on-surface-variant">
-          Open withdrawal requests — pay karke deposit complete karo
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="font-[family-name:var(--font-headline)] text-xl font-bold tracking-tight sm:text-2xl">
+            Deposits
+          </h1>
+          <p className="mt-0.5 text-sm text-on-surface-variant">
+            Open withdrawal requests — pay one to complete your deposit
+          </p>
+        </div>
+        <Link href="/my-deposits">
+          <Button size="sm" variant="secondary">
+            My deposit history
+          </Button>
+        </Link>
       </div>
 
       <AvailableWithdrawalsPanel preferredAmount={preferredPayAmount} />

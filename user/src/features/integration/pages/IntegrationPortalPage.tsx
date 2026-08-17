@@ -53,7 +53,7 @@ function IntegrationPortalInner() {
           return;
         }
 
-        router.replace('/');
+        router.replace('/home');
       } catch (err: unknown) {
         if (cancelled) return;
         const msg =
@@ -61,7 +61,7 @@ function IntegrationPortalInner() {
             ? (err as { response?: { data?: { message?: string } } }).response?.data?.message
             : err instanceof Error
               ? err.message
-              : 'Failed to open P2P portal';
+              'Failed to open Platform Payment portal';
         setError(msg || 'Invalid or expired link');
       }
     })();
@@ -87,7 +87,7 @@ function IntegrationPortalInner() {
       const res = await setPasswordApi(newPassword);
       setAuth(res.accessToken, res.user);
       toast.success('Password saved', 'You are signed in');
-      router.replace('/');
+      router.replace('/home');
     } catch (err: unknown) {
       const msg =
         err && typeof err === 'object' && 'response' in err
@@ -178,7 +178,7 @@ function IntegrationPortalInner() {
                 variant="secondary"
                 className="flex-1"
                 disabled={saving}
-                onClick={() => router.replace('/')}
+                onClick={() => router.replace('/home')}
               >
                 Skip for now
               </Button>
@@ -198,7 +198,7 @@ function IntegrationPortalInner() {
             Signing in as <span className="font-medium text-on-background">{email}</span>…
           </>
         ) : (
-          'Opening your P2P wallet…'
+          'Opening your Platform Payment wallet…'
         )}
       </p>
     </div>

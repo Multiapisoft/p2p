@@ -87,6 +87,55 @@ export interface P2pPayment {
   createdAt: string;
 }
 
+export interface UserDashboardSummary {
+  deposits: {
+    total: number;
+    completed: number;
+    pendingVerification: number;
+    rejected: number;
+    failed: number;
+    cancelled: number;
+    completedAmount: number;
+    pendingAmount: number;
+    creditedAmount: number;
+  };
+  withdrawals: {
+    total: number;
+    completed: number;
+    open: number;
+    remainingAmount: number;
+    remainingCount: number;
+    rejected: number;
+    cancelled: number;
+    failed: number;
+    completedAmount: number;
+    requestedAmount: number;
+    awaitingConfirmCount: number;
+    awaitingConfirmAmount: number;
+  };
+  recentDeposits: Array<{
+    _id: string;
+    referenceId: string;
+    amount: number;
+    currency: string;
+    status: TransactionStatus;
+    utr?: string;
+    netCreditedAmount?: number;
+    createdAt: string;
+  }>;
+  recentWithdrawals: Array<{
+    _id: string;
+    referenceId: string;
+    amount: number;
+    paidAmount?: number;
+    currency: string;
+    status: TransactionStatus;
+    method?: string;
+    p2pListStatus?: string;
+    createdAt: string;
+  }>;
+}
+
 export type P2pListQuery = {
   page?: number;
   limit?: number;
@@ -108,6 +157,7 @@ function cleanQuery(query: P2pListQuery = {}) {
 }
 
 export const p2pPayApi = {
+  getDashboard: () => apiGet<UserDashboardSummary>('/withdrawal-payments/dashboard'),
   getAvailable: (query: P2pListQuery = {}) =>
     apiGet<AvailableWithdrawalsResponse>(
       '/withdrawal-payments/available-withdrawals',

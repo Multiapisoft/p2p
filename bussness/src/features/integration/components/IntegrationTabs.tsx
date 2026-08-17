@@ -6,7 +6,6 @@ import { cn } from '@/shared/lib/utils';
 const TABS = [
   { id: 'credentials', label: 'Keys', icon: 'key' },
   { id: 'partner', label: 'Third Party', icon: 'language' },
-  { id: 'tools', label: 'User Tools', icon: 'account_balance_wallet' },
   { id: 'docs', label: 'API Docs', icon: 'description' },
 ] as const;
 

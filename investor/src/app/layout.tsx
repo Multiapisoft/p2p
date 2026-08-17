@@ -1,14 +1,21 @@
-import type { Metadata } from 'next';
-import { Inter, Montserrat } from 'next/font/google';
+import type { Metadata, Viewport } from 'next';
+import { Libre_Franklin, Playfair_Display } from 'next/font/google';
 import './globals.css';
 import { AppProviders } from './providers';
+import { brand } from '@/shared/brand';
 
-const inter = Inter({ subsets: ['latin'], variable: '--font-body' });
-const montserrat = Montserrat({ subsets: ['latin'], variable: '--font-headline' });
+const body = Libre_Franklin({ subsets: ['latin'], variable: '--font-body' });
+const headline = Playfair_Display({ subsets: ['latin'], variable: '--font-headline' });
 
 export const metadata: Metadata = {
-  title: 'FinGuard Investor',
-  description: 'Platform Payment investor panel',
+  title: brand.metaTitle,
+  description: brand.metaDescription,
+};
+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  themeColor: brand.themeColor,
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -20,7 +27,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           rel="stylesheet"
         />
       </head>
-      <body className={`${inter.variable} ${montserrat.variable} antialiased`}>
+      <body className={`${body.variable} ${headline.variable} antialiased`}>
         <AppProviders>{children}</AppProviders>
       </body>
     </html>

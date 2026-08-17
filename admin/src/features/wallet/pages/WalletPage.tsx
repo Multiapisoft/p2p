@@ -95,8 +95,8 @@ export function WalletPage() {
           Wallet Adjust
         </h1>
         <p className="mt-0.5 text-sm text-on-surface-variant">
-          User ko email ya phone se find karke credit/debit karo. History Transactions → Adjustment
-          mein dikhegi.
+          Find a user by email or phone, then credit or debit. History appears under
+          Transactions → Adjustment.
         </p>
       </div>
 
@@ -110,14 +110,14 @@ export function WalletPage() {
             autoComplete="off"
           />
           {search.length > 0 && search.length < 3 && (
-            <p className="text-xs text-on-surface-variant">Kam se kam 3 characters type karo…</p>
+            <p className="text-xs text-on-surface-variant">Type at least 3 characters…</p>
           )}
           {findQuery.isFetching && (
             <p className="text-xs text-on-surface-variant">Searching…</p>
           )}
           {search.length >= 3 && !findQuery.isFetching && results.length === 0 && (
             <p className="text-sm text-on-error-container">
-              Koi user nahi mila ({findExactHint()}).
+              No user found ({findExactHint()}).
             </p>
           )}
           {results.length > 0 && (
@@ -214,7 +214,7 @@ export function WalletPage() {
         >
           {!selectedUser && (
             <p className="rounded-lg bg-surface-container-low px-3 py-2 text-sm text-on-surface-variant">
-              Pehle upar se user find karke select karo.
+              Find and select a user above first.
             </p>
           )}
           <Input

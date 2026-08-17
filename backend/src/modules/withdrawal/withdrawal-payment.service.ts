@@ -48,6 +48,10 @@ import {
 } from '../../common/validators/contact.validators';
 import { PlatformSettingsService } from '../platform-settings/platform-settings.service';
 import { RedisService } from '../../redis/redis.service';
+import {
+  paymentReceivedNotification,
+  shouldCreditInvestorBonus,
+} from './utils/payment-notification.util';
 
 const VERIFICATION_WINDOW_MS = 24 * 60 * 60 * 1000;
 const CLAIM_REDIS_PREFIX = 'withdrawal-claim:';
@@ -665,6 +669,7 @@ export class WithdrawalPaymentService {
     // Prefer withdrawal's business (P2P flow) so admin "Set Commission" on that business applies
     const businessId =
       withdrawal.businessId?.toString() || payer?.referredByBusiness?.toString();
+    const payerBusinessId = payer?.referredByBusiness?.toString();
     const isInvestor = payer?.role === UserRole.INVESTOR;
 
     if (isInvestor && !payer?.investorPlanAmount) {
@@ -712,6 +717,9 @@ export class WithdrawalPaymentService {
         withdrawalId: withdrawal._id,
         payerUserId: new Types.ObjectId(payerUserId),
         businessId: businessId ? new Types.ObjectId(businessId) : undefined,
+        payerBusinessId: payerBusinessId
+          ? new Types.ObjectId(payerBusinessId)
+          : undefined,
         amount: dto.amount,
         currency: withdrawal.currency,
         utr: dto.utr.trim(),
@@ -740,10 +748,17 @@ export class WithdrawalPaymentService {
     await withdrawal.save();
     await this.clearClaimRedis(withdrawalId);
 
+    const note = paymentReceivedNotification({
+      payAmount: dto.amount,
+      paidAmount: withdrawal.paidAmount || 0,
+      reservedAmount: withdrawal.reservedAmount || 0,
+      withdrawalAmount: withdrawal.amount,
+      referenceId: withdrawal.referenceId,
+    });
     await this.notificationService.send(
       withdrawal.userId.toString(),
-      'Partial Payment Received',
-      `Someone submitted ₹${dto.amount} toward your withdrawal ${withdrawal.referenceId}`,
+      note.title,
+      note.body,
       'info',
       'withdrawal',
       withdrawal._id.toString(),
@@ -785,6 +800,279 @@ export class WithdrawalPaymentService {
 
     const [items, total] = await Promise.all([
       this.paymentModel.find(filter).skip(skip).limit(limit).sort(sortSpec).exec(),
+      this.paymentModel.countDocuments(filter).exec(),
+    ]);
+    return {
+      items,
+      total,
+      page,
+      limit,
+      totalPages: Math.max(1, Math.ceil(total / limit) || 1),
+    };
+  }
+
+  /** User home dashboard: deposit + withdrawal status counts and amounts. */
+  async getUserDashboardSummary(userId: string) {
+    const uid = new Types.ObjectId(userId);
+    const payerMatch = {
+      $or: [{ payerUserId: uid }, { payerUserId: userId }],
+    };
+    const ownerMatch = {
+      $or: [{ userId: uid }, { userId }],
+    };
+
+    type StatusRow = {
+      _id: string;
+      count: number;
+      amount: number;
+      credited?: number;
+      paid?: number;
+    };
+
+    const [
+      depositRows,
+      withdrawalRows,
+      openRemainingAgg,
+      awaitingConfirmAgg,
+      recentDeposits,
+      recentWithdrawals,
+    ] = await Promise.all([
+      this.paymentModel
+        .aggregate<StatusRow>([
+          { $match: payerMatch },
+          {
+            $group: {
+              _id: '$status',
+              count: { $sum: 1 },
+              amount: { $sum: '$amount' },
+              credited: { $sum: { $ifNull: ['$netCreditedAmount', 0] } },
+            },
+          },
+        ])
+        .exec(),
+      this.withdrawalModel
+        .aggregate<StatusRow>([
+          { $match: ownerMatch },
+          {
+            $group: {
+              _id: '$status',
+              count: { $sum: 1 },
+              amount: { $sum: '$amount' },
+              paid: { $sum: { $ifNull: ['$paidAmount', 0] } },
+            },
+          },
+        ])
+        .exec(),
+      this.withdrawalModel
+        .aggregate<{ count: number; remainingAmount: number }>([
+          {
+            $match: {
+              $and: [
+                ownerMatch,
+                {
+                  status: {
+                    $in: [TransactionStatus.PENDING, TransactionStatus.PROCESSING],
+                  },
+                },
+              ],
+            },
+          },
+          {
+            $project: {
+              remaining: {
+                $max: [
+                  0,
+                  {
+                    $subtract: ['$amount', { $ifNull: ['$paidAmount', 0] }],
+                  },
+                ],
+              },
+            },
+          },
+          {
+            $group: {
+              _id: null,
+              count: { $sum: 1 },
+              remainingAmount: { $sum: '$remaining' },
+            },
+          },
+        ])
+        .exec(),
+      this.paymentModel
+        .aggregate<{ count: number; amount: number }>([
+          {
+            $match: {
+              status: TransactionStatus.PENDING,
+              $or: [{ disputedAt: { $exists: false } }, { disputedAt: null }],
+            },
+          },
+          {
+            $lookup: {
+              from: 'withdrawals',
+              localField: 'withdrawalId',
+              foreignField: '_id',
+              as: 'w',
+            },
+          },
+          { $unwind: '$w' },
+          {
+            $match: {
+              $or: [{ 'w.userId': uid }, { 'w.userId': userId }],
+            },
+          },
+          {
+            $group: {
+              _id: null,
+              count: { $sum: 1 },
+              amount: { $sum: '$amount' },
+            },
+          },
+        ])
+        .exec(),
+      this.paymentModel
+        .find(payerMatch)
+        .sort({ createdAt: -1 })
+        .limit(5)
+        .select('referenceId amount currency status utr netCreditedAmount createdAt')
+        .lean()
+        .exec(),
+      this.withdrawalModel
+        .find(ownerMatch)
+        .sort({ createdAt: -1 })
+        .limit(5)
+        .select(
+          'referenceId amount paidAmount currency status method createdAt p2pListStatus',
+        )
+        .lean()
+        .exec(),
+    ]);
+
+    const dep = {
+      pending: 0,
+      processing: 0,
+      completed: 0,
+      failed: 0,
+      cancelled: 0,
+      rejected: 0,
+    };
+    let depositCount = 0;
+    let completedDepositAmount = 0;
+    let pendingDepositAmount = 0;
+    let creditedAmount = 0;
+    for (const row of depositRows) {
+      depositCount += row.count;
+      if (row._id in dep) dep[row._id as keyof typeof dep] = row.count;
+      if (row._id === TransactionStatus.COMPLETED) {
+        completedDepositAmount += row.amount;
+        creditedAmount += row.credited ?? 0;
+      }
+      if (
+        row._id === TransactionStatus.PENDING ||
+        row._id === TransactionStatus.PROCESSING
+      ) {
+        pendingDepositAmount += row.amount;
+      }
+    }
+
+    const wd = {
+      pending: 0,
+      processing: 0,
+      completed: 0,
+      failed: 0,
+      cancelled: 0,
+      rejected: 0,
+    };
+    let withdrawalCount = 0;
+    let completedWithdrawalAmount = 0;
+    let totalWithdrawalRequested = 0;
+    for (const row of withdrawalRows) {
+      withdrawalCount += row.count;
+      totalWithdrawalRequested += row.amount;
+      if (row._id in wd) wd[row._id as keyof typeof wd] = row.count;
+      if (row._id === TransactionStatus.COMPLETED) {
+        completedWithdrawalAmount += row.amount;
+      }
+    }
+
+    const openRemaining = openRemainingAgg[0];
+    const awaitingConfirm = awaitingConfirmAgg[0];
+    const pendingDeposits = dep.pending + dep.processing;
+    const openWithdrawals = wd.pending + wd.processing;
+
+    return {
+      deposits: {
+        total: depositCount,
+        completed: dep.completed,
+        pendingVerification: pendingDeposits,
+        rejected: dep.rejected,
+        failed: dep.failed,
+        cancelled: dep.cancelled,
+        completedAmount: completedDepositAmount,
+        pendingAmount: pendingDepositAmount,
+        creditedAmount,
+      },
+      withdrawals: {
+        total: withdrawalCount,
+        completed: wd.completed,
+        open: openWithdrawals,
+        remainingAmount: openRemaining?.remainingAmount ?? 0,
+        remainingCount: openRemaining?.count ?? 0,
+        rejected: wd.rejected,
+        cancelled: wd.cancelled,
+        failed: wd.failed,
+        completedAmount: completedWithdrawalAmount,
+        requestedAmount: totalWithdrawalRequested,
+        awaitingConfirmCount: awaitingConfirm?.count ?? 0,
+        awaitingConfirmAmount: awaitingConfirm?.amount ?? 0,
+      },
+      recentDeposits,
+      recentWithdrawals,
+    };
+  }
+
+  /** Payments related to a business: WD owned by biz OR paid by that biz's users. */
+  async findForBusinessOwner(ownerUserId: string, opts: WithdrawalPaymentListOpts = {}) {
+    const business = await this.businessService.findByOwner(ownerUserId);
+    return this.findForBusiness(business._id.toString(), opts);
+  }
+
+  async findForBusiness(businessId: string, opts: WithdrawalPaymentListOpts = {}) {
+    const { page, limit, skip, search, status, sort } = normalizeListOpts(opts);
+    const bid = new Types.ObjectId(businessId);
+    const and: Record<string, unknown>[] = [
+      {
+        $or: [
+          { businessId: bid },
+          { payerBusinessId: bid },
+        ],
+      },
+    ];
+    if (status) and.push({ status });
+    if (search) {
+      and.push({
+        $or: [
+          { referenceId: { $regex: search, $options: 'i' } },
+          { utr: { $regex: search, $options: 'i' } },
+        ],
+      });
+    }
+    const filter = { $and: and };
+    const sortSpec = listSortMap(sort, {
+      newest: { createdAt: -1 },
+      oldest: { createdAt: 1 },
+      amount_desc: { amount: -1 },
+      amount_asc: { amount: 1 },
+      status: { status: 1, createdAt: -1 },
+    });
+    const [items, total] = await Promise.all([
+      this.paymentModel
+        .find(filter)
+        .populate('withdrawalId', 'referenceId method amount currency userId')
+        .populate('payerUserId', 'name email businessUserCode')
+        .skip(skip)
+        .limit(limit)
+        .sort(sortSpec)
+        .exec(),
       this.paymentModel.countDocuments(filter).exec(),
     ]);
     return {
@@ -975,32 +1263,49 @@ export class WithdrawalPaymentService {
       businessId: payment.businessId?.toString(),
     });
 
-    // 2) Investor bonus as separate credit + ledger (INR)
-    if (investorBonus > 0) {
-      const bonusBefore = updatedPayerWallet.balance;
-      updatedPayerWallet = await this.walletService.credit(
-        payerWallet._id.toString(),
-        investorBonus,
-        creditField,
+    // 2) Investor bonus only after plan target is met (admin-controlled rates).
+    let creditedBonus = 0;
+    if (investorBonus > 0 && isInvestor) {
+      const settings = await this.platformSettingsService.get();
+      const planAmount = payer?.investorPlanAmount || 0;
+      const multiplier = settings.investorPlanTargetMultiplier ?? 1.1;
+      const paidTowardPlan = await this.getPaidTowardPlan(
+        payment.payerUserId.toString(),
       );
-      await this.transactionService.record({
-        userId: payment.payerUserId.toString(),
-        walletId: payerWallet._id.toString(),
-        type: ledgerType,
-        amount: investorBonus,
-        currency: creditCurrency,
-        balanceBefore: bonusBefore,
-        balanceAfter: updatedPayerWallet.balance,
-        referenceType: 'withdrawal_payment_bonus',
-        referenceId: payment._id.toString(),
-        description: `Investor bonus (+₹${investorBonus}) on ${withdrawal.referenceId}${rateNote}`,
-        businessId: payment.businessId?.toString(),
-      });
+      if (
+        shouldCreditInvestorBonus({
+          planAmount,
+          multiplier,
+          paidTowardPlan,
+          thisPaymentPrincipal: principalCredit,
+        })
+      ) {
+        creditedBonus = investorBonus;
+        const bonusBefore = updatedPayerWallet.balance;
+        updatedPayerWallet = await this.walletService.credit(
+          payerWallet._id.toString(),
+          creditedBonus,
+          creditField,
+        );
+        await this.transactionService.record({
+          userId: payment.payerUserId.toString(),
+          walletId: payerWallet._id.toString(),
+          type: ledgerType,
+          amount: creditedBonus,
+          currency: creditCurrency,
+          balanceBefore: bonusBefore,
+          balanceAfter: updatedPayerWallet.balance,
+          referenceType: 'withdrawal_payment_bonus',
+          referenceId: payment._id.toString(),
+          description: `Investor bonus (+₹${creditedBonus}) after plan target on ${withdrawal.referenceId}${rateNote}`,
+          businessId: payment.businessId?.toString(),
+        });
+      }
     }
 
     payment.commissionAmount = totalCommission;
-    payment.bonusAmount = investorBonus;
-    payment.netCreditedAmount = netAmount;
+    payment.bonusAmount = creditedBonus;
+    payment.netCreditedAmount = principalCredit + creditedBonus;
     payment.status = TransactionStatus.COMPLETED;
     payment.processedBy = processedBy;
     payment.completedAt = new Date();
@@ -1008,22 +1313,7 @@ export class WithdrawalPaymentService {
     payment.autoApproveAt = undefined;
     await payment.save();
 
-    // Business fee is accounting-only (not deducted from investor). Record for audit.
-    if (totalCommission > 0) {
-      await this.transactionService.record({
-        userId: payment.payerUserId.toString(),
-        walletId: payerWallet._id.toString(),
-        type: LedgerType.COMMISSION,
-        amount: totalCommission,
-        currency: creditCurrency,
-        balanceBefore: updatedPayerWallet.balance,
-        balanceAfter: updatedPayerWallet.balance,
-        referenceType: 'withdrawal_payment',
-        referenceId: payment._id.toString(),
-        description: `Business/platform fee on P2P pay (from business limit, not investor wallet)`,
-        businessId: payment.businessId?.toString(),
-      });
-    }
+    // Business/platform fee is tracked on business stats only — never on user ledger.
 
     withdrawal.reservedAmount = Math.max(
       0,
@@ -1047,29 +1337,47 @@ export class WithdrawalPaymentService {
       settleCurrency,
       withdrawal.businessId?.toString(),
     );
-    const withdrawerBalanceBefore = withdrawerWallet.balance;
-    await this.walletService.unlock(withdrawerWallet._id.toString(), settleAmount);
-    const updatedWithdrawerWallet = await this.walletService.debit(
-      withdrawerWallet._id.toString(),
+    // Unlock+debit safely: never throw "Insufficient balance" on receive confirm
+    // when lock/conversion differs slightly from settle amount.
+    const lockRelease = Math.min(
+      withdrawerWallet.lockedBalance || 0,
       settleAmount,
-      'totalWithdrawn',
     );
-    await this.transactionService.record({
-      userId: withdrawal.userId.toString(),
-      walletId: withdrawerWallet._id.toString(),
-      type: LedgerType.WITHDRAWAL,
-      amount: settleAmount,
-      currency: settleCurrency,
-      balanceBefore: withdrawerBalanceBefore,
-      balanceAfter: updatedWithdrawerWallet.balance,
-      referenceType: 'withdrawal_payment',
-      referenceId: payment._id.toString(),
-      description: `Withdrawal payment confirmed — ${payment.referenceId}` +
-        (settleInInr
-          ? ` (${payment.amount} USDT → ₹${settleAmount})`
-          : ''),
-      businessId: withdrawal.businessId?.toString(),
-    });
+    if (lockRelease > 0) {
+      await this.walletService.unlock(withdrawerWallet._id.toString(), lockRelease);
+    }
+    const refreshedWithdrawer = await this.walletService.findById(
+      withdrawerWallet._id.toString(),
+    );
+    const wdWallet = refreshedWithdrawer || withdrawerWallet;
+    const available = Math.max(0, wdWallet.balance - (wdWallet.lockedBalance || 0));
+    const debitAmt = Math.min(available, settleAmount);
+    const withdrawerBalanceBefore = wdWallet.balance;
+    let updatedWithdrawerWallet = wdWallet;
+    if (debitAmt > 0) {
+      updatedWithdrawerWallet = await this.walletService.debit(
+        wdWallet._id.toString(),
+        debitAmt,
+        'totalWithdrawn',
+      );
+      await this.transactionService.record({
+        userId: withdrawal.userId.toString(),
+        walletId: wdWallet._id.toString(),
+        type: LedgerType.WITHDRAWAL,
+        amount: debitAmt,
+        currency: settleCurrency,
+        balanceBefore: withdrawerBalanceBefore,
+        balanceAfter: updatedWithdrawerWallet.balance,
+        referenceType: 'withdrawal_payment',
+        referenceId: payment._id.toString(),
+        description:
+          `Withdrawal payment confirmed — ${payment.referenceId}` +
+          (settleInInr
+            ? ` (${payment.amount} USDT → ₹${settleAmount})`
+            : ''),
+        businessId: withdrawal.businessId?.toString(),
+      });
+    }
     withdrawal.settledFromLock = (withdrawal.settledFromLock || 0) + payment.amount;
 
     // Older confirms (before per-payment unlock) may still be sitting in lock.
@@ -1078,27 +1386,42 @@ export class WithdrawalPaymentService {
       const gapSettle = settleInInr
         ? this.exchangeRateService.usdtToInr(lockGap)
         : lockGap;
-      const gapBefore = updatedWithdrawerWallet.balance;
-      await this.walletService.unlock(withdrawerWallet._id.toString(), gapSettle);
-      const gapWallet = await this.walletService.debit(
-        withdrawerWallet._id.toString(),
-        gapSettle,
-        'totalWithdrawn',
+      const latest =
+        (await this.walletService.findById(wdWallet._id.toString())) ||
+        updatedWithdrawerWallet;
+      const gapUnlock = Math.min(latest.lockedBalance || 0, gapSettle);
+      if (gapUnlock > 0) {
+        await this.walletService.unlock(wdWallet._id.toString(), gapUnlock);
+      }
+      const afterUnlock =
+        (await this.walletService.findById(wdWallet._id.toString())) || latest;
+      const gapAvail = Math.max(
+        0,
+        afterUnlock.balance - (afterUnlock.lockedBalance || 0),
       );
+      const gapDebit = Math.min(gapAvail, gapSettle);
+      if (gapDebit > 0) {
+        const gapBefore = afterUnlock.balance;
+        const gapWallet = await this.walletService.debit(
+          wdWallet._id.toString(),
+          gapDebit,
+          'totalWithdrawn',
+        );
+        await this.transactionService.record({
+          userId: withdrawal.userId.toString(),
+          walletId: wdWallet._id.toString(),
+          type: LedgerType.WITHDRAWAL,
+          amount: gapDebit,
+          currency: settleCurrency,
+          balanceBefore: gapBefore,
+          balanceAfter: gapWallet.balance,
+          referenceType: 'withdrawal',
+          referenceId: withdrawal._id.toString(),
+          description: `Withdrawal lock catch-up for previously confirmed payments`,
+          businessId: withdrawal.businessId?.toString(),
+        });
+      }
       withdrawal.settledFromLock = (withdrawal.settledFromLock || 0) + lockGap;
-      await this.transactionService.record({
-        userId: withdrawal.userId.toString(),
-        walletId: withdrawerWallet._id.toString(),
-        type: LedgerType.WITHDRAWAL,
-        amount: gapSettle,
-        currency: settleCurrency,
-        balanceBefore: gapBefore,
-        balanceAfter: gapWallet.balance,
-        referenceType: 'withdrawal',
-        referenceId: withdrawal._id.toString(),
-        description: `Withdrawal lock catch-up for previously confirmed payments`,
-        businessId: withdrawal.businessId?.toString(),
-      });
     }
 
     if (withdrawal.paidAmount >= withdrawal.amount) {
@@ -1112,8 +1435,8 @@ export class WithdrawalPaymentService {
       payment.payerUserId.toString(),
       'Payment Approved',
       isInvestor
-        ? `Your payment of ₹${payment.amount} was approved. ₹${netAmount} added to your investment wallet.`
-        : `Your payment of ₹${payment.amount} was approved. ₹${netAmount} credited to wallet.`,
+        ? `Your payment of ₹${payment.amount} was approved. ₹${payment.netCreditedAmount} added to your investment wallet.`
+        : `Your payment of ₹${payment.amount} was approved. ₹${payment.netCreditedAmount} credited to wallet.`,
       'success',
       'withdrawal_payment',
       payment._id.toString(),
@@ -1429,65 +1752,49 @@ export class WithdrawalPaymentService {
       );
     }
 
-    // Principal already unlocked+debited per confirmed payment — only settle fee here.
-    // Gap settle covers older rows where paidAmount grew before per-payment unlock existed.
+    // Principal already unlocked+debited per confirmed payment.
+    // Business commission is accounting-only on the business — never debit end-user wallet.
     const unsettled = Math.max(0, withdrawal.amount - (withdrawal.settledFromLock || 0));
     if (unsettled > 0) {
       const balBefore = wallet.balance;
-      await this.walletService.unlock(wallet._id.toString(), unsettled, session);
-      const updated = await this.walletService.debit(
-        wallet._id.toString(),
-        unsettled,
-        'totalWithdrawn',
-        session,
-      );
+      const unlockAmt = Math.min(wallet.lockedBalance || 0, unsettled);
+      if (unlockAmt > 0) {
+        await this.walletService.unlock(wallet._id.toString(), unlockAmt, session);
+      }
+      const fresh =
+        (await this.walletService.findById(wallet._id.toString(), session || undefined)) ||
+        wallet;
+      const avail = Math.max(0, fresh.balance - (fresh.lockedBalance || 0));
+      const debitAmt = Math.min(avail, unsettled);
+      if (debitAmt > 0) {
+        const updated = await this.walletService.debit(
+          wallet._id.toString(),
+          debitAmt,
+          'totalWithdrawn',
+          session,
+        );
+        await this.transactionService.record({
+          userId: withdrawal.userId.toString(),
+          walletId: wallet._id.toString(),
+          type: LedgerType.WITHDRAWAL,
+          amount: debitAmt,
+          currency: withdrawal.currency,
+          balanceBefore: balBefore,
+          balanceAfter: updated.balance,
+          referenceType: 'withdrawal',
+          referenceId: withdrawal._id.toString(),
+          description: `Withdrawal lock settle — completed by ${processedBy}`,
+          businessId: withdrawal.businessId?.toString(),
+        });
+      }
       withdrawal.settledFromLock = (withdrawal.settledFromLock || 0) + unsettled;
-      await this.transactionService.record({
-        userId: withdrawal.userId.toString(),
-        walletId: wallet._id.toString(),
-        type: LedgerType.WITHDRAWAL,
-        amount: unsettled,
-        currency: withdrawal.currency,
-        balanceBefore: balBefore,
-        balanceAfter: updated.balance,
-        referenceType: 'withdrawal',
-        referenceId: withdrawal._id.toString(),
-        description: `Withdrawal lock settle — completed by ${processedBy}`,
-        businessId: withdrawal.businessId?.toString(),
-      });
-    }
-
-    if (commissionAmount > 0) {
-      const freshWallet = await this.walletService.getOrCreate(
-        withdrawal.userId.toString(),
-        withdrawal.currency,
-      );
-      const balanceBefore = freshWallet.balance;
-      const updatedWallet = await this.walletService.debit(
-        freshWallet._id.toString(),
-        commissionAmount,
-        'totalWithdrawn',
-        session,
-      );
-      await this.transactionService.record({
-        userId: withdrawal.userId.toString(),
-        walletId: freshWallet._id.toString(),
-        type: LedgerType.COMMISSION,
-        amount: commissionAmount,
-        currency: withdrawal.currency,
-        balanceBefore,
-        balanceAfter: updatedWallet.balance,
-        referenceType: 'withdrawal',
-        referenceId: withdrawal._id.toString(),
-        description: `Withdrawal commission — completed by ${processedBy}`,
-        businessId: withdrawal.businessId?.toString(),
-      });
     }
 
     withdrawal.status = TransactionStatus.COMPLETED;
     withdrawal.processedBy = processedBy;
     withdrawal.completedAt = new Date();
     withdrawal.paidAmount = withdrawal.amount;
+    withdrawal.p2pListStatus = 'listed';
     await withdrawal.save(session ? { session } : undefined);
 
     await this.notificationService.send(

@@ -22,7 +22,7 @@ export function RegisterPage() {
   const setPendingApiCredentials = useAuthStore((s) => s.setPendingApiCredentials);
 
   useEffect(() => {
-    if (token) router.replace('/');
+    if (token) router.replace('/home');
   }, [token, router]);
 
   const [businessName, setBusinessName] = useState('');
@@ -48,7 +48,7 @@ export function RegisterPage() {
         setPendingApiCredentials(data.apiKey, data.apiSecret, data.internalSecret ?? null);
       }
       // Dashboard shows referral/business code immediately — no partner URL setup required
-      router.replace('/?registered=1');
+      router.replace('/home?registered=1');
     },
     onError: () => setError('Registration failed. Email may already be in use.'),
   });
@@ -91,7 +91,7 @@ export function RegisterPage() {
               business_center
             </span>
             <h1 className="font-[family-name:var(--font-headline)] text-3xl font-bold md:text-4xl">
-              FinGuard
+              PaySecure247
             </h1>
           </div>
           <p className="mt-4 text-lg text-surface-container-highest/90">

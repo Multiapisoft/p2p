@@ -16,7 +16,7 @@ import { BusinessService } from '../business/business.service';
 import { PaymentMethod } from '../../common/enums/payment-method.enum';
 import { TransactionStatus } from '../../common/enums/transaction-status.enum';
 import { CommissionTarget } from '../../common/enums/commission-target.enum';
-import { LedgerType, Currency } from '../../common/enums/currency.enum';
+import { LedgerType, Currency, UserStatus } from '../../common/enums/currency.enum';
 import { Business, BusinessDocument } from '../business/schemas/business.schema';
 import { User, UserDocument } from '../users/schemas/user.schema';
 import { WebhookService } from '../webhook/webhook.service';
@@ -27,13 +27,55 @@ import { IntegrationRedirectService } from '../integration/integration-redirect.
 import { BusinessFloatService } from '../integration/business-float.service';
 import { Withdrawal, WithdrawalDocument } from '../withdrawal/schemas/withdrawal.schema';
 import {
+  WithdrawalPayment,
+  WithdrawalPaymentDocument,
+} from '../withdrawal/schemas/withdrawal-payment.schema';
+import {
   listSortMap,
   normalizeListOpts,
   type ListQueryOpts,
 } from '../../common/dto/list-query.dto';
 import { withOptionalTransaction } from '../../common/utils/mongo-transaction';
+import { PlatformSettingsService } from '../platform-settings/platform-settings.service';
+import {
+  businessWithdrawalVisibilityFilter,
+  tatCutoffDate,
+} from '../withdrawal/utils/withdrawal-visibility.util';
 
 export type DepositListOpts = ListQueryOpts & { method?: string };
+
+type StatusAggRow = { _id: string; count: number; amount: number };
+
+function emptyStatusMap() {
+  return {
+    pending: 0,
+    processing: 0,
+    completed: 0,
+    failed: 0,
+    cancelled: 0,
+    rejected: 0,
+  };
+}
+
+function foldStatusCounts(rows: StatusAggRow[]) {
+  const counts = emptyStatusMap();
+  let totalCount = 0;
+  let completedAmount = 0;
+  let pendingAmount = 0;
+  for (const row of rows) {
+    const key = row._id as keyof typeof counts;
+    if (key in counts) counts[key] = row.count;
+    totalCount += row.count;
+    if (row._id === TransactionStatus.COMPLETED) completedAmount += row.amount;
+    if (
+      row._id === TransactionStatus.PENDING ||
+      row._id === TransactionStatus.PROCESSING
+    ) {
+      pendingAmount += row.amount;
+    }
+  }
+  return { counts, totalCount, completedAmount, pendingAmount };
+}
 
 @Injectable()
 export class DepositService {
@@ -42,6 +84,8 @@ export class DepositService {
     @InjectModel(Business.name) private businessModel: Model<BusinessDocument>,
     @InjectModel(User.name) private userModel: Model<UserDocument>,
     @InjectModel(Withdrawal.name) private withdrawalModel: Model<WithdrawalDocument>,
+    @InjectModel(WithdrawalPayment.name)
+    private paymentModel: Model<WithdrawalPaymentDocument>,
     @InjectConnection() private connection: Connection,
     private walletService: WalletService,
     private commissionService: CommissionService,
@@ -53,6 +97,7 @@ export class DepositService {
     private paymentConfigService: PaymentConfigService,
     private integrationRedirectService: IntegrationRedirectService,
     private businessFloatService: BusinessFloatService,
+    private platformSettingsService: PlatformSettingsService,
   ) {}
 
   async create(userId: string, dto: CreateDepositDto, businessFromApi?: BusinessDocument) {
@@ -217,7 +262,8 @@ export class DepositService {
       platformCommission = platformFee.amount;
 
       const totalCommission = businessCommission + platformCommission;
-      const netAmount = doc.amount - totalCommission;
+      // End-user gets full deposit; commission is charged to business (stats), not user wallet.
+      const netAmount = doc.amount;
 
       const updatedWallet = await this.walletService.credit(
         wallet._id.toString(),
@@ -228,6 +274,7 @@ export class DepositService {
 
       doc.status = TransactionStatus.COMPLETED;
       doc.completedAt = new Date();
+      doc.commissionAmount = totalCommission;
       await doc.save({ session: session || undefined });
 
       const floatLock = doc.metadata?.businessFloatLock as
@@ -258,21 +305,7 @@ export class DepositService {
         businessId: doc.businessId?.toString(),
       });
 
-      if (totalCommission > 0) {
-        await this.transactionService.record({
-          userId: doc.userId.toString(),
-          walletId: wallet._id.toString(),
-          type: LedgerType.COMMISSION,
-          amount: totalCommission,
-          currency: doc.currency,
-          balanceBefore: updatedWallet.balance,
-          balanceAfter: updatedWallet.balance,
-          referenceType: 'deposit',
-          referenceId: doc._id.toString(),
-          description: `Commission on deposit (business: ${businessCommission}, platform: ${platformCommission})`,
-          businessId: doc.businessId?.toString(),
-        });
-      }
+      // Commission is charged to business (stats), not written to user ledger.
 
       return { deposit: doc, netAmount, totalCommission };
     });
@@ -589,102 +622,198 @@ export class DepositService {
     const business = await this.businessModel.findById(bid).exec();
     if (!business) throw new NotFoundException('Business not found');
 
-    const [totalUsers, depositStats, withdrawalStats] = await Promise.all([
+    // Match ObjectId or legacy string businessId (same as list endpoints)
+    const bizMatch = { $or: [{ businessId: bid }, { businessId }] };
+    const tatMs = await this.platformSettingsService.getTatMs();
+    const tatCutoff = tatCutoffDate(Date.now(), tatMs);
+
+    const [
+      totalUsers,
+      activeUsers,
+      depositStatusRows,
+      withdrawalStatusRows,
+      pendingVisibleWithdrawals,
+      awaitingListCount,
+      listedCount,
+      paymentStatusRows,
+      inboundPayCompleted,
+      outboundPayCompleted,
+    ] = await Promise.all([
       this.userModel.countDocuments({ referredByBusiness: bid }).exec(),
-      this.depositModel.aggregate([
-        { $match: { businessId: bid } },
-        {
-          $group: {
-            _id: null,
-            depositCount: { $sum: 1 },
-            completedCount: {
-              $sum: { $cond: [{ $eq: ['$status', TransactionStatus.COMPLETED] }, 1, 0] },
-            },
-            pendingCount: {
-              $sum: {
-                $cond: [
-                  {
-                    $in: [
-                      '$status',
-                      [TransactionStatus.PENDING, TransactionStatus.PROCESSING],
-                    ],
-                  },
-                  1,
-                  0,
-                ],
-              },
-            },
-            completedAmount: {
-              $sum: {
-                $cond: [{ $eq: ['$status', TransactionStatus.COMPLETED] }, '$amount', 0],
-              },
+      this.userModel
+        .countDocuments({ referredByBusiness: bid, status: UserStatus.ACTIVE })
+        .exec(),
+      this.depositModel
+        .aggregate<StatusAggRow>([
+          { $match: bizMatch },
+          {
+            $group: {
+              _id: '$status',
+              count: { $sum: 1 },
+              amount: { $sum: '$amount' },
             },
           },
-        },
-      ]),
-      this.withdrawalModel.aggregate([
-        { $match: { businessId: bid } },
-        {
-          $group: {
-            _id: null,
-            withdrawalCount: { $sum: 1 },
-            completedCount: {
-              $sum: { $cond: [{ $eq: ['$status', TransactionStatus.COMPLETED] }, 1, 0] },
-            },
-            pendingCount: {
-              $sum: {
-                $cond: [
-                  {
-                    $in: [
-                      '$status',
-                      [TransactionStatus.PENDING, TransactionStatus.PROCESSING],
-                    ],
-                  },
-                  1,
-                  0,
-                ],
-              },
-            },
-            completedAmount: {
-              $sum: {
-                $cond: [{ $eq: ['$status', TransactionStatus.COMPLETED] }, '$amount', 0],
-              },
+        ])
+        .exec(),
+      this.withdrawalModel
+        .aggregate<StatusAggRow>([
+          { $match: bizMatch },
+          {
+            $group: {
+              _id: '$status',
+              count: { $sum: 1 },
+              amount: { $sum: '$amount' },
             },
           },
-        },
-      ]),
+        ])
+        .exec(),
+      // Matches what business sees on Withdrawals page (after TAT)
+      this.withdrawalModel
+        .countDocuments({
+          $and: [
+            bizMatch,
+            businessWithdrawalVisibilityFilter(tatCutoff),
+            {
+              status: {
+                $in: [TransactionStatus.PENDING, TransactionStatus.PROCESSING],
+              },
+            },
+          ],
+        })
+        .exec(),
+      this.withdrawalModel
+        .countDocuments({
+          $and: [
+            bizMatch,
+            businessWithdrawalVisibilityFilter(tatCutoff),
+            {
+              status: {
+                $in: [TransactionStatus.PENDING, TransactionStatus.PROCESSING],
+              },
+            },
+            {
+              $or: [
+                { p2pListStatus: { $exists: false } },
+                { p2pListStatus: null },
+                { p2pListStatus: 'awaiting' },
+              ],
+            },
+          ],
+        })
+        .exec(),
+      this.withdrawalModel
+        .countDocuments({
+          $and: [bizMatch, { p2pListStatus: 'listed' }],
+        })
+        .exec(),
+      this.paymentModel
+        .aggregate<StatusAggRow>([
+          {
+            $match: {
+              $or: [
+                { businessId: bid },
+                { businessId },
+                { payerBusinessId: bid },
+                { payerBusinessId: businessId },
+              ],
+            },
+          },
+          {
+            $group: {
+              _id: '$status',
+              count: { $sum: 1 },
+              amount: { $sum: '$amount' },
+            },
+          },
+        ])
+        .exec(),
+      this.paymentModel
+        .aggregate<{ count: number; amount: number }>([
+          {
+            $match: {
+              $or: [{ businessId: bid }, { businessId }],
+              status: TransactionStatus.COMPLETED,
+            },
+          },
+          {
+            $group: {
+              _id: null,
+              count: { $sum: 1 },
+              amount: { $sum: '$amount' },
+            },
+          },
+        ])
+        .exec(),
+      this.paymentModel
+        .aggregate<{ count: number; amount: number }>([
+          {
+            $match: {
+              $or: [{ payerBusinessId: bid }, { payerBusinessId: businessId }],
+              status: TransactionStatus.COMPLETED,
+            },
+          },
+          {
+            $group: {
+              _id: null,
+              count: { $sum: 1 },
+              amount: { $sum: '$amount' },
+            },
+          },
+        ])
+        .exec(),
     ]);
 
-    const agg = depositStats[0] as
-      | {
-          depositCount: number;
-          completedCount: number;
-          pendingCount: number;
-          completedAmount: number;
-        }
-      | undefined;
+    const deposits = foldStatusCounts(depositStatusRows);
+    const withdrawals = foldStatusCounts(withdrawalStatusRows);
+    const payments = foldStatusCounts(paymentStatusRows);
+    const inbound = inboundPayCompleted[0];
+    const outbound = outboundPayCompleted[0];
 
-    const wAgg = withdrawalStats[0] as
-      | {
-          withdrawalCount: number;
-          completedCount: number;
-          pendingCount: number;
-          completedAmount: number;
-        }
-      | undefined;
+    const limit = business.p2pPayLimit || 0;
+    const used = business.p2pPayUsed || 0;
 
     return {
       totalUsers,
-      depositCount: agg?.depositCount ?? 0,
-      completedDeposits: agg?.completedCount ?? 0,
-      pendingDeposits: agg?.pendingCount ?? 0,
-      totalDepositAmount: agg?.completedAmount ?? 0,
-      withdrawalCount: wAgg?.withdrawalCount ?? 0,
-      completedWithdrawals: wAgg?.completedCount ?? 0,
-      pendingWithdrawals: wAgg?.pendingCount ?? 0,
-      totalWithdrawals: wAgg?.completedAmount ?? business.totalWithdrawals ?? 0,
-      totalCommissionEarned: business.totalCommissionEarned,
-      commissionRate: business.commissionRate,
+      activeUsers,
+      depositCount: deposits.totalCount,
+      completedDeposits: deposits.counts.completed,
+      pendingDeposits: deposits.counts.pending + deposits.counts.processing,
+      failedDeposits: deposits.counts.failed,
+      cancelledDeposits: deposits.counts.cancelled,
+      rejectedDeposits: deposits.counts.rejected,
+      totalDepositAmount: deposits.completedAmount,
+      pendingDepositAmount: deposits.pendingAmount,
+      depositStatusCounts: deposits.counts,
+
+      withdrawalCount: withdrawals.totalCount,
+      completedWithdrawals: withdrawals.counts.completed,
+      // Attention count = visible to business (post-TAT), matches Withdrawals page
+      pendingWithdrawals: pendingVisibleWithdrawals,
+      pendingWithdrawalsAll:
+        withdrawals.counts.pending + withdrawals.counts.processing,
+      failedWithdrawals: withdrawals.counts.failed,
+      cancelledWithdrawals: withdrawals.counts.cancelled,
+      rejectedWithdrawals: withdrawals.counts.rejected,
+      totalWithdrawals: withdrawals.completedAmount,
+      pendingWithdrawalAmount: withdrawals.pendingAmount,
+      withdrawalStatusCounts: withdrawals.counts,
+      awaitingListCount,
+      listedCount,
+
+      platformPaymentCount: payments.totalCount,
+      pendingPlatformPayments: payments.counts.pending + payments.counts.processing,
+      completedPlatformPayments: payments.counts.completed,
+      platformPaymentStatusCounts: payments.counts,
+      inboundPlatformPayments: inbound?.count ?? 0,
+      inboundPlatformPaymentAmount: inbound?.amount ?? 0,
+      outboundPlatformPayments: outbound?.count ?? 0,
+      outboundPlatformPaymentAmount: outbound?.amount ?? 0,
+
+      totalCommissionEarned: business.totalCommissionEarned ?? 0,
+      commissionRate: business.commissionRate ?? 0,
+      p2pPayLimit: limit,
+      p2pPayUsed: used,
+      p2pPayRemaining: limit > 0 ? Math.max(0, limit - used) : null,
       businessName: business.name,
       businessStatus: business.status,
     };

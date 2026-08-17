@@ -29,8 +29,8 @@
   --color-surface-container-lowest: #ffffff;
   --color-outline-variant: #c9d0bc;
 
-  --font-headline: 'Montserrat', sans-serif;
-  --font-body: 'Inter', sans-serif;
+  --font-headline: 'Fraunces', Georgia, serif;
+  --font-body: 'DM Sans', system-ui, sans-serif;
 }
 
 html {

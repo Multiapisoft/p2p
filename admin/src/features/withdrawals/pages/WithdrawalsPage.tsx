@@ -9,6 +9,7 @@ import { Input } from '@/shared/components/ui/Input';
 import { StatusBadge } from '@/shared/components/ui/Badge';
 import { Pagination } from '@/shared/components/ui/Pagination';
 import { LoadingScreen, EmptyState } from '@/shared/components/ui/Icon';
+import { Modal } from '@/shared/components/ui/Modal';
 import { formatCurrency, formatDate } from '@/shared/lib/utils';
 import { getApiErrorMessage } from '@/shared/lib/api-error';
 import { SplitPaymentsTab } from '../components/SplitPaymentsTab';
@@ -53,6 +54,7 @@ export function WithdrawalsPage() {
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
   const [actionError, setActionError] = useState('');
+  const [detail, setDetail] = useState<WithdrawalRow | null>(null);
   const qc = useQueryClient();
 
   useEffect(() => {
@@ -112,6 +114,31 @@ export function WithdrawalsPage() {
     if (s === 'listed') return 'Platform Payment listed';
     if (s === 'rejected') return 'Platform Payment rejected';
     return 'Awaiting Platform Payment';
+  }
+
+  function destinationLines(w: WithdrawalRow): string[] {
+    if (w.method === 'upi' && w.upiDetails?.upiId) {
+      return [
+        `UPI: ${w.upiDetails.upiId}`,
+        w.upiDetails.payerName ? `Name: ${w.upiDetails.payerName}` : '',
+      ].filter(Boolean);
+    }
+    if (w.method === 'bank' && w.bankDetails) {
+      const b = w.bankDetails;
+      return [
+        b.accountHolderName ? `Name: ${b.accountHolderName}` : '',
+        b.accountNumber ? `Account: ${b.accountNumber}` : '',
+        b.ifscCode ? `IFSC: ${b.ifscCode}` : '',
+        b.bankName ? `Bank: ${b.bankName}` : '',
+      ].filter(Boolean);
+    }
+    if (w.method === 'usdt' && w.usdtDetails?.walletAddress) {
+      return [
+        `Wallet: ${w.usdtDetails.walletAddress}`,
+        w.usdtDetails.network ? `Network: ${w.usdtDetails.network}` : '',
+      ].filter(Boolean);
+    }
+    return [];
   }
 
   return (
@@ -277,13 +304,12 @@ export function WithdrawalsPage() {
                           {w.paidAmount ? (
                             <> • Paid: {formatCurrency(w.paidAmount)}</>
                           ) : null}
-                          {(w.commissionAmount || 0) > 0 ? (
-                            <>
-                              {' '}
-                              • Commission −{formatCurrency(w.commissionAmount!, w.currency)}
-                            </>
-                          ) : null}
                         </p>
+                        {destinationLines(w).length > 0 && (
+                          <p className="mt-1 text-[11px] text-on-surface-variant sm:text-xs">
+                            {destinationLines(w).join(' · ')}
+                          </p>
+                        )}
                       </div>
                       <div className="flex items-center justify-between gap-3 sm:justify-end sm:gap-4">
                         <div className="text-left sm:text-right">
@@ -306,6 +332,9 @@ export function WithdrawalsPage() {
                           </div>
                         </div>
                         <div className="flex flex-col gap-2 sm:flex-row">
+                          <Button size="sm" variant="secondary" onClick={() => setDetail(w)}>
+                            Details
+                          </Button>
                           {(w.status === 'pending' || w.status === 'processing') &&
                             (w.p2pListStatus || 'awaiting') !== 'listed' && (
                               <Button
@@ -352,6 +381,45 @@ export function WithdrawalsPage() {
           </Card>
         </>
       )}
+
+      <Modal open={!!detail} onClose={() => setDetail(null)} title="Withdrawal details">
+        {detail && (
+          <div className="space-y-2 text-sm">
+            <p>
+              <span className="text-on-surface-variant">Reference:</span>{' '}
+              <span className="font-semibold">{detail.referenceId}</span>
+            </p>
+            <p>
+              <span className="text-on-surface-variant">Amount:</span>{' '}
+              <span className="font-semibold">
+                {formatCurrency(detail.amount, detail.currency)}
+              </span>
+            </p>
+            <p>
+              <span className="text-on-surface-variant">Method:</span>{' '}
+              {detail.method.toUpperCase()}
+            </p>
+            <p>
+              <span className="text-on-surface-variant">Status:</span>{' '}
+              <StatusBadge status={detail.status} />
+            </p>
+            <div className="rounded-lg border border-outline-variant p-3">
+              <p className="mb-1 text-xs font-semibold uppercase text-on-surface-variant">
+                Destination
+              </p>
+              {destinationLines(detail).length ? (
+                destinationLines(detail).map((line) => (
+                  <p key={line} className="font-medium">
+                    {line}
+                  </p>
+                ))
+              ) : (
+                <p className="text-on-surface-variant">No destination details</p>
+              )}
+            </div>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }

@@ -27,7 +27,7 @@ function RegisterForm() {
   const lockedFromLink = Boolean(codeFromLink);
 
   useEffect(() => {
-    if (token) router.replace('/');
+    if (token) router.replace('/home');
   }, [token, router]);
 
   const [name, setName] = useState('');
@@ -63,8 +63,8 @@ function RegisterForm() {
         return;
       }
       setAuth(data.accessToken, data.user);
-      toast.success('Account created', 'Welcome to FinGuard');
-      router.replace('/');
+      toast.success('Account created', 'Welcome to FairPlay');
+      router.replace('/home');
     },
     onError: (err: unknown) => {
       const text = getApiErrorMessage(
@@ -81,7 +81,7 @@ function RegisterForm() {
       <div className="relative flex min-h-[160px] w-full items-center justify-center overflow-hidden bg-primary sm:min-h-[200px] md:min-h-screen md:w-1/2">
         <div className="absolute inset-0 bg-gradient-to-tr from-on-background/60 to-secondary/40" />
         <div className="relative z-10 px-5 text-center text-white sm:px-6 md:px-12 md:text-left">
-          <h1 className="font-[family-name:var(--font-headline)] text-2xl font-bold sm:text-3xl md:text-4xl">Join FinGuard</h1>
+          <h1 className="font-[family-name:var(--font-headline)] text-2xl font-bold sm:text-3xl md:text-4xl">Join FairPlay</h1>
           <p className="mt-2 text-sm text-surface-container-highest/90 sm:mt-4 sm:text-lg">
             Create your wallet with a business invite, or open via their integration portal.
           </p>

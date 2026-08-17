@@ -27,10 +27,12 @@ export function CopyField({
   label,
   value,
   className,
+  compact = false,
 }: {
   label: string;
   value: string;
   className?: string;
+  compact?: boolean;
 }) {
   const [copied, setCopied] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -55,13 +57,19 @@ export function CopyField({
   };
 
   return (
-    <div className={cn('space-y-1', className)}>
-      <p className="text-[10px] font-semibold uppercase tracking-wide text-on-surface-variant sm:text-xs">
+    <div className={cn(compact ? 'space-y-0.5' : 'space-y-1', className)}>
+      <p
+        className={cn(
+          'font-semibold uppercase tracking-wide text-on-surface-variant',
+          compact ? 'text-[9px]' : 'text-[10px] sm:text-xs',
+        )}
+      >
         {label}
       </p>
       <div
         className={cn(
-          'flex items-center gap-1.5 rounded-lg border bg-surface-container-low p-2 transition-colors sm:gap-2 sm:p-3',
+          'flex items-center rounded-lg border bg-surface-container-low transition-colors',
+          compact ? 'gap-1 p-1.5' : 'gap-1.5 p-2 sm:gap-2 sm:p-3',
           copied
             ? 'border-secondary'
             : failed
@@ -69,7 +77,12 @@ export function CopyField({
               : 'border-outline-variant',
         )}
       >
-        <code className="min-w-0 flex-1 overflow-x-auto break-all text-[11px] sm:text-sm">
+        <code
+          className={cn(
+            'min-w-0 flex-1 overflow-x-auto break-all',
+            compact ? 'text-[10px] leading-snug' : 'text-[11px] sm:text-sm',
+          )}
+        >
           {value || '—'}
         </code>
         <button
@@ -77,7 +90,10 @@ export function CopyField({
           onClick={() => void handleCopy()}
           disabled={!value}
           className={cn(
-            'inline-flex shrink-0 items-center gap-0.5 rounded-lg px-1.5 py-1 text-[10px] font-semibold transition-colors sm:gap-1 sm:px-2 sm:text-xs',
+            'inline-flex shrink-0 items-center font-semibold transition-colors',
+            compact
+              ? 'gap-0.5 rounded-md px-1 py-0.5 text-[10px]'
+              : 'gap-0.5 rounded-lg px-1.5 py-1 text-[10px] sm:gap-1 sm:px-2 sm:text-xs',
             copied
               ? 'bg-secondary-container text-on-secondary-container'
               : failed
@@ -87,10 +103,17 @@ export function CopyField({
           title={copied ? 'Copied!' : failed ? 'Copy failed' : 'Copy'}
           aria-label={copied ? 'Copied' : 'Copy'}
         >
-          <span className="material-symbols-outlined text-base sm:text-lg">
+          <span
+            className={cn(
+              'material-symbols-outlined',
+              compact ? 'text-sm' : 'text-base sm:text-lg',
+            )}
+          >
             {copied ? 'check' : failed ? 'error' : 'content_copy'}
           </span>
-          <span>{copied ? 'Copied!' : failed ? 'Failed' : 'Copy'}</span>
+          <span className={compact ? 'hidden sm:inline' : undefined}>
+            {copied ? 'Copied!' : failed ? 'Failed' : 'Copy'}
+          </span>
         </button>
       </div>
     </div>

@@ -122,3 +122,46 @@ export function paymentRefErrorForMethod(
   if (method === 'usdt') return txHashError(v, true);
   return utrError(v, true);
 }
+
+/** Name: alphabets + spaces only */
+export function personNameError(value: string, required = true): string | null {
+  const v = value.trim();
+  if (!v) return required ? 'Name is required' : null;
+  if (!/^[A-Za-z ]+$/.test(v)) {
+    return 'Name must contain alphabets and spaces only (no numbers)';
+  }
+  return null;
+}
+
+/** UPI: no more than 9 consecutive digits */
+export function upiIdError(value: string, required = true): string | null {
+  const v = value.trim();
+  if (!v) return required ? 'UPI ID is required' : null;
+  if (/\d{10,}/.test(v)) {
+    return 'UPI ID cannot contain more than 9 consecutive digits';
+  }
+  return null;
+}
+
+export function accountNumberError(value: string, required = true): string | null {
+  const v = value.trim();
+  if (!v) return required ? 'Account number is required' : null;
+  if (!/^\d+$/.test(v)) return 'Account number must be numeric only';
+  return null;
+}
+
+/** IFSC: 4 letters + 0 + 6 alphanumeric */
+export function ifscError(value: string, required = true): string | null {
+  const v = value.trim().toUpperCase();
+  if (!v) return required ? 'IFSC is required' : null;
+  if (!/^[A-Z]{4}0[A-Z0-9]{6}$/.test(v)) {
+    return 'IFSC must be 11 characters (e.g. SBIN0001234)';
+  }
+  return null;
+}
+
+export function bankNameError(value: string, required = true): string | null {
+  const v = value.trim();
+  if (!v) return required ? 'Bank name is required' : null;
+  return null;
+}

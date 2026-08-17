@@ -19,7 +19,7 @@ function LoginForm() {
   const setAuth = useAuthStore((s) => s.setAuth);
 
   useEffect(() => {
-    if (token) router.replace('/');
+      if (token) router.replace('/home');
   }, [token, router]);
 
   const [email, setEmail] = useState('');
@@ -47,15 +47,15 @@ function LoginForm() {
             : data.user.role === 'investor'
               ? 'Investor portal'
               : 'Admin portal';
-        const msg = `Yeh ${data.user.role} account hai — User app pe login nahi hoga. ${portal} use karo.`;
+        const msg = `This is a ${data.user.role} account — you cannot log in on the User app. Use the ${portal}.`;
         setError(msg);
         toast.error('Wrong portal', msg);
         return;
       }
       setAuth(data.accessToken, data.user);
       toast.success('Welcome back');
-      const next = searchParams.get('next') || searchParams.get('redirect') || '/';
-      router.replace(next.startsWith('/') ? next : '/');
+      const next = searchParams.get('next') || searchParams.get('redirect') || '/home';
+      router.replace(next.startsWith('/') ? next : '/home');
     },
     onError: (err: unknown) => {
       const text = getApiErrorMessage(err, 'Invalid email or password');
@@ -71,13 +71,16 @@ function LoginForm() {
         <div className="relative z-10 max-w-xl px-5 text-center text-white sm:px-6 md:px-12 md:text-left">
           <div className="mb-3 inline-flex items-center gap-2 sm:mb-6 sm:gap-3">
             <span className="material-symbols-outlined text-4xl text-secondary-container sm:text-5xl">account_balance_wallet</span>
-            <h1 className="font-[family-name:var(--font-headline)] text-2xl font-bold sm:text-3xl md:text-4xl">FinGuard</h1>
+            <h1 className="font-[family-name:var(--font-headline)] text-2xl font-bold sm:text-3xl md:text-4xl">
+              FairPlay
+            </h1>
           </div>
           <p className="hidden font-[family-name:var(--font-headline)] text-4xl font-bold md:block">
-            Your Platform Payment Wallet
+            Your money. Your pace.
           </p>
           <p className="mt-2 text-sm text-surface-container-highest/90 sm:mt-4 sm:text-lg">
-            Deposit, withdraw, and manage your balance securely.
+            Secure deposits and withdrawals with live Platform Payment matching — no clutter, just
+            your wallet.
           </p>
         </div>
       </div>

@@ -23,7 +23,7 @@ export function RegisterPage() {
   const setAuth = useAuthStore((s) => s.setAuth);
 
   useEffect(() => {
-    if (hydrated && token) router.replace('/');
+    if (hydrated && token) router.replace('/home');
   }, [hydrated, token, router]);
 
   const [name, setName] = useState('');
@@ -43,7 +43,7 @@ export function RegisterPage() {
       }),
     onSuccess: (data) => {
       setAuth(data.accessToken, data.user);
-      router.replace('/');
+      router.replace('/home');
     },
     onError: (err: unknown) => {
       const msg =
@@ -80,14 +80,17 @@ export function RegisterPage() {
   return (
     <div className="flex min-h-screen flex-col md:flex-row">
       <div className="relative flex min-h-[200px] w-full items-center justify-center overflow-hidden bg-primary md:min-h-screen md:w-1/2">
-        <div className="absolute inset-0 bg-gradient-to-tr from-on-background/60 to-secondary/40" />
+        <div className="absolute inset-0 bg-gradient-to-br from-black via-[#1a1a1a] to-[#c9a227]/50" />
         <div className="relative z-10 max-w-xl px-6 text-center text-white md:px-12 md:text-left">
           <div className="mb-4 inline-flex items-center gap-3">
-            <span className="material-symbols-outlined text-4xl text-secondary-container">savings</span>
-            <h1 className="font-[family-name:var(--font-headline)] text-2xl font-bold md:text-3xl">FinGuard</h1>
+            <span className="material-symbols-outlined text-4xl text-secondary">trending_up</span>
+            <h1 className="font-[family-name:var(--font-headline)] text-2xl font-semibold md:text-3xl">
+              InvesPro
+            </h1>
           </div>
-          <p className="text-lg text-surface-container-highest/90">
-            Join as an investor and start growing your portfolio on our Platform Payment system.
+          <p className="text-lg text-white/80">
+            Join as an investor and grow your portfolio with clear targets and Platform Payment
+            fulfillment.
           </p>
         </div>
       </div>

@@ -35,12 +35,26 @@ export class WithdrawalPaymentController {
     return this.paymentService.previewCredit(user.userId, query.amount, query.withdrawalId);
   }
 
+  @Get('dashboard')
+  getDashboard(@CurrentUser() user: AuthenticatedUser) {
+    return this.paymentService.getUserDashboardSummary(user.userId);
+  }
+
   @Get('mine')
   getMyPayments(
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: WithdrawalPaymentListQueryDto,
   ) {
     return this.paymentService.findMyPayments(user.userId, query);
+  }
+
+  @Get('business')
+  @Roles(UserRole.BUSINESS)
+  getBusinessPayments(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: WithdrawalPaymentListQueryDto,
+  ) {
+    return this.paymentService.findForBusinessOwner(user.userId, query);
   }
 
   @Get('pending')
