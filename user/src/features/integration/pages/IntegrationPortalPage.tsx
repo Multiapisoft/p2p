@@ -61,7 +61,7 @@ function IntegrationPortalInner() {
             ? (err as { response?: { data?: { message?: string } } }).response?.data?.message
             : err instanceof Error
               ? err.message
-              'Failed to open Platform Payment portal';
+              : 'Failed to open Platform Payment portal';
         setError(msg || 'Invalid or expired link');
       }
     })();
