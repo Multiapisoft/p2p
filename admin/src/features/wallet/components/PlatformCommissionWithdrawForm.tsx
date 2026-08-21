@@ -21,7 +21,8 @@ import { PERMISSIONS } from '@/shared/constants/permissions';
 import { SavedWithdrawalMethodsPanel } from './SavedWithdrawalMethodsPanel';
 import type { PaymentMethod, SavedWithdrawalMethod } from '@/shared/types/api.types';
 
-type Method = PaymentMethod;
+/** Platform commission withdraw supports payout rails only (not CDM). */
+type Method = Exclude<PaymentMethod, 'cdm'>;
 
 export function PlatformCommissionWithdrawForm({
   available,
@@ -63,6 +64,7 @@ export function PlatformCommissionWithdrawForm({
   const savedMethods = savedMethodsData?.items ?? [];
 
   const applySavedMethod = (saved: SavedWithdrawalMethod) => {
+    if (saved.method === 'cdm') return;
     setSelectedSavedMethodId(saved._id);
     setMethod(saved.method);
     setUpiId(saved.upiDetails?.upiId || '');
@@ -78,7 +80,9 @@ export function PlatformCommissionWithdrawForm({
 
   useEffect(() => {
     if (!open || !savedMethods.length || selectedSavedMethodId) return;
-    const preferred = savedMethods.find((m) => m.isDefault) || savedMethods[0];
+    const preferred =
+      savedMethods.find((m) => m.isDefault && m.method !== 'cdm') ||
+      savedMethods.find((m) => m.method !== 'cdm');
     if (preferred) applySavedMethod(preferred);
   }, [open, savedMethods, selectedSavedMethodId]);
 
@@ -253,7 +257,7 @@ export function PlatformCommissionWithdrawForm({
             required
           />
           <div className="flex flex-wrap gap-2">
-            {(['upi', 'bank', 'usdt'] as Method[]).map((m) => (
+            {(['upi', 'bank', 'usdt'] as const).map((m) => (
               <button
                 key={m}
                 type="button"
