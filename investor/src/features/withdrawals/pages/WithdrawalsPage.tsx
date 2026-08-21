@@ -738,7 +738,7 @@ export function WithdrawalsPage() {
                       },
                     });
                   } else {
-                    if (saveCurrentMethod) {
+                    if (saveCurrentMethod && pendingPayload.method !== 'cdm') {
                       await saveMethod.mutateAsync({
                         method: pendingPayload.method,
                         isDefault: saveAsDefault,
