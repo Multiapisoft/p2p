@@ -159,6 +159,10 @@ export class BusinessPortalIntegrationController {
         dto.reason,
         partnerUserId,
       );
+      await this.businessService.creditP2pPayQuota(business._id.toString(), dto.amount, {
+        referenceType: 'partner_credit',
+        referenceId: userId,
+      });
       const partnerBalance = await this.partnerApiService.fetchBalance(
         business,
         { email, userId: partnerUserId },

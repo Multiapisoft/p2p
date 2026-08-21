@@ -45,6 +45,8 @@ export interface AvailableWithdrawal {
   claimLockedBy?: string | null;
   claimLockedUntil?: string | null;
   claimPayDeadline?: string | null;
+  origin?: 'user' | 'investor' | 'business';
+  assignedToMe?: boolean;
   creditIfPayFull?: {
     payAmount: number;
     payCurrency?: string;
@@ -61,6 +63,8 @@ export interface AvailableWithdrawal {
 export interface AvailableWithdrawalsResponse extends Paginated<AvailableWithdrawal> {
   claimLockMinutes?: number;
   paySubmitMinutes?: number;
+  needsAmount?: boolean;
+  matchAmount?: number | null;
 }
 
 export interface ClaimWithdrawalResult extends AvailableWithdrawal {
@@ -143,6 +147,7 @@ export type P2pListQuery = {
   sort?: string;
   method?: string;
   status?: string;
+  amount?: number;
 };
 
 function cleanQuery(query: P2pListQuery = {}) {
@@ -153,6 +158,7 @@ function cleanQuery(query: P2pListQuery = {}) {
     search: query.search?.trim() || undefined,
     sort: query.sort || 'newest',
     method: query.method && query.method !== 'all' ? query.method : undefined,
+    amount: query.amount != null && query.amount >= 1 ? query.amount : undefined,
   };
 }
 
@@ -174,7 +180,7 @@ export const p2pPayApi = {
     }),
   submitPayment: (
     withdrawalId: string,
-    payload: { amount: number; utr: string; proofImageKey: string; proofImageUrl: string },
+    payload: { amount: number; utr?: string; proofImageKey?: string; proofImageUrl?: string },
   ) => apiPost<P2pPayment>(`/withdrawal-payments/withdrawal/${withdrawalId}`, payload),
   getMyPayments: (query: P2pListQuery = {}) =>
     apiGet<Paginated<P2pPayment>>('/withdrawal-payments/mine', cleanQuery(query)),

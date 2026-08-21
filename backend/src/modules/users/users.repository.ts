@@ -3,6 +3,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { User, UserDocument } from './schemas/user.schema';
 import { RedisService } from '../../redis/redis.service';
+import { UserRole } from '../../common/enums/role.enum';
 
 @Injectable()
 export class UsersRepository implements OnModuleInit {
@@ -50,6 +51,29 @@ export class UsersRepository implements OnModuleInit {
 
   async findByEmail(email: string): Promise<UserDocument | null> {
     return this.userModel.findOne({ email: email.toLowerCase().trim() }).exec();
+  }
+
+  async findByReferralCode(code: string): Promise<UserDocument | null> {
+    const trimmed = code.trim();
+    if (!trimmed) return null;
+    const escaped = trimmed.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return this.userModel
+      .findOne({
+        referralCode: { $regex: `^${escaped}$`, $options: 'i' },
+        role: UserRole.INVESTOR,
+      })
+      .exec();
+  }
+
+  async findByEmailWithSecrets(email: string): Promise<UserDocument | null> {
+    return this.userModel
+      .findOne({ email: email.toLowerCase().trim() })
+      .select('+twoFactorSecret')
+      .exec();
+  }
+
+  async findByIdWithSecrets(id: string): Promise<UserDocument | null> {
+    return this.userModel.findById(id).select('+twoFactorSecret').exec();
   }
 
   /** Match phone with flexible formatting (+91 / 91 / 10-digit). */
@@ -139,6 +163,19 @@ export class UsersRepository implements OnModuleInit {
   async update(id: string, data: Partial<User>): Promise<UserDocument> {
     const user = await this.userModel
       .findByIdAndUpdate(id, data, { new: true })
+      .exec();
+    if (!user) throw new NotFoundException('User not found');
+    await this.redis.del(`user:${id}`);
+    return user;
+  }
+
+  async clearTwoFactor(id: string): Promise<UserDocument> {
+    const user = await this.userModel
+      .findByIdAndUpdate(
+        id,
+        { $set: { twoFactorEnabled: false }, $unset: { twoFactorSecret: 1 } },
+        { new: true },
+      )
       .exec();
     if (!user) throw new NotFoundException('User not found');
     await this.redis.del(`user:${id}`);

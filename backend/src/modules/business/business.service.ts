@@ -4,21 +4,39 @@ import {
   ConflictException,
   ForbiddenException,
   BadRequestException,
+  Inject,
+  forwardRef,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import * as bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
 import { Business, BusinessDocument } from './schemas/business.schema';
+import { Withdrawal, WithdrawalDocument } from '../withdrawal/schemas/withdrawal.schema';
 import { CreateBusinessDto, UpdateBusinessDto } from './dto/business.dto';
-import { UserStatus } from '../../common/enums/currency.enum';
+import { UserStatus, Currency, LedgerType, LedgerDirection } from '../../common/enums/currency.enum';
+import { TransactionStatus } from '../../common/enums/transaction-status.enum';
 import { RedisService } from '../../redis/redis.service';
 import { resolvePartnerApiUrls } from './utils/partner-api-urls.util';
+import {
+  p2pPayQuotaCap,
+  p2pPayQuotaRemaining,
+  p2pPayLimitExceededError,
+} from './utils/p2p-pay-quota.util';
+import {
+  p2pPayQuotaLedgerDescription,
+  type P2pPayQuotaLedgerAction,
+  type P2pPayQuotaRef,
+} from './utils/p2p-pay-quota-ledger.util';
 import {
   listSortMap,
   normalizeListOpts,
   type ListQueryOpts,
 } from '../../common/dto/list-query.dto';
+import { UsersRepository } from '../users/users.repository';
+import { Permission } from '../../common/enums/permission.enum';
+import { staffHasPermission } from '../../common/utils/business-staff.util';
+import { TransactionService } from '../transaction/transaction.service';
 
 export type BusinessListOpts = ListQueryOpts;
 
@@ -26,7 +44,11 @@ export type BusinessListOpts = ListQueryOpts;
 export class BusinessService {
   constructor(
     @InjectModel(Business.name) private businessModel: Model<BusinessDocument>,
+    @InjectModel(Withdrawal.name) private withdrawalModel: Model<WithdrawalDocument>,
     private redis: RedisService,
+    private usersRepo: UsersRepository,
+    @Inject(forwardRef(() => TransactionService))
+    private transactionService: TransactionService,
   ) {}
 
   async create(ownerId: string, dto: CreateBusinessDto) {
@@ -110,6 +132,58 @@ export class BusinessService {
     return this.sanitize(business);
   }
 
+  async findForActor(userId: string) {
+    const user = await this.usersRepo.findById(userId);
+    if (!user) throw new NotFoundException('User not found');
+    if (user.staffBusinessId) {
+      return this.findById(user.staffBusinessId.toString());
+    }
+    return this.findByOwner(userId);
+  }
+
+  /**
+   * Business whose P2P pay quota / fee rules apply for this user:
+   * staff → referred users → owned business.
+   */
+  async findBusinessIdForUser(user: {
+    _id?: Types.ObjectId;
+    staffBusinessId?: Types.ObjectId;
+    referredByBusiness?: Types.ObjectId;
+  } | null | undefined): Promise<string | undefined> {
+    if (!user) return undefined;
+    if (user.staffBusinessId) return user.staffBusinessId.toString();
+    if (user.referredByBusiness) return user.referredByBusiness.toString();
+    const ownerId = user._id?.toString();
+    if (!ownerId) return undefined;
+    const oid = Types.ObjectId.isValid(ownerId) ? new Types.ObjectId(ownerId) : null;
+    const owned = await this.businessModel
+      .findOne({
+        $or: [{ ownerId }, ...(oid ? [{ ownerId: oid }] : [])],
+      })
+      .select('_id')
+      .lean()
+      .exec();
+    return owned?._id?.toString();
+  }
+
+  async assertActorIsOwner(userId: string) {
+    const user = await this.usersRepo.findById(userId);
+    if (!user || user.staffBusinessId) {
+      throw new ForbiddenException('Only the business owner can do this');
+    }
+  }
+
+  async assertStaffCan(userId: string, need: Permission) {
+    const user = await this.usersRepo.findById(userId);
+    if (!user) throw new ForbiddenException('Insufficient permissions');
+    const allowed = staffHasPermission({
+      isOwner: !user.staffBusinessId,
+      permissions: user.permissions,
+      need,
+    });
+    if (!allowed) throw new ForbiddenException('Missing required permissions');
+  }
+
   async findDocumentByOwner(ownerId: string) {
     const business = await this.businessModel
       .findOne({ ownerId })
@@ -159,7 +233,13 @@ export class BusinessService {
     const business = await this.businessModel.findOne({ ownerId }).exec();
     if (!business) throw new NotFoundException('Business not found');
 
-    const { integrationUrls, ...rest } = dto;
+    const {
+      integrationUrls,
+      depositsEnabled: _d,
+      withdrawalsEnabled: _w,
+      b2bMatchingEnabled: _b,
+      ...rest
+    } = dto;
     Object.assign(business, rest);
     if (integrationUrls) {
       business.integrationUrls = { ...(business.integrationUrls || {}), ...integrationUrls };
@@ -169,6 +249,41 @@ export class BusinessService {
     await business.save();
     await this.redis.del(`business:${business._id.toString()}`);
     return this.sanitize(business);
+  }
+
+  /** Admin: toggle deposit/withdrawal/B2B flags (Noida #49/#50). */
+  async updateByAdmin(businessId: string, dto: UpdateBusinessDto) {
+    const business = await this.businessModel.findById(businessId).exec();
+    if (!business) throw new NotFoundException('Business not found');
+    const { integrationUrls, ...rest } = dto;
+    Object.assign(business, rest);
+    if (integrationUrls) {
+      business.integrationUrls = { ...(business.integrationUrls || {}), ...integrationUrls };
+      business.markModified('integrationUrls');
+    }
+    await business.save();
+    await this.redis.del(`business:${businessId}`);
+    return this.sanitize(business);
+  }
+
+  async assertWithdrawalsEnabled(businessId: string) {
+    const business = await this.businessModel.findById(businessId).select('withdrawalsEnabled name').exec();
+    if (!business) throw new NotFoundException('Business not found');
+    if (business.withdrawalsEnabled === false) {
+      throw new BadRequestException(
+        `Withdrawals are disabled for ${business.name}. Contact platform admin.`,
+      );
+    }
+  }
+
+  async assertDepositsEnabled(businessId: string) {
+    const business = await this.businessModel.findById(businessId).select('depositsEnabled name').exec();
+    if (!business) throw new NotFoundException('Business not found');
+    if (business.depositsEnabled === false) {
+      throw new BadRequestException(
+        `Deposits are disabled for ${business.name}. Contact platform admin.`,
+      );
+    }
   }
 
   async updateIntegrationUrls(
@@ -303,8 +418,8 @@ export class BusinessService {
     const business = await this.businessModel.findById(businessId).exec();
     if (!business) throw new NotFoundException('Business not found');
 
-    const limit = business.p2pPayLimit || 0;
-    const used = business.p2pPayUsed || 0;
+    const hold = await this.sumOpenBusinessOriginHold(businessId);
+    const snap = this.quotaSnapshot(business, hold);
 
     return {
       totalDeposits: business.totalDeposits,
@@ -312,29 +427,192 @@ export class BusinessService {
       totalUsers: business.totalUsers,
       totalCommissionEarned: business.totalCommissionEarned,
       commissionRate: business.commissionRate,
-      p2pPayLimit: limit,
-      p2pPayUsed: used,
-      p2pPayRemaining: limit > 0 ? Math.max(0, limit - used) : null,
+      p2pPayLimit: snap.p2pPayLimit,
+      p2pPayEarned: snap.p2pPayEarned,
+      p2pPayUsed: snap.p2pPayUsed,
+      p2pPayCap: snap.p2pPayCap,
+      p2pPayRemaining: snap.p2pPayRemaining,
     };
   }
 
-  async setP2pPayLimit(businessId: string, p2pPayLimit: number) {
+  async setP2pPayLimit(businessId: string, p2pPayLimit: number, ref?: P2pPayQuotaRef) {
+    if (!Types.ObjectId.isValid(businessId)) {
+      throw new BadRequestException('Invalid business id');
+    }
     if (p2pPayLimit < 0) throw new BadRequestException('Limit cannot be negative');
+    const rounded = Math.round(p2pPayLimit * 100) / 100;
+    const before = await this.businessModel.findById(businessId).exec();
+    if (!before) throw new NotFoundException('Business not found');
+    const hold = await this.sumOpenBusinessOriginHold(businessId);
+    const remainingBefore = p2pPayQuotaRemaining({
+      p2pPayLimit: before.p2pPayLimit,
+      p2pPayEarned: before.p2pPayEarned,
+      p2pPayUsed: before.p2pPayUsed,
+      hold,
+    });
     const business = await this.businessModel
-      .findByIdAndUpdate(businessId, { p2pPayLimit }, { new: true })
+      .findByIdAndUpdate(businessId, { p2pPayLimit: rounded }, { new: true })
       .exec();
     if (!business) throw new NotFoundException('Business not found');
     await this.redis.del(`business:${businessId}`);
-    return business;
+    const remainingAfter = p2pPayQuotaRemaining({
+      p2pPayLimit: business.p2pPayLimit,
+      p2pPayEarned: business.p2pPayEarned,
+      p2pPayUsed: business.p2pPayUsed,
+      hold,
+    });
+    const delta = Math.round((rounded - (before.p2pPayLimit || 0)) * 100) / 100;
+    if (delta !== 0) {
+      await this.recordQuotaLedger({
+        business,
+        action: 'set',
+        amount: Math.abs(delta),
+        remainingBefore,
+        remainingAfter,
+        seedBefore: before.p2pPayLimit || 0,
+        seedAfter: rounded,
+        ref: { referenceType: 'p2p_pay_limit_set', referenceId: businessId, ...ref },
+      });
+    }
+    return this.sanitize(business);
   }
 
-  /** Remaining INR that can still be paid by investors (null = unlimited). */
-  async getP2pPayRemaining(businessId: string): Promise<number | null> {
+  /** Open business-origin WD amounts held against the P2P limit (not yet completed). */
+  async sumOpenBusinessOriginHold(businessId: string): Promise<number> {
+    const rows = await this.withdrawalModel
+      .aggregate<{ total: number }>([
+        {
+          $match: {
+            origin: 'business',
+            businessId: new Types.ObjectId(businessId),
+            status: { $in: [TransactionStatus.PENDING, TransactionStatus.PROCESSING] },
+          },
+        },
+        { $group: { _id: null, total: { $sum: '$amount' } } },
+      ])
+      .exec();
+    return Math.round((rows[0]?.total || 0) * 100) / 100;
+  }
+
+  private quotaSnapshot(
+    business: Pick<Business, 'p2pPayLimit' | 'p2pPayEarned' | 'p2pPayUsed'>,
+    hold = 0,
+  ) {
+    const p2pPayLimit = business.p2pPayLimit || 0;
+    const p2pPayEarned = business.p2pPayEarned || 0;
+    const p2pPayUsed = business.p2pPayUsed || 0;
+    return {
+      p2pPayLimit,
+      p2pPayEarned,
+      p2pPayUsed,
+      p2pPayCap: p2pPayQuotaCap(p2pPayLimit, p2pPayEarned),
+      p2pPayRemaining: p2pPayQuotaRemaining({
+        p2pPayLimit,
+        p2pPayEarned,
+        p2pPayUsed,
+        hold,
+      }),
+    };
+  }
+
+  private quotaCapExpr() {
+    return {
+      $add: [
+        { $max: [0, { $ifNull: ['$p2pPayLimit', 0] }] },
+        { $ifNull: ['$p2pPayEarned', 0] },
+      ],
+    };
+  }
+
+  /** Remaining INR that can still be withdrawn / paid toward this business. */
+  async getP2pPayRemaining(businessId: string): Promise<number> {
     const business = await this.businessModel.findById(businessId).exec();
     if (!business) throw new NotFoundException('Business not found');
-    const limit = business.p2pPayLimit || 0;
-    if (limit <= 0) return null;
-    return Math.round(Math.max(0, limit - (business.p2pPayUsed || 0)) * 100) / 100;
+    const hold = await this.sumOpenBusinessOriginHold(businessId);
+    return p2pPayQuotaRemaining({
+      p2pPayLimit: business.p2pPayLimit,
+      p2pPayEarned: business.p2pPayEarned,
+      p2pPayUsed: business.p2pPayUsed,
+      hold,
+    });
+  }
+
+  /** Reject withdrawals / pays that do not fit remaining INR quota. */
+  async assertP2pPayAmountAllowed(businessId: string, amountInr: number): Promise<number> {
+    const remaining = await this.getP2pPayRemaining(businessId);
+    const need = Math.round(amountInr * 100) / 100;
+    if (need > remaining) {
+      throw new BadRequestException(p2pPayLimitExceededError(remaining));
+    }
+    return remaining;
+  }
+
+  /** Credit quota when this business's users complete a deposit / pay any user. */
+  async creditP2pPayQuota(businessId: string, amount: number, ref?: P2pPayQuotaRef) {
+    const rounded = Math.round(amount * 100) / 100;
+    if (rounded <= 0) return;
+    const business = await this.businessModel.findById(businessId).exec();
+    if (!business) throw new NotFoundException('Business not found');
+    const hold = await this.sumOpenBusinessOriginHold(businessId);
+    const remainingBefore = p2pPayQuotaRemaining({
+      p2pPayLimit: business.p2pPayLimit,
+      p2pPayEarned: business.p2pPayEarned,
+      p2pPayUsed: business.p2pPayUsed,
+      hold,
+    });
+    const updated = await this.businessModel
+      .findByIdAndUpdate(businessId, { $inc: { p2pPayEarned: rounded } }, { new: true })
+      .exec();
+    await this.redis.del(`business:${businessId}`);
+    if (!updated) return;
+    const remainingAfter = p2pPayQuotaRemaining({
+      p2pPayLimit: updated.p2pPayLimit,
+      p2pPayEarned: updated.p2pPayEarned,
+      p2pPayUsed: updated.p2pPayUsed,
+      hold,
+    });
+    await this.recordQuotaLedger({
+      business: updated,
+      action: 'add',
+      amount: rounded,
+      remainingBefore,
+      remainingAfter,
+      ref: { referenceType: 'p2p_pay_limit_add', referenceId: businessId, ...ref },
+    });
+  }
+
+  /** Move a completed business-origin WD from hold into used (no remaining check). */
+  async consumeP2pPay(businessId: string, amount: number, ref?: P2pPayQuotaRef) {
+    const rounded = Math.round(amount * 100) / 100;
+    if (rounded <= 0) return;
+    const business = await this.businessModel.findById(businessId).exec();
+    if (!business) throw new NotFoundException('Business not found');
+    const hold = await this.sumOpenBusinessOriginHold(businessId);
+    const remainingBefore = p2pPayQuotaRemaining({
+      p2pPayLimit: business.p2pPayLimit,
+      p2pPayEarned: business.p2pPayEarned,
+      p2pPayUsed: business.p2pPayUsed,
+      hold,
+    });
+    const updated = await this.businessModel
+      .findByIdAndUpdate(businessId, { $inc: { p2pPayUsed: rounded } }, { new: true })
+      .exec();
+    await this.redis.del(`business:${businessId}`);
+    if (!updated) return;
+    const remainingAfter = p2pPayQuotaRemaining({
+      p2pPayLimit: updated.p2pPayLimit,
+      p2pPayEarned: updated.p2pPayEarned,
+      p2pPayUsed: updated.p2pPayUsed,
+      hold,
+    });
+    await this.recordQuotaLedger({
+      business: updated,
+      action: 'deduct',
+      amount: rounded,
+      remainingBefore,
+      remainingAfter,
+      ref: { referenceType: 'p2p_pay_limit_deduct', referenceId: businessId, ...ref },
+    });
   }
 
   /**
@@ -353,9 +631,6 @@ export class BusinessService {
       return { maxPayable: open, p2pPayRemainingInr: null };
     }
     const remInr = await this.getP2pPayRemaining(businessId);
-    if (remInr == null) {
-      return { maxPayable: open, p2pPayRemainingInr: null };
-    }
     if (remInr <= 0) {
       return { maxPayable: 0, p2pPayRemainingInr: 0 };
     }
@@ -376,16 +651,11 @@ export class BusinessService {
     };
   }
 
-  /** Business IDs that still accept investor pays (unlimited or remaining > 0). */
+  /** Business IDs that still accept investor pays (remaining quota > 0). */
   async findBusinessIdsOpenForP2pPay(): Promise<Types.ObjectId[]> {
     const rows = await this.businessModel
       .find({
-        $or: [
-          { p2pPayLimit: { $exists: false } },
-          { p2pPayLimit: null },
-          { p2pPayLimit: { $lte: 0 } },
-          { $expr: { $lt: [{ $ifNull: ['$p2pPayUsed', 0] }, '$p2pPayLimit'] } },
-        ],
+        $expr: { $lt: [{ $ifNull: ['$p2pPayUsed', 0] }, this.quotaCapExpr()] },
       })
       .select('_id')
       .lean()
@@ -393,13 +663,15 @@ export class BusinessService {
     return rows.map((r) => r._id as Types.ObjectId);
   }
 
-  /** Businesses whose P2P pay quota is fully used (limit > 0 and used >= limit). */
+  /** Businesses whose P2P pay quota is fully used. */
   async findBusinessIdsExhaustedForP2pPay(): Promise<Types.ObjectId[]> {
     const rows = await this.businessModel
       .find({
-        p2pPayLimit: { $gt: 0 },
         $expr: {
-          $gte: [{ $ifNull: ['$p2pPayUsed', 0] }, '$p2pPayLimit'],
+          $and: [
+            { $gt: [this.quotaCapExpr(), 0] },
+            { $gte: [{ $ifNull: ['$p2pPayUsed', 0] }, this.quotaCapExpr()] },
+          ],
         },
       })
       .select('_id')
@@ -409,21 +681,22 @@ export class BusinessService {
   }
 
   /**
-   * Reserve pay volume against business limit (on payment submit).
-   * Unlimited when p2pPayLimit <= 0.
+   * Reserve pay volume against business quota (on payment submit).
    */
-  async reserveP2pPay(businessId: string, amount: number) {
+  async reserveP2pPay(businessId: string, amount: number, ref?: P2pPayQuotaRef) {
     const rounded = Math.round(amount * 100) / 100;
     if (rounded <= 0) return;
     const business = await this.businessModel.findById(businessId).exec();
     if (!business) throw new NotFoundException('Business not found');
+    const hold = await this.sumOpenBusinessOriginHold(businessId);
+    const remainingBefore = p2pPayQuotaRemaining({
+      p2pPayLimit: business.p2pPayLimit,
+      p2pPayEarned: business.p2pPayEarned,
+      p2pPayUsed: business.p2pPayUsed,
+      hold,
+    });
 
-    const limit = business.p2pPayLimit || 0;
-    // Unlimited quota — do not accumulate used (avoids ghost remaining when a limit is set later)
-    if (limit <= 0) {
-      return;
-    }
-
+    const cap = this.quotaCapExpr();
     const updated = await this.businessModel
       .findOneAndUpdate(
         {
@@ -438,7 +711,7 @@ export class BusinessService {
                   2,
                 ],
               },
-              '$p2pPayLimit',
+              cap,
             ],
           },
         },
@@ -448,20 +721,46 @@ export class BusinessService {
       .exec();
 
     if (!updated) {
-      const remaining = Math.round(
-        Math.max(0, limit - (business.p2pPayUsed || 0)) * 100,
-      ) / 100;
+      const remaining = p2pPayQuotaRemaining({
+          p2pPayLimit: business.p2pPayLimit,
+          p2pPayEarned: business.p2pPayEarned,
+          p2pPayUsed: business.p2pPayUsed,
+        });
       throw new BadRequestException(
         `Business P2P pay limit exhausted. Remaining ₹${remaining}. Pay at most ₹${remaining}.`,
       );
     }
     await this.redis.del(`business:${businessId}`);
+    const remainingAfter = p2pPayQuotaRemaining({
+      p2pPayLimit: updated.p2pPayLimit,
+      p2pPayEarned: updated.p2pPayEarned,
+      p2pPayUsed: updated.p2pPayUsed,
+      hold,
+    });
+    await this.recordQuotaLedger({
+      business: updated,
+      action: 'deduct',
+      amount: rounded,
+      remainingBefore,
+      remainingAfter,
+      ref: { referenceType: 'p2p_pay_limit_deduct', referenceId: businessId, ...ref },
+    });
   }
 
-  async releaseP2pPay(businessId: string, amount: number) {
+  async releaseP2pPay(businessId: string, amount: number, ref?: P2pPayQuotaRef) {
     if (amount <= 0) return;
+    const rounded = Math.round(amount * 100) / 100;
+    const business = await this.businessModel.findById(businessId).exec();
+    if (!business) return;
+    const hold = await this.sumOpenBusinessOriginHold(businessId);
+    const remainingBefore = p2pPayQuotaRemaining({
+      p2pPayLimit: business.p2pPayLimit,
+      p2pPayEarned: business.p2pPayEarned,
+      p2pPayUsed: business.p2pPayUsed,
+      hold,
+    });
     await this.businessModel.findByIdAndUpdate(businessId, {
-      $inc: { p2pPayUsed: -amount },
+      $inc: { p2pPayUsed: -rounded },
     });
     // Clamp used >= 0
     await this.businessModel.updateOne(
@@ -469,6 +768,66 @@ export class BusinessService {
       { $set: { p2pPayUsed: 0 } },
     );
     await this.redis.del(`business:${businessId}`);
+    const updated = await this.businessModel.findById(businessId).exec();
+    if (!updated) return;
+    const remainingAfter = p2pPayQuotaRemaining({
+      p2pPayLimit: updated.p2pPayLimit,
+      p2pPayEarned: updated.p2pPayEarned,
+      p2pPayUsed: updated.p2pPayUsed,
+      hold,
+    });
+    const restored = Math.round((remainingAfter - remainingBefore) * 100) / 100;
+    if (restored > 0) {
+      await this.recordQuotaLedger({
+        business: updated,
+        action: 'add',
+        amount: restored,
+        remainingBefore,
+        remainingAfter,
+        ref: { referenceType: 'p2p_pay_limit_add', referenceId: businessId, ...ref },
+      });
+    }
+  }
+
+  private async recordQuotaLedger(opts: {
+    business: BusinessDocument;
+    action: P2pPayQuotaLedgerAction;
+    amount: number;
+    remainingBefore: number;
+    remainingAfter: number;
+    seedBefore?: number;
+    seedAfter?: number;
+    ref?: P2pPayQuotaRef;
+  }) {
+    if (opts.amount <= 0) return;
+    const ownerId = opts.business.ownerId?.toString();
+    if (!ownerId) return;
+    const direction =
+      opts.remainingAfter >= opts.remainingBefore
+        ? LedgerDirection.CREDIT
+        : LedgerDirection.DEBIT;
+    await this.transactionService.record({
+      userId: ownerId,
+      type: LedgerType.P2P_LIMIT,
+      direction,
+      amount: opts.amount,
+      currency: Currency.INR,
+      balanceBefore: opts.remainingBefore,
+      balanceAfter: opts.remainingAfter,
+      referenceType: opts.ref?.referenceType || 'p2p_pay_limit',
+      referenceId: opts.ref?.referenceId || opts.business._id.toString(),
+      description: p2pPayQuotaLedgerDescription({
+        action: opts.action,
+        amount: opts.amount,
+        remainingBefore: opts.remainingBefore,
+        remainingAfter: opts.remainingAfter,
+        seedBefore: opts.seedBefore,
+        seedAfter: opts.seedAfter,
+      }),
+      businessId: opts.business._id.toString(),
+      fromParty: direction === LedgerDirection.DEBIT ? opts.business.name : 'Platform',
+      toParty: direction === LedgerDirection.DEBIT ? 'Platform' : opts.business.name,
+    });
   }
 
   async incrementStats(
@@ -539,6 +898,13 @@ export class BusinessService {
       delete partner.apiSecret;
       obj.partnerApi = partner;
     }
-    return obj;
+    return {
+      ...obj,
+      ...this.quotaSnapshot({
+        p2pPayLimit: Number(obj.p2pPayLimit) || 0,
+        p2pPayEarned: Number(obj.p2pPayEarned) || 0,
+        p2pPayUsed: Number(obj.p2pPayUsed) || 0,
+      }),
+    };
   }
 }

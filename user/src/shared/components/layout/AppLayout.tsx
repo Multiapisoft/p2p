@@ -69,7 +69,8 @@ export function AppLayout({ children }: { children: ReactNode }) {
           })}
         </nav>
         <div className="border-t border-outline-variant p-4">
-          <p className="truncate text-sm font-medium">{user?.email}</p>
+          <p className="truncate text-sm font-medium">{user?.name || user?.email}</p>
+          <p className="truncate text-xs text-on-surface-variant">{user?.email}</p>
           <p className="text-xs capitalize text-on-surface-variant">{user?.role}</p>
           <button
             onClick={handleLogout}

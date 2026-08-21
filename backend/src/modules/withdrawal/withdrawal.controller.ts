@@ -5,6 +5,7 @@ import {
   ProcessWithdrawalDto,
   RejectWithdrawalDto,
   RejectP2pListDto,
+  AssignWithdrawalDto,
   UpdateWithdrawalDestinationDto,
   WithdrawalListQueryDto,
 } from './dto/withdrawal.dto';
@@ -72,13 +73,34 @@ export class WithdrawalController {
     });
   }
 
+  @Post('platform')
+  @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN)
+  @Permissions(Permission.WITHDRAWALS_MANAGE)
+  createPlatformCommissionWithdrawal(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: CreateWithdrawalDto,
+  ) {
+    return this.withdrawalService.createForPlatform(user.email, dto);
+  }
+
+  @Post('business')
+  @Roles(UserRole.BUSINESS)
+  @Permissions(Permission.BUSINESS_MANUAL_WITHDRAWAL)
+  createBusinessWithdrawal(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: CreateWithdrawalDto,
+  ) {
+    return this.withdrawalService.createForBusiness(user.userId, dto);
+  }
+
   @Get('business')
   @Roles(UserRole.BUSINESS)
+  @Permissions(Permission.BUSINESS_WITHDRAWALS)
   async getBusinessWithdrawals(
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: WithdrawalListQueryDto,
   ) {
-    const business = await this.businessService.findByOwner(user.userId);
+    const business = await this.businessService.findForActor(user.userId);
     return this.withdrawalService.findByBusiness(business._id.toString(), {
       page: query.page,
       limit: query.limit,
@@ -91,11 +113,12 @@ export class WithdrawalController {
 
   @Get('business/:id')
   @Roles(UserRole.BUSINESS)
+  @Permissions(Permission.BUSINESS_WITHDRAWALS)
   async getBusinessWithdrawal(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
   ) {
-    const business = await this.businessService.findByOwner(user.userId);
+    const business = await this.businessService.findForActor(user.userId);
     return this.withdrawalService.findByIdForBusiness(id, business._id.toString());
   }
 
@@ -123,7 +146,8 @@ export class WithdrawalController {
     // Business-linked withdrawals: only owning business can approve.
     // Admin may only approve withdrawals with no business owner.
     if (user.role === UserRole.BUSINESS) {
-      const business = await this.businessService.findByOwner(user.userId);
+      await this.businessService.assertStaffCan(user.userId, Permission.BUSINESS_WITHDRAWALS);
+      const business = await this.businessService.findForActor(user.userId);
       return this.withdrawalService.approveForBusiness(
         id,
         business._id.toString(),
@@ -136,7 +160,10 @@ export class WithdrawalController {
 
   @Patch(':id/list-for-p2p')
   @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN, UserRole.BUSINESS)
-  listForP2p(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
+  async listForP2p(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
+    if (user.role === UserRole.BUSINESS) {
+      await this.businessService.assertStaffCan(user.userId, Permission.BUSINESS_WITHDRAWALS);
+    }
     return this.withdrawalService.listForP2p(id, {
       userId: user.userId,
       email: user.email,
@@ -146,16 +173,49 @@ export class WithdrawalController {
 
   @Patch(':id/unlist-for-p2p')
   @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN, UserRole.BUSINESS)
-  unlistForP2p(
+  async unlistForP2p(
     @Param('id') id: string,
     @Body() dto: RejectP2pListDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
+    if (user.role === UserRole.BUSINESS) {
+      await this.businessService.assertStaffCan(user.userId, Permission.BUSINESS_WITHDRAWALS);
+    }
     return this.withdrawalService.rejectP2pList(
       id,
       { userId: user.userId, email: user.email, role: user.role },
       dto.reason,
     );
+  }
+
+  @Patch(':id/assign')
+  @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN, UserRole.BUSINESS)
+  async assignPayer(
+    @Param('id') id: string,
+    @Body() dto: AssignWithdrawalDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    if (user.role === UserRole.BUSINESS) {
+      await this.businessService.assertStaffCan(user.userId, Permission.BUSINESS_WITHDRAWALS);
+    }
+    return this.withdrawalService.assignPayer(id, dto.assigneeId, {
+      userId: user.userId,
+      email: user.email,
+      role: user.role,
+    });
+  }
+
+  @Patch(':id/unassign')
+  @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN, UserRole.BUSINESS)
+  async unassignPayer(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
+    if (user.role === UserRole.BUSINESS) {
+      await this.businessService.assertStaffCan(user.userId, Permission.BUSINESS_WITHDRAWALS);
+    }
+    return this.withdrawalService.unassignPayer(id, {
+      userId: user.userId,
+      email: user.email,
+      role: user.role,
+    });
   }
 
   @Patch(':id/reject')
@@ -166,7 +226,8 @@ export class WithdrawalController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     if (user.role === UserRole.BUSINESS) {
-      const business = await this.businessService.findByOwner(user.userId);
+      await this.businessService.assertStaffCan(user.userId, Permission.BUSINESS_WITHDRAWALS);
+      const business = await this.businessService.findForActor(user.userId);
       return this.withdrawalService.rejectForBusiness(
         id,
         business._id.toString(),
@@ -174,5 +235,12 @@ export class WithdrawalController {
       );
     }
     return this.withdrawalService.rejectAsAdmin(id, dto);
+  }
+
+  @Get(':id')
+  @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN)
+  @Permissions(Permission.WITHDRAWALS_MANAGE)
+  getAdminDetail(@Param('id') id: string) {
+    return this.withdrawalService.findByIdForAdmin(id);
   }
 }

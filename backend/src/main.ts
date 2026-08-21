@@ -9,13 +9,18 @@ import { installProcessGuards } from './common/utils/process-guard';
 installProcessGuards();
 
 const DEFAULT_PROD_ORIGINS = [
+  'https://paysecure247.com',
+  'https://www.paysecure247.com',
+  'https://dashboard.paysecure247.com',
+  'https://dev.paysecure247.com',
+  'https://dev.dashboard.paysecure247.com',
   'https://dev.app.fairplayoffical.com',
   'https://dev.dashboard.fairplayoffical.com',
-  'https://dev.paysecure247.com',
   'https://dev.invespro.xyz',
+  'http://dev.paysecure247.com',
+  'http://dev.dashboard.paysecure247.com',
   'http://dev.app.fairplayoffical.com',
   'http://dev.dashboard.fairplayoffical.com',
-  'http://dev.paysecure247.com',
   'http://dev.invespro.xyz',
 ];
 

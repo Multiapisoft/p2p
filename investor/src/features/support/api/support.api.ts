@@ -1,5 +1,6 @@
 import { apiGet, apiPost } from '@/shared/api/client';
-import type { SupportTicket, Paginated } from '@/shared/types/api.types';
+import { useAuthStore } from '@/features/auth/store/auth.store';
+import type { SupportTicket, Paginated, TicketAttachment } from '@/shared/types/api.types';
 
 export type SupportListQuery = {
   page?: number;
@@ -23,12 +24,59 @@ function cleanQuery(query: SupportListQuery = {}) {
   };
 }
 
+async function uploadAttachment(file: File): Promise<TicketAttachment> {
+  const form = new FormData();
+  form.append('file', file);
+  form.append('purpose', 'support-ticket');
+
+  const token = useAuthStore.getState().token;
+  const base = process.env.NEXT_PUBLIC_API_URL || '/api/v1';
+  const res = await fetch(`${base}/uploads/proof`, {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    body: form,
+  });
+
+  const json = (await res.json().catch(() => null)) as {
+    data?: TicketAttachment;
+    message?: string | string[];
+  } | null;
+
+  if (!res.ok) {
+    const msg = json?.message;
+    throw new Error(Array.isArray(msg) ? msg.join(', ') : msg || 'Upload failed');
+  }
+  if (!json?.data?.key) throw new Error('Upload failed');
+  return {
+    ...json.data,
+    filename: json.data.filename || file.name,
+    contentType: json.data.contentType || file.type,
+    size: json.data.size || file.size,
+  };
+}
+
 export const supportApi = {
   getMyTickets: (query: SupportListQuery = {}) =>
     apiGet<Paginated<SupportTicket>>('/support/tickets', cleanQuery(query)),
   getById: (ticketId: string) => apiGet<SupportTicket>(`/support/tickets/${ticketId}`),
-  create: (subject: string, message: string, priority = 'medium', category?: string) =>
-    apiPost<SupportTicket>('/support/tickets', { subject, message, priority, category }),
-  reply: (ticketId: string, message: string) =>
-    apiPost<SupportTicket>(`/support/tickets/${ticketId}/reply`, { message }),
+  create: (
+    subject: string,
+    message: string,
+    priority = 'medium',
+    category?: string,
+    attachments?: TicketAttachment[],
+  ) =>
+    apiPost<SupportTicket>('/support/tickets', {
+      subject,
+      message,
+      priority,
+      category,
+      attachments,
+    }),
+  reply: (ticketId: string, message: string, attachments?: TicketAttachment[]) =>
+    apiPost<SupportTicket>(`/support/tickets/${ticketId}/reply`, {
+      message,
+      attachments: attachments?.length ? attachments : undefined,
+    }),
+  uploadAttachment,
 };

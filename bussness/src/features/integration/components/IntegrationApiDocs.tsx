@@ -101,12 +101,12 @@ Response:
 }`}</pre>
           </div>
           <div>
-            <p className="mb-2 text-sm font-semibold">Register user</p>
+            <p className="mb-2 text-sm font-semibold">Register user (phone required)</p>
             <pre className="overflow-x-auto rounded-lg bg-surface-container-low p-4 text-xs">{`{
   "email": "user@example.com",
   "password": "SecurePass123",
   "name": "John Doe",
-  "phone": "+919999999999"
+  "phone": "9999999999"
 }`}</pre>
           </div>
         </div>

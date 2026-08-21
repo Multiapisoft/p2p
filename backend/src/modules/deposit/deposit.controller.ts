@@ -66,35 +66,39 @@ export class DepositController {
 
   @Get('business')
   @Roles(UserRole.BUSINESS)
+  @Permissions(Permission.BUSINESS_DEPOSIT_VERIFY)
   async getBusinessDeposits(
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: DepositListQueryDto,
   ) {
-    const business = await this.businessService.findByOwner(user.userId);
+    const business = await this.businessService.findForActor(user.userId);
     return this.depositService.findByBusiness(business._id.toString(), query);
   }
 
   @Get('business/summary')
   @Roles(UserRole.BUSINESS)
+  @Permissions(Permission.BUSINESS_DEPOSIT_VERIFY)
   async getBusinessSummary(@CurrentUser() user: AuthenticatedUser) {
-    const business = await this.businessService.findByOwner(user.userId);
+    const business = await this.businessService.findForActor(user.userId);
     return this.depositService.getBusinessDepositSummary(business._id.toString());
   }
 
   @Get('business/overview')
   @Roles(UserRole.BUSINESS)
+  @Permissions(Permission.BUSINESS_DEPOSIT_VERIFY)
   async getBusinessOverview(@CurrentUser() user: AuthenticatedUser) {
-    const business = await this.businessService.findByOwner(user.userId);
+    const business = await this.businessService.findForActor(user.userId);
     return this.depositService.getBusinessOverview(business._id.toString());
   }
 
   @Get('business/:id')
   @Roles(UserRole.BUSINESS)
+  @Permissions(Permission.BUSINESS_DEPOSIT_VERIFY)
   async getBusinessDeposit(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
   ) {
-    const business = await this.businessService.findByOwner(user.userId);
+    const business = await this.businessService.findForActor(user.userId);
     return this.depositService.findByIdForBusiness(id, business._id.toString());
   }
 

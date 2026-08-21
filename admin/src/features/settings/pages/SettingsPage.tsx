@@ -14,35 +14,10 @@ import {
   type PlatformSettings,
 } from '@/features/settings/api/platform-settings.api';
 
+import { TwoFactorPanel } from '@/features/settings/components/TwoFactorPanel';
 import { PERMISSIONS } from '@/shared/constants/permissions';
 
 const ALL_PERMISSIONS = Object.values(PERMISSIONS);
-
-const PLAN_PRESETS = [
-  { label: '25k', value: 25000 },
-  { label: '50k', value: 50000 },
-  { label: '1L', value: 100000 },
-  { label: '2L', value: 200000 },
-];
-
-function formatPlanAmount(n: number) {
-  if (n >= 100000 && n % 100000 === 0) return `${n / 100000}L`;
-  if (n >= 1000 && n % 1000 === 0) return `${n / 1000}k`;
-  return String(n);
-}
-
-function parsePlanAmounts(raw: string): number[] {
-  return raw
-    .split(/[,|\s]+/)
-    .map((s) => s.trim().toLowerCase())
-    .filter(Boolean)
-    .map((s) => {
-      if (s.endsWith('l')) return Number(s.slice(0, -1)) * 100000;
-      if (s.endsWith('k')) return Number(s.slice(0, -1)) * 1000;
-      return Number(s.replace(/,/g, ''));
-    })
-    .filter((n) => Number.isFinite(n) && n > 0);
-}
 
 export function SettingsPage() {
   const user = useAuthStore((s) => s.user);
@@ -66,8 +41,13 @@ export function SettingsPage() {
   const [paySubmit, setPaySubmit] = useState('');
   const [editTat, setEditTat] = useState('');
   const [planMultiplier, setPlanMultiplier] = useState('');
-  const [planAmountsText, setPlanAmountsText] = useState('');
-  const [planAmounts, setPlanAmounts] = useState<number[]>([]);
+  const [planAmountsText, setPlanAmountsText] = useState('25000,50000,75000,100000,200000');
+  const [allowMobileUpi, setAllowMobileUpi] = useState(false);
+  const [showCommissionToInvestor, setShowCommissionToInvestor] = useState(true);
+  const [allowPartialPay, setAllowPartialPay] = useState(true);
+  const [preferB2bSettlement, setPreferB2bSettlement] = useState(true);
+  const [cdmHold, setCdmHold] = useState('30');
+  const [minTxn, setMinTxn] = useState('300');
   const [settingsError, setSettingsError] = useState('');
   const [settingsSuccess, setSettingsSuccess] = useState('');
 
@@ -77,24 +57,45 @@ export function SettingsPage() {
     setPaySubmit(String(settings.investorPaySubmitMinutes));
     setEditTat(String(settings.withdrawalUserEditTatMinutes));
     setPlanMultiplier(String(settings.investorPlanTargetMultiplier));
-    setPlanAmounts(settings.investorPlanAmounts ?? []);
-    setPlanAmountsText((settings.investorPlanAmounts ?? []).join(', '));
+    setPlanAmountsText(
+      (settings.investorPlanAmounts?.length
+        ? settings.investorPlanAmounts
+        : [25000, 50000, 75000, 100000, 200000]
+      ).join(','),
+    );
+    setAllowMobileUpi(!!settings.allowMobileNumberUpi);
+    setShowCommissionToInvestor(settings.showCommissionToInvestor !== false);
+    setAllowPartialPay(settings.allowPartialPay !== false);
+    setPreferB2bSettlement(settings.preferB2bSettlement !== false);
+    setCdmHold(String(settings.cdmHoldMinutes ?? 30));
+    setMinTxn(String(settings.minTransactionAmount ?? 300));
   }, [settings]);
 
   const saveSettings = useMutation({
     mutationFn: () => {
-      const amounts = planAmounts.length
-        ? planAmounts
-        : parsePlanAmounts(planAmountsText);
-      if (!amounts.length) {
-        throw new Error('Add at least one plan amount');
+      const minAmount = Number(minTxn);
+      if (!Number.isFinite(minAmount) || minAmount < 300) {
+        throw new Error('Minimum deposit / withdrawal must be ₹300');
+      }
+      const plans = planAmountsText
+        .split(/[,\s]+/)
+        .map((s) => Number(s.trim()))
+        .filter((n) => Number.isFinite(n) && n > 0);
+      if (!plans.length) {
+        throw new Error('Enter at least one investor plan amount');
       }
       const body: Partial<PlatformSettings> = {
         investorClaimLockMinutes: Number(claimLock),
         investorPaySubmitMinutes: Number(paySubmit),
         withdrawalUserEditTatMinutes: Number(editTat),
         investorPlanTargetMultiplier: Number(planMultiplier),
-        investorPlanAmounts: amounts,
+        investorPlanAmounts: plans,
+        allowMobileNumberUpi: allowMobileUpi,
+        showCommissionToInvestor,
+        minTransactionAmount: minAmount,
+        allowPartialPay,
+        preferB2bSettlement,
+        cdmHoldMinutes: Number(cdmHold) || 30,
       };
       return platformSettingsApi.update(body);
     },
@@ -108,22 +109,6 @@ export function SettingsPage() {
       setSettingsError(getApiErrorMessage(err, 'Could not save platform rules'));
     },
   });
-
-  function togglePlanAmount(value: number) {
-    setPlanAmounts((prev) => {
-      const next = prev.includes(value)
-        ? prev.filter((x) => x !== value)
-        : [...prev, value].sort((a, b) => a - b);
-      setPlanAmountsText(next.join(', '));
-      return next;
-    });
-  }
-
-  function applyPlanAmountsFromText(raw: string) {
-    setPlanAmountsText(raw);
-    const parsed = parsePlanAmounts(raw);
-    if (parsed.length) setPlanAmounts(parsed);
-  }
 
   const { data: subAdmins } = useQuery({
     queryKey: ['sub-admins'],
@@ -172,6 +157,8 @@ export function SettingsPage() {
         </div>
       </Card>
 
+      <TwoFactorPanel />
+
       {canManagePlatform && (
         <Card title="Platform rules">
           {loadingSettings ? (
@@ -187,11 +174,12 @@ export function SettingsPage() {
               }}
             >
               <p className="text-sm text-on-surface-variant">
-                Timers and investor plan defaults used across user and investor panels.
+                Pay click hold hides the request from others (default 7 min). Payer must
+                submit proof within TAT (default 5 min). Lists update live over socket.
               </p>
               <div className="grid gap-3 sm:grid-cols-2">
                 <Input
-                  label="Investor claim lock (minutes)"
+                  label="Pay hold for others (minutes)"
                   type="number"
                   min={1}
                   value={claimLock}
@@ -199,7 +187,7 @@ export function SettingsPage() {
                   required
                 />
                 <Input
-                  label="Investor pay submit (minutes)"
+                  label="Payer submit TAT (minutes)"
                   type="number"
                   min={1}
                   value={paySubmit}
@@ -215,7 +203,15 @@ export function SettingsPage() {
                   required
                 />
                 <Input
-                  label="Plan target multiplier"
+                  label="Min deposit / withdrawal (₹)"
+                  type="number"
+                  min={300}
+                  value={minTxn}
+                  onChange={(e) => setMinTxn(e.target.value)}
+                  required
+                />
+                <Input
+                  label="Investor pay-target multiplier"
                   type="number"
                   min={1}
                   step="0.01"
@@ -223,53 +219,65 @@ export function SettingsPage() {
                   onChange={(e) => setPlanMultiplier(e.target.value)}
                   required
                 />
-              </div>
-
-              <div>
-                <p className="mb-2 text-sm font-semibold">Investor plan amounts</p>
-                <div className="mb-2 flex flex-wrap gap-2">
-                  {PLAN_PRESETS.map((p) => (
-                    <button
-                      key={p.value}
-                      type="button"
-                      onClick={() => togglePlanAmount(p.value)}
-                      className={`rounded-full border px-3 py-1 text-xs font-semibold ${
-                        planAmounts.includes(p.value)
-                          ? 'border-secondary bg-secondary-container'
-                          : 'border-outline-variant'
-                      }`}
-                    >
-                      {p.label}
-                    </button>
-                  ))}
-                </div>
-                {planAmounts.length > 0 && (
-                  <div className="mb-2 flex flex-wrap gap-1.5">
-                    {planAmounts.map((n) => (
-                      <span
-                        key={n}
-                        className="inline-flex items-center gap-1 rounded-full bg-surface-container-high px-2.5 py-0.5 text-xs font-medium"
-                      >
-                        {formatPlanAmount(n)}
-                        <button
-                          type="button"
-                          className="text-on-surface-variant hover:text-error"
-                          onClick={() => togglePlanAmount(n)}
-                          aria-label={`Remove ${n}`}
-                        >
-                          ×
-                        </button>
-                      </span>
-                    ))}
-                  </div>
-                )}
                 <Input
-                  label="Amounts (comma-separated)"
+                  label="Investor plan amounts (comma-separated ₹)"
                   value={planAmountsText}
-                  onChange={(e) => applyPlanAmountsFromText(e.target.value)}
-                  placeholder="25000, 50000, 100000, 200000"
+                  onChange={(e) => setPlanAmountsText(e.target.value)}
+                  placeholder="25000,50000,75000,100000,200000"
+                  required
                 />
               </div>
+
+              <label className="flex items-start gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  className="mt-1"
+                  checked={allowMobileUpi}
+                  onChange={(e) => setAllowMobileUpi(e.target.checked)}
+                />
+                <span>
+                  Allow mobile-number UPI (10 digits + @psp, e.g. 9876543210@paytm)
+                </span>
+              </label>
+              <label className="flex items-start gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  className="mt-1"
+                  checked={showCommissionToInvestor}
+                  onChange={(e) => setShowCommissionToInvestor(e.target.checked)}
+                />
+                <span>Show investor bonus / commission on pay list</span>
+              </label>
+              <label className="flex items-start gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  className="mt-1"
+                  checked={allowPartialPay}
+                  onChange={(e) => setAllowPartialPay(e.target.checked)}
+                />
+                <span>Allow partial withdrawal / deposit payments</span>
+              </label>
+              <label className="flex items-start gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  className="mt-1"
+                  checked={preferB2bSettlement}
+                  onChange={(e) => setPreferB2bSettlement(e.target.checked)}
+                />
+                <span>Prefer business / user withdrawals before investor (B2B-first)</span>
+              </label>
+              <Input
+                label="CDM hold before wide listing (minutes)"
+                type="number"
+                min={1}
+                value={cdmHold}
+                onChange={(e) => setCdmHold(e.target.value)}
+              />
+
+              <p className="text-xs text-on-surface-variant">
+                Investors choose a plan (25k / 50k / 75k / 1L / 2L, editable below) on first login,
+                then can add more amounts (LIFO).
+              </p>
 
               {settingsError ? (
                 <p className="rounded-lg border border-error/30 bg-error/5 px-3 py-2 text-sm text-error">

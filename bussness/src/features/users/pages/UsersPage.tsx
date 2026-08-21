@@ -200,7 +200,7 @@ export function UsersPage() {
           <div className="flex flex-wrap gap-2">
             <Input
               className="min-w-[220px] flex-1"
-              placeholder="Search name, email, phone, ref…"
+              placeholder="Search name, email, ref…"
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
             />
@@ -293,7 +293,6 @@ export function UsersPage() {
                   <tr>
                     <th className="pb-3 pr-4 font-semibold text-on-surface-variant">Name</th>
                     <th className="pb-3 pr-4 font-semibold text-on-surface-variant">Email</th>
-                    <th className="pb-3 pr-4 font-semibold text-on-surface-variant">Phone</th>
                     <th className="pb-3 pr-4 font-semibold text-on-surface-variant">Code</th>
                     <th className="pb-3 pr-4 font-semibold text-on-surface-variant">Role</th>
                     <th className="pb-3 pr-4 font-semibold text-on-surface-variant">Status</th>
@@ -306,7 +305,6 @@ export function UsersPage() {
                     <tr key={u._id} className="border-b border-outline-variant/50">
                       <td className="py-3 pr-4 font-medium">{u.name}</td>
                       <td className="py-3 pr-4 text-on-surface-variant">{u.email}</td>
-                      <td className="py-3 pr-4 text-on-surface-variant">{u.phone || '—'}</td>
                       <td className="py-3 pr-4 font-mono text-xs text-on-surface-variant">
                         {u.businessUserCode || '—'}
                       </td>
@@ -369,7 +367,6 @@ export function UsersPage() {
             <div className="space-y-1">
               <DetailRow label="Name" value={detail.user.name} />
               <DetailRow label="Email" value={detail.user.email} />
-              <DetailRow label="Phone" value={detail.user.phone || '—'} />
               <DetailRow label="External ref" value={detail.user.externalRef || '—'} />
               <DetailRow
                 label="User code"

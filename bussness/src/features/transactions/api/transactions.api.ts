@@ -21,5 +21,5 @@ function cleanQuery(query: TransactionsListQuery = {}) {
 
 export const transactionsApi = {
   getMy: (query: TransactionsListQuery = {}) =>
-    apiGet<Paginated<LedgerEntry>>('/transactions', cleanQuery(query)),
+    apiGet<Paginated<LedgerEntry>>('/transactions/business', cleanQuery(query)),
 };

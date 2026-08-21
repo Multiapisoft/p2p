@@ -1,10 +1,12 @@
-import { Controller, Get, Patch, Param, Body, Query } from '@nestjs/common';
+import { Controller, Get, Patch, Post, Param, Body, Query } from '@nestjs/common';
 import { UsersService } from './users.service';
 import {
   UpdateUserDto,
   UserListQueryDto,
   AttachReferralDto,
   SetInvestorPlanDto,
+  AddInvestorLimitDto,
+  UpsertSavedWithdrawalMethodDto,
 } from './dto/create-user.dto';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { UserRole } from '../../common/enums/role.enum';
@@ -30,10 +32,54 @@ export class UsersController {
     return this.usersService.attachReferral(user.userId, dto.referralCode);
   }
 
+  @Get('me/withdrawal-methods')
+  getSavedWithdrawalMethods(@CurrentUser() user: AuthenticatedUser) {
+    return this.usersService.getSavedWithdrawalMethods(user.userId);
+  }
+
+  @Post('me/withdrawal-methods')
+  saveWithdrawalMethod(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: UpsertSavedWithdrawalMethodDto,
+  ) {
+    return this.usersService.saveWithdrawalMethod(user.userId, dto);
+  }
+
+  @Patch('me/withdrawal-methods/:methodId')
+  updateSavedWithdrawalMethod(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('methodId') methodId: string,
+    @Body() dto: UpsertSavedWithdrawalMethodDto,
+  ) {
+    return this.usersService.saveWithdrawalMethod(user.userId, dto, methodId);
+  }
+
+  @Patch('me/withdrawal-methods/:methodId/default')
+  setDefaultWithdrawalMethod(@CurrentUser() user: AuthenticatedUser, @Param('methodId') methodId: string) {
+    return this.usersService.setDefaultWithdrawalMethod(user.userId, methodId);
+  }
+
+  @Post('me/withdrawal-methods/:methodId/delete')
+  deleteSavedWithdrawalMethod(@CurrentUser() user: AuthenticatedUser, @Param('methodId') methodId: string) {
+    return this.usersService.deleteSavedWithdrawalMethod(user.userId, methodId);
+  }
+
+  @Post('me/investor-limit')
+  @Roles(UserRole.INVESTOR)
+  addInvestorLimit(@CurrentUser() user: AuthenticatedUser, @Body() dto: AddInvestorLimitDto) {
+    return this.usersService.addInvestorLimit(user.userId, dto.amount);
+  }
+
+  @Get('me/investor-limit')
+  @Roles(UserRole.INVESTOR)
+  getInvestorLimit(@CurrentUser() user: AuthenticatedUser) {
+    return this.usersService.getInvestorLimit(user.userId);
+  }
+
   @Patch('me/investor-plan')
   @Roles(UserRole.INVESTOR)
   setInvestorPlan(@CurrentUser() user: AuthenticatedUser, @Body() dto: SetInvestorPlanDto) {
-    return this.usersService.setInvestorPlan(user.userId, dto.planAmount);
+    return this.usersService.addInvestorLimit(user.userId, dto.planAmount);
   }
 
   @Get()

@@ -6,10 +6,11 @@ interface AuthResponse {
   user: AuthUser;
 }
 
-export async function loginApi(email: string, password: string) {
+export async function loginApi(email: string, password: string, totpCode?: string) {
   return apiPost<AuthResponse>('/auth/login', {
     email: email.trim().toLowerCase(),
     password,
+    ...(totpCode ? { totpCode } : {}),
   });
 }
 
@@ -17,7 +18,7 @@ export async function registerApi(payload: {
   email: string;
   password: string;
   name: string;
-  phone?: string;
+  phone: string;
   referralCode?: string;
 }) {
   return apiPost<AuthResponse>('/auth/register', { ...payload, role: 'user' });

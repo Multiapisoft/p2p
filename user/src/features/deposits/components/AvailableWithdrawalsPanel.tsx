@@ -17,15 +17,25 @@ import { Pagination } from '@/shared/components/ui/Pagination';
 import { LoadingScreen, EmptyState } from '@/shared/components/ui/Icon';
 import { apiErrorMessage, formatCurrency, formatDate } from '@/shared/lib/utils';
 import { normalizeUtr, normalizeTxHash, paymentRefErrorForMethod } from '@/shared/lib/validation';
-import { buildUpiPayUri, formatSecondsMmSs } from '@/shared/lib/upi-qr';
+import { buildUpiPayUri, buildUpiAppLinks, formatSecondsMmSs } from '@/shared/lib/upi-qr';
+import { minPartialAmount, partialPayError } from '@/shared/lib/partial-pay';
+import { DepositAmountModal } from '@/features/deposits/components/DepositAmountModal';
 import type { PaymentMethod } from '@/shared/types/api.types';
 
 const PAGE_SIZES = [5, 10, 20];
+const MATCH_AMOUNT_KEY = 'p2p-match-amount';
+
+function readStoredMatchAmount() {
+  if (typeof window === 'undefined') return null;
+  const n = Number(sessionStorage.getItem(MATCH_AMOUNT_KEY));
+  return Number.isFinite(n) && n >= 1 ? n : null;
+}
 
 const METHOD_META: Record<PaymentMethod, { label: string; icon: string }> = {
   upi: { label: 'UPI', icon: 'qr_code_2' },
   bank: { label: 'Bank', icon: 'account_balance' },
   usdt: { label: 'USDT', icon: 'currency_bitcoin' },
+  cdm: { label: 'CDM', icon: 'atm' },
 };
 
 function moneyCurrency(w: { currency?: string; method?: string }) {
@@ -84,14 +94,31 @@ function PaymentDetails({
             </div>
           )}
           {w.upiDetails?.upiId && (
-            <AddressQr
-              value={buildUpiPayUri({
-                upiId: w.upiDetails.upiId,
-                name: w.upiDetails.payerName,
-                amount: upiAmount > 0 ? upiAmount : undefined,
-              })}
-              label="Scan UPI QR"
-            />
+            <>
+              <AddressQr
+                value={buildUpiPayUri({
+                  upiId: w.upiDetails.upiId,
+                  name: w.upiDetails.payerName,
+                  amount: upiAmount > 0 ? upiAmount : undefined,
+                })}
+                label="Scan UPI QR"
+              />
+              <div className="flex flex-wrap gap-2 pt-2">
+                {buildUpiAppLinks({
+                  upiId: w.upiDetails.upiId,
+                  name: w.upiDetails.payerName,
+                  amount: upiAmount > 0 ? upiAmount : undefined,
+                }).map((app) => (
+                  <a
+                    key={app.id}
+                    href={app.href}
+                    className="rounded-full bg-secondary/15 px-2.5 py-1 text-[11px] font-semibold text-secondary"
+                  >
+                    Pay with {app.label}
+                  </a>
+                ))}
+              </div>
+            </>
           )}
         </div>
       )}
@@ -152,7 +179,7 @@ export function AvailableWithdrawalsPanel({
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
   const [method, setMethod] = useState<PaymentMethod | 'all'>('all');
-  const [sort, setSort] = useState('newest');
+  const [sort, setSort] = useState('oldest');
   const [target, setTarget] = useState<AvailableWithdrawal | null>(null);
   const [claimPayDeadline, setClaimPayDeadline] = useState<string | null>(null);
   const [claimingId, setClaimingId] = useState<string | null>(null);
@@ -162,7 +189,30 @@ export function AvailableWithdrawalsPanel({
   const [proofUrl, setProofUrl] = useState('');
   const [formError, setFormError] = useState('');
   const [now, setNow] = useState(() => Date.now());
+  const [matchAmount, setMatchAmount] = useState<number | null>(null);
+  const [matchInput, setMatchInput] = useState('');
+  const [amountModalOpen, setAmountModalOpen] = useState(false);
   const qc = useQueryClient();
+
+  const applyMatchAmount = (n: number) => {
+    setMatchAmount(n);
+    setMatchInput(String(n));
+    setPage(1);
+    setAmountModalOpen(false);
+    sessionStorage.setItem(MATCH_AMOUNT_KEY, String(n));
+  };
+
+  useEffect(() => {
+    const fromUrl =
+      preferredAmount && preferredAmount >= 1 ? preferredAmount : null;
+    if (fromUrl) {
+      applyMatchAmount(fromUrl);
+      return;
+    }
+    const stored = readStoredMatchAmount();
+    if (stored) setMatchInput(String(stored));
+    setAmountModalOpen(true);
+  }, [preferredAmount]);
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -179,8 +229,8 @@ export function AvailableWithdrawalsPanel({
   }, [claimPayDeadline, target]);
 
   const listQuery = useMemo(
-    () => ({ page, limit, search, sort, method }),
-    [page, limit, search, sort, method],
+    () => ({ page, limit, search, sort, method, amount: matchAmount ?? undefined }),
+    [page, limit, search, sort, method, matchAmount],
   );
 
   const payAmountNum = Number(payAmount);
@@ -193,17 +243,20 @@ export function AvailableWithdrawalsPanel({
   const { data, isLoading, isFetching, isError, error, refetch } = useQuery({
     queryKey: ['available-withdrawals', listQuery],
     queryFn: () => p2pPayApi.getAvailable(listQuery),
-    refetchInterval: 15000,
+    refetchInterval: 30_000,
   });
 
   const submit = useMutation({
     mutationFn: () =>
       p2pPayApi.submitPayment(target!._id, {
         amount: Number(payAmount),
-        utr:
-          moneyCurrency(target!) === 'USDT' ? normalizeTxHash(utr) : normalizeUtr(utr),
-        proofImageKey: proofKey,
-        proofImageUrl: proofUrl,
+        utr: utr.trim()
+          ? moneyCurrency(target!) === 'USDT'
+            ? normalizeTxHash(utr)
+            : normalizeUtr(utr)
+          : undefined,
+        proofImageKey: proofKey || undefined,
+        proofImageUrl: proofUrl || undefined,
       }),
     onSuccess: (payment) => {
       qc.invalidateQueries({ queryKey: ['available-withdrawals'] });
@@ -257,6 +310,23 @@ export function AvailableWithdrawalsPanel({
     setFormError('');
     setClaimingId(w._id);
     try {
+      if (w.assignedToMe) {
+        setTarget(w);
+        setClaimPayDeadline(null);
+        resetForm();
+        const maxPay =
+          w.maxPayable != null
+            ? Math.min(w.maxPayable, w.remainingAmount)
+            : w.remainingAmount;
+        const pref =
+          preferredAmount && preferredAmount >= 1
+            ? preferredAmount
+            : matchAmount && matchAmount >= 1
+              ? matchAmount
+              : maxPay;
+        setPayAmount(String(Math.min(pref, maxPay) > 0 ? Math.min(pref, maxPay) : maxPay));
+        return;
+      }
       const claimed = await p2pPayApi.claimWithdrawal(w._id);
       setTarget({ ...w, ...claimed });
       setClaimPayDeadline(claimed.claimPayDeadline);
@@ -266,10 +336,12 @@ export function AvailableWithdrawalsPanel({
           ? Math.min(claimed.maxPayable, claimed.remainingAmount)
           : claimed.remainingAmount;
       const pref =
-        preferredAmount && preferredAmount >= 1
-          ? Math.min(preferredAmount, maxPay)
-          : maxPay;
-      setPayAmount(String(pref > 0 ? pref : maxPay));
+        (preferredAmount && preferredAmount >= 1
+          ? preferredAmount
+          : matchAmount && matchAmount >= 1
+            ? matchAmount
+            : maxPay);
+      setPayAmount(String(Math.min(pref, maxPay) > 0 ? Math.min(pref, maxPay) : maxPay));
       qc.invalidateQueries({ queryKey: ['available-withdrawals'] });
     } catch (err: unknown) {
       setFormError(apiErrorMessage(err, 'Could not claim this withdrawal'));
@@ -298,14 +370,36 @@ export function AvailableWithdrawalsPanel({
       setFormError(`Max open amount is ${formatCurrency(maxPay, moneyCurrency(target))}`);
       return;
     }
-    const refErr = paymentRefErrorForMethod(utr, target.method);
-    if (refErr) {
-      setFormError(refErr);
+    const partialErr = partialPayError({
+      amount: num,
+      remaining: target.remainingAmount,
+      maxPayable: maxPay,
+      method: target.method,
+      currency: target.currency,
+    });
+    if (partialErr) {
+      setFormError(partialErr);
       return;
     }
-    if (!proofKey || !proofUrl) {
-      setFormError('Upload payment screenshot');
-      return;
+    const refErr = utr.trim() ? paymentRefErrorForMethod(utr, target.method) : null;
+    if (target.assignedToMe) {
+      if (!utr.trim() && !proofKey) {
+        setFormError('UTR ya payment slip upload karo');
+        return;
+      }
+      if (refErr) {
+        setFormError(refErr);
+        return;
+      }
+    } else {
+      if (refErr) {
+        setFormError(refErr);
+        return;
+      }
+      if (!proofKey || !proofUrl) {
+        setFormError('Upload payment screenshot');
+        return;
+      }
     }
     submit.mutate();
   };
@@ -313,11 +407,13 @@ export function AvailableWithdrawalsPanel({
   const items = data?.items ?? [];
   const total = data?.total ?? 0;
   const totalPages = data?.totalPages ?? 1;
+  const needsAmount = !matchAmount || !!data?.needsAmount;
   const claimLockMinutes = data?.claimLockMinutes ?? 7;
   const paySecondsLeft = claimPayDeadline
     ? Math.max(0, Math.ceil((new Date(claimPayDeadline).getTime() - now) / 1000))
     : 0;
-  const payExpired = !!claimPayDeadline && paySecondsLeft <= 0;
+  const payExpired =
+    !target?.assignedToMe && !!claimPayDeadline && paySecondsLeft <= 0;
 
   return (
     <>
@@ -326,6 +422,39 @@ export function AvailableWithdrawalsPanel({
           {formError}
         </div>
       )}
+      <DepositAmountModal
+        open={amountModalOpen}
+        initialValue={matchInput}
+        onClose={() => setAmountModalOpen(false)}
+        onApply={applyMatchAmount}
+      />
+      <Card>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-on-surface-variant">
+              Deposit amount
+            </p>
+            <p className="text-lg font-bold text-secondary">
+              {matchAmount != null ? formatCurrency(matchAmount) : 'Enter amount first'}
+            </p>
+            {matchAmount != null ? (
+              <p className="mt-0.5 text-xs text-on-surface-variant">
+                Showing matches for {formatCurrency(matchAmount)}
+                {matchAmount >= 5000
+                  ? `, including larger requests for ₹${matchAmount.toLocaleString('en-IN')} partial`
+                  : ''}
+              </p>
+            ) : (
+              <p className="mt-0.5 text-xs text-on-surface-variant">
+                Amount confirm karo, phir matching list dikhegi
+              </p>
+            )}
+          </div>
+          <Button type="button" size="sm" variant={matchAmount ? 'outline' : 'primary'} onClick={() => setAmountModalOpen(true)}>
+            {matchAmount != null ? 'Change amount' : 'Enter amount'}
+          </Button>
+        </div>
+      </Card>
       <Card title="Open withdrawal requests">
         <div className="mb-3 space-y-2">
           <Input
@@ -362,9 +491,12 @@ export function AvailableWithdrawalsPanel({
                 </option>
               ))}
             </select>
+            <Button type="button" size="sm" variant="outline" onClick={() => refetch()}>
+              Refresh
+            </Button>
           </div>
           <div className="chip-scroll">
-            {(['all', 'upi', 'bank', 'usdt'] as const).map((m) => (
+            {(['all', 'upi', 'bank', 'usdt', 'cdm'] as const).map((m) => (
               <button
                 key={m}
                 type="button"
@@ -396,12 +528,19 @@ export function AvailableWithdrawalsPanel({
               Retry
             </Button>
           </div>
+        ) : needsAmount && !items.length ? (
+          <EmptyState
+            message="Enter a deposit amount first to see matching withdrawal requests."
+            icon="payments"
+          />
         ) : !items.length ? (
           <EmptyState
             message={
               search || method !== 'all'
                 ? 'No requests match your filters'
-                : 'No approved Platform Payment requests yet. Withdrawals appear here only after business or admin approval.'
+                : matchAmount
+                  ? `No matching requests for ${formatCurrency(matchAmount)}`
+                  : 'No approved Platform Payment requests yet. Withdrawals appear here only after business or admin approval.'
             }
             icon="payments"
           />
@@ -423,6 +562,16 @@ export function AvailableWithdrawalsPanel({
                       <span className="rounded-full bg-surface-container-high px-2 py-0.5 text-[10px] font-semibold uppercase">
                         {METHOD_META[w.method].label}
                       </span>
+                      {w.origin === 'business' ? (
+                        <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
+                          Business
+                        </span>
+                      ) : null}
+                      {w.assignedToMe ? (
+                        <span className="rounded-full bg-secondary/15 px-2 py-0.5 text-[10px] font-semibold text-secondary">
+                          Assigned to you
+                        </span>
+                      ) : null}
                     </div>
                     <p className="mt-0.5 break-all font-mono text-[11px] text-on-surface-variant">
                       {w.referenceId} · {formatDate(w.createdAt)}
@@ -466,6 +615,16 @@ export function AvailableWithdrawalsPanel({
       <Modal open={!!target} onClose={closePay} title="Pay withdrawal request" className="sm:max-w-md">
         {target && (
           <form onSubmit={handleSubmit} className="space-y-3">
+            {target.assignedToMe ? (
+            <div className="rounded-xl border border-secondary/30 bg-secondary-container/30 px-3 py-2.5">
+              <p className="text-xs font-bold uppercase tracking-wide text-secondary">
+                Assigned to you
+              </p>
+              <p className="mt-1 text-[11px] font-medium text-on-surface">
+                Sirf tumhe ye request dikh rahi hai. UTR ya payment slip upload karke pay karo.
+              </p>
+            </div>
+            ) : (
             <div
               className={`rounded-xl border px-3 py-2.5 ${
                 payExpired
@@ -484,6 +643,7 @@ export function AvailableWithdrawalsPanel({
                 (claim lock).
               </p>
             </div>
+            )}
 
             <div className="grid grid-cols-3 gap-2 rounded-xl bg-surface-container-low p-2.5 text-center text-xs">
               <div>
@@ -528,6 +688,10 @@ export function AvailableWithdrawalsPanel({
               required
               disabled={payExpired}
             />
+            <p className="text-[11px] text-on-surface-variant">
+              Partial min {formatCurrency(minPartialAmount(target.method, target.currency), moneyCurrency(target))}.
+              Smaller leftover only as full pay.
+            </p>
 
             {payAmountNum >= 1 && creditPreview && (
               <div
@@ -556,6 +720,7 @@ export function AvailableWithdrawalsPanel({
               }}
               disabled={payExpired}
               referenceKind={moneyCurrency(target) === 'USDT' ? 'txid' : 'utr'}
+              utrRequired={!target.assignedToMe}
             />
 
             {formError && (

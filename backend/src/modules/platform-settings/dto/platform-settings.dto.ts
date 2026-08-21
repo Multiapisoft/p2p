@@ -1,4 +1,4 @@
-import { IsArray, IsNumber, IsOptional, Min, ArrayMinSize } from 'class-validator';
+import { IsArray, IsBoolean, IsNumber, IsOptional, Min, ArrayMinSize } from 'class-validator';
 
 export class UpdatePlatformSettingsDto {
   @IsOptional()
@@ -27,4 +27,30 @@ export class UpdatePlatformSettingsDto {
   @IsNumber()
   @Min(1)
   investorPlanTargetMultiplier?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  allowMobileNumberUpi?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  showCommissionToInvestor?: boolean;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(300)
+  minTransactionAmount?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  allowPartialPay?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  preferB2bSettlement?: boolean;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  cdmHoldMinutes?: number;
 }

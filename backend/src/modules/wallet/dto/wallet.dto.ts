@@ -40,3 +40,15 @@ export class WalletAdjustDto {
   @IsString()
   currency?: string;
 }
+
+export class ResetTxnDataDto {
+  @IsString()
+  entityType!: string;
+
+  @IsString()
+  entityId!: string;
+
+  /** Must be exactly RESET */
+  @IsString()
+  confirm!: string;
+}

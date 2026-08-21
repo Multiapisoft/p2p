@@ -40,6 +40,7 @@ export const commissionsApi = {
       businessTake: Commission[];
       investorBonus: Commission[];
       p2pPayLimit: number;
+      p2pPayEarned: number;
       p2pPayUsed: number;
       p2pPayRemaining: number | null;
     }>(`/commissions/business/${businessId}`, body),
@@ -48,6 +49,7 @@ export const commissionsApi = {
       businessTake: Commission[];
       investorBonus: Commission[];
       p2pPayLimit: number;
+      p2pPayEarned: number;
       p2pPayUsed: number;
       p2pPayRemaining: number | null;
     }>(`/commissions/business/${businessId}`),

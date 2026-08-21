@@ -4,6 +4,7 @@ import {
   IsNumber,
   IsArray,
   IsEnum,
+  IsBoolean,
   Min,
   Max,
   IsUrl,
@@ -79,10 +80,29 @@ export class UpdateBusinessDto {
   @IsArray()
   @IsEnum(PaymentMethod, { each: true })
   allowedPaymentMethods?: PaymentMethod[];
+
+  @IsOptional()
+  @IsBoolean()
+  depositsEnabled?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  withdrawalsEnabled?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  b2bMatchingEnabled?: boolean;
 }
 
 export class RegenerateApiKeysDto {
   @IsOptional()
   @IsString()
   confirm?: string;
+}
+
+export class SetP2pPayLimitDto {
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  p2pPayLimit!: number;
 }

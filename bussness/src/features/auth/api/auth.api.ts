@@ -11,8 +11,12 @@ interface AuthResponse {
   internalSecret?: string;
 }
 
-export async function loginApi(email: string, password: string) {
-  return apiPost<AuthResponse>('/auth/login', { email, password });
+export async function loginApi(email: string, password: string, totpCode?: string) {
+  return apiPost<AuthResponse>('/auth/login', {
+    email,
+    password,
+    ...(totpCode ? { totpCode } : {}),
+  });
 }
 
 export async function registerApi(data: {

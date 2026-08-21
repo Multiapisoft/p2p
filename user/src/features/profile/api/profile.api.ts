@@ -1,11 +1,36 @@
-import { apiGet, apiPatch } from '@/shared/api/client';
-import type { Notification, Paginated, User } from '@/shared/types/api.types';
+import { apiGet, apiPatch, apiPost } from '@/shared/api/client';
+import type { Notification, Paginated, SavedWithdrawalMethod, User } from '@/shared/types/api.types';
 
 export const profileApi = {
   getMe: () => apiGet<User>('/users/me'),
   updateMe: (payload: { name?: string; phone?: string }) => apiPatch<User>('/users/me', payload),
   attachReferral: (referralCode: string) =>
     apiPatch<User>('/users/me/referral', { referralCode }),
+  getWithdrawalMethods: () =>
+    apiGet<{ items: SavedWithdrawalMethod[] }>('/users/me/withdrawal-methods'),
+  saveWithdrawalMethod: (payload: {
+    label?: string;
+    method: 'upi' | 'bank' | 'usdt';
+    isDefault?: boolean;
+    upiDetails?: { upiId: string; payerName: string };
+    bankDetails?: { accountNumber: string; ifscCode: string; accountHolderName: string; bankName: string };
+    usdtDetails?: { walletAddress: string; network?: string };
+  }) => apiPost<{ items: SavedWithdrawalMethod[] }>('/users/me/withdrawal-methods', payload),
+  updateWithdrawalMethod: (
+    methodId: string,
+    payload: {
+      label?: string;
+      method: 'upi' | 'bank' | 'usdt';
+      isDefault?: boolean;
+      upiDetails?: { upiId: string; payerName: string };
+      bankDetails?: { accountNumber: string; ifscCode: string; accountHolderName: string; bankName: string };
+      usdtDetails?: { walletAddress: string; network?: string };
+    },
+  ) => apiPatch<{ items: SavedWithdrawalMethod[] }>(`/users/me/withdrawal-methods/${methodId}`, payload),
+  setDefaultWithdrawalMethod: (methodId: string) =>
+    apiPatch<{ items: SavedWithdrawalMethod[] }>(`/users/me/withdrawal-methods/${methodId}/default`),
+  deleteWithdrawalMethod: (methodId: string) =>
+    apiPost<{ items: SavedWithdrawalMethod[] }>(`/users/me/withdrawal-methods/${methodId}/delete`),
 };
 
 export type NotificationListQuery = {

@@ -5,6 +5,13 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { promises as fs } from 'fs';
 import * as path from 'path';
 import { v4 as uuidv4 } from 'uuid';
+import {
+  allowedExtensionsForPurpose,
+  extensionOf,
+  isAllowedExtension,
+  mimeForExtension,
+  normalizeUploadContentType,
+} from './utils/upload-file.util';
 
 @Injectable()
 export class StorageService {
@@ -45,10 +52,12 @@ export class StorageService {
   }
 
   private buildKey(userId: string, filename: string, purpose: string) {
-    const ext = filename.split('.').pop()?.toLowerCase() || 'jpg';
-    const allowed = ['jpg', 'jpeg', 'png', 'webp'];
-    if (!allowed.includes(ext)) {
-      throw new BadRequestException('Only JPG, PNG, WEBP images allowed');
+    const ext = extensionOf(filename) || 'jpg';
+    if (!isAllowedExtension(purpose, ext)) {
+      const allowed = allowedExtensionsForPurpose(purpose)
+        .map((e) => e.toUpperCase())
+        .join(', ');
+      throw new BadRequestException(`Only ${allowed} files allowed`);
     }
     return `p2p/${purpose}/${userId}/${Date.now()}-${uuidv4().slice(0, 8)}.${ext}`;
   }
@@ -93,7 +102,7 @@ export class StorageService {
       throw new BadRequestException('No file uploaded');
     }
 
-    const filename = file.originalname || `proof.jpg`;
+    const filename = file.originalname || `upload.bin`;
     const contentType = this.normalizeContentType(file.mimetype, filename);
     const key = this.buildKey(userId, filename, purpose);
 
@@ -107,7 +116,7 @@ export class StorageService {
             ContentType: contentType,
           }),
         );
-        return { key, publicUrl: this.publicUrlForKey(key) };
+        return { key, publicUrl: this.publicUrlForKey(key), filename, contentType, size: file.size };
       } catch (err) {
         this.logger.warn(
           `R2 upload failed, falling back to local storage: ${
@@ -117,7 +126,8 @@ export class StorageService {
       }
     }
 
-    return this.saveLocal(key, file.buffer);
+    const saved = await this.saveLocal(key, file.buffer);
+    return { ...saved, filename, contentType, size: file.size };
   }
 
   private async saveLocal(key: string, buffer: Buffer) {
@@ -138,19 +148,18 @@ export class StorageService {
   }
 
   normalizeContentType(mimetype: string | undefined, filename: string) {
-    if (mimetype && ['image/jpeg', 'image/png', 'image/webp', 'image/jpg'].includes(mimetype)) {
-      return mimetype === 'image/jpg' ? 'image/jpeg' : mimetype;
-    }
-    const ext = filename.split('.').pop()?.toLowerCase();
-    if (ext === 'png') return 'image/png';
-    if (ext === 'webp') return 'image/webp';
-    return 'image/jpeg';
+    return normalizeUploadContentType(mimetype, filename);
   }
 
   validateProofKey(key: string, userId: string) {
     if (!key.startsWith(`p2p/withdrawal-payment-proof/${userId}/`)) {
       throw new BadRequestException('Invalid proof image key');
     }
+  }
+
+  contentTypeForKey(key: string) {
+    const ext = extensionOf(key);
+    return mimeForExtension(ext);
   }
 
   getPublicUrl(key: string) {

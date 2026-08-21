@@ -12,7 +12,12 @@ import { LoadingScreen, EmptyState } from '@/shared/components/ui/Icon';
 import { Modal } from '@/shared/components/ui/Modal';
 import { formatCurrency, formatDate } from '@/shared/lib/utils';
 import { getApiErrorMessage } from '@/shared/lib/api-error';
+import { asPerson, fetchAllPages, personCsvCells } from '@/shared/lib/csv';
+import { CsvDownloadButton } from '@/shared/components/CsvDownloadButton';
+import { PersonDetails } from '@/shared/components/PersonDetails';
 import { SplitPaymentsTab } from '../components/SplitPaymentsTab';
+import { RedemptionsTab } from '../components/RedemptionsTab';
+import { AssignPayerModal } from '../components/AssignPayerModal';
 import type { Withdrawal } from '@/shared/types/api.types';
 
 const STATUS_FILTERS = [
@@ -40,9 +45,9 @@ const SORT_OPTIONS = [
 
 const PAGE_SIZES = [5, 10, 20];
 
-type Tab = 'pending' | 'all' | 'split';
+type Tab = 'pending' | 'all' | 'split' | 'redemptions';
 
-type WithdrawalRow = Withdrawal & { paidAmount?: number };
+type WithdrawalRow = Withdrawal & { paidAmount?: number; remainingAmount?: number };
 
 export function WithdrawalsPage() {
   const [tab, setTab] = useState<Tab>('pending');
@@ -53,8 +58,14 @@ export function WithdrawalsPage() {
   const [sort, setSort] = useState('newest');
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
+  const [payTarget, setPayTarget] = useState<WithdrawalRow | null>(null);
+  const [payAmount, setPayAmount] = useState('');
+  const [payUtr, setPayUtr] = useState('');
+  const [markPaidTarget, setMarkPaidTarget] = useState<WithdrawalRow | null>(null);
+  const [markPaidUtr, setMarkPaidUtr] = useState('');
   const [actionError, setActionError] = useState('');
   const [detail, setDetail] = useState<WithdrawalRow | null>(null);
+  const [assignTarget, setAssignTarget] = useState<WithdrawalRow | null>(null);
   const qc = useQueryClient();
 
   useEffect(() => {
@@ -83,8 +94,15 @@ export function WithdrawalsPage() {
       tab === 'pending'
         ? withdrawalsApi.getPending(listQuery)
         : withdrawalsApi.getAll(listQuery),
-    enabled: tab !== 'split',
+    enabled: tab !== 'split' && tab !== 'redemptions',
   });
+
+  const { data: detailFull, isLoading: detailLoading } = useQuery({
+    queryKey: ['withdrawal-admin', detail?._id],
+    queryFn: () => withdrawalsApi.getById(detail!._id),
+    enabled: !!detail?._id,
+  });
+  const detailView = detailFull ?? detail;
 
   const listForP2p = useMutation({
     mutationFn: (id: string) => withdrawalsApi.listForP2p(id),
@@ -104,6 +122,53 @@ export function WithdrawalsPage() {
     onError: (err) => setActionError(getApiErrorMessage(err, 'Unlist failed')),
   });
 
+  const assignPayer = useMutation({
+    mutationFn: ({ id, assigneeId }: { id: string; assigneeId: string }) =>
+      withdrawalsApi.assignPayer(id, assigneeId),
+    onSuccess: () => {
+      setAssignTarget(null);
+      qc.invalidateQueries({ queryKey: ['withdrawals'] });
+      qc.invalidateQueries({ queryKey: ['withdrawal-admin'] });
+      setActionError('');
+    },
+    onError: (err) => setActionError(getApiErrorMessage(err, 'Assign failed')),
+  });
+
+  const unassignPayer = useMutation({
+    mutationFn: (id: string) => withdrawalsApi.unassignPayer(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['withdrawals'] });
+      qc.invalidateQueries({ queryKey: ['withdrawal-admin'] });
+      setActionError('');
+    },
+    onError: (err) => setActionError(getApiErrorMessage(err, 'Unassign failed')),
+  });
+
+  const markPaid = useMutation({
+    mutationFn: ({ id, utr }: { id: string; utr: string }) =>
+      withdrawalsApi.approve(id, utr),
+    onSuccess: () => {
+      setMarkPaidTarget(null);
+      setMarkPaidUtr('');
+      qc.invalidateQueries({ queryKey: ['withdrawals'] });
+      setActionError('');
+    },
+    onError: (err) => setActionError(getApiErrorMessage(err, 'Mark paid failed')),
+  });
+
+  const payAsAdmin = useMutation({
+    mutationFn: ({ id, amount, utr }: { id: string; amount: number; utr: string }) =>
+      withdrawalsApi.payAsAdmin(id, { amount, utr }),
+    onSuccess: () => {
+      setPayTarget(null);
+      setPayAmount('');
+      setPayUtr('');
+      qc.invalidateQueries({ queryKey: ['withdrawals'] });
+      setActionError('');
+    },
+    onError: (err) => setActionError(getApiErrorMessage(err, 'Admin pay failed')),
+  });
+
   const items = (data?.items ?? []) as WithdrawalRow[];
   const total = data?.total ?? 0;
   const totalPages = data?.totalPages ?? 1;
@@ -111,9 +176,25 @@ export function WithdrawalsPage() {
 
   function p2pListLabel(w: WithdrawalRow) {
     const s = w.p2pListStatus || 'awaiting';
+    if (w.origin === 'business' && s === 'awaiting') return 'Waiting admin verify';
+    if (w.origin === 'business' && s === 'listed') return 'On pay list';
     if (s === 'listed') return 'Approved';
     if (s === 'rejected') return 'Approval rejected';
-    return 'Awaiting approval';
+    return 'Awaiting Platform Payment';
+  }
+
+  function assigneeName(w: WithdrawalRow) {
+    return asPerson(w.assignedTo)?.name || asPerson(w.assignedTo)?.email || '';
+  }
+
+  function showP2pListChip(w: WithdrawalRow) {
+    const remaining =
+      w.remainingAmount != null
+        ? w.remainingAmount
+        : Math.max(0, w.amount - (w.paidAmount || 0));
+    if (['completed', 'cancelled', 'rejected', 'failed'].includes(w.status)) return false;
+    if (remaining <= 0) return false;
+    return w.status === 'pending' || w.status === 'processing';
   }
 
   function destinationLines(w: WithdrawalRow): string[] {
@@ -143,18 +224,61 @@ export function WithdrawalsPage() {
 
   return (
     <div className="mx-auto max-w-7xl space-y-4 sm:space-y-6">
-      <div>
-        <h1 className="font-[family-name:var(--font-headline)] text-xl font-bold sm:text-2xl">
-          Withdrawals
-        </h1>
-        <p className="mt-0.5 text-sm text-on-surface-variant">
-          View withdrawals and manage Platform Payment listing. Final approve/reject is done by the
-          owning business.
-        </p>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h1 className="font-[family-name:var(--font-headline)] text-xl font-bold sm:text-2xl">
+            Withdrawals
+          </h1>
+          <p className="mt-0.5 text-sm text-on-surface-variant">
+            View withdrawals, investor redemptions, and Platform Payment listing. Final payout
+            approve/reject is done by the owning business.
+          </p>
+        </div>
+        {tab !== 'split' && tab !== 'redemptions' ? (
+          <CsvDownloadButton<WithdrawalRow>
+            title="Withdrawals"
+            filename={`withdrawals-${tab}`}
+            filters={{ Tab: tab, Status: status, Method: method, Search: search, Sort: sort }}
+            disabled={!total}
+            columns={[
+              { header: 'Reference', value: (w) => w.referenceId },
+              { header: 'Status', value: (w) => w.status },
+              { header: 'Method', value: (w) => w.method },
+              { header: 'Amount', value: (w) => w.amount },
+              { header: 'Currency', value: (w) => w.currency },
+              { header: 'Paid', value: (w) => w.paidAmount ?? 0 },
+              { header: 'User name', value: (w) => personCsvCells(w.userId)[0] },
+              { header: 'User email', value: (w) => personCsvCells(w.userId)[1] },
+              { header: 'User phone', value: (w) => personCsvCells(w.userId)[2] },
+              { header: 'User role', value: (w) => personCsvCells(w.userId)[3] },
+              { header: 'List status', value: (w) => w.p2pListStatus || '' },
+              { header: 'Assigned to', value: (w) => personCsvCells(w.assignedTo)[0] },
+              {
+                header: 'Payers',
+                value: (w) =>
+                  (w.payments ?? [])
+                    .map((p) => {
+                      const payer = asPerson(p.payerUserId);
+                      return [payer?.name, payer?.role, payer?.email].filter(Boolean).join(' ');
+                    })
+                    .filter(Boolean)
+                    .join(' | '),
+              },
+              { header: 'Created', value: (w) => w.createdAt },
+            ]}
+            fetchRows={() =>
+              fetchAllPages((p, l) =>
+                tab === 'pending'
+                  ? withdrawalsApi.getPending({ ...listQuery, page: p, limit: l })
+                  : withdrawalsApi.getAll({ ...listQuery, page: p, limit: l }),
+              )
+            }
+          />
+        ) : null}
       </div>
 
       <div className="chip-scroll">
-        {(['pending', 'all', 'split'] as const).map((t) => (
+        {(['pending', 'all', 'split', 'redemptions'] as const).map((t) => (
           <button
             key={t}
             type="button"
@@ -166,13 +290,15 @@ export function WithdrawalsPage() {
               tab === t ? 'bg-primary text-on-primary' : 'border border-outline-variant'
             }`}
           >
-            {t === 'split' ? 'Split Payments' : t}
+            {t === 'split' ? 'Split Payments' : t === 'redemptions' ? 'Redemptions' : t}
           </button>
         ))}
       </div>
 
       {tab === 'split' ? (
         <SplitPaymentsTab />
+      ) : tab === 'redemptions' ? (
+        <RedemptionsTab />
       ) : (
         <>
           <div className="grid grid-cols-3 gap-2 sm:gap-3">
@@ -305,6 +431,13 @@ export function WithdrawalsPage() {
                             <> • Paid: {formatCurrency(w.paidAmount)}</>
                           ) : null}
                         </p>
+                        {asPerson(w.userId)?.name || asPerson(w.userId)?.email ? (
+                          <p className="mt-1 text-[11px] text-on-surface-variant sm:text-xs">
+                            User: {asPerson(w.userId)?.name || '—'}
+                            {asPerson(w.userId)?.role ? ` · ${asPerson(w.userId)?.role}` : ''}
+                            {asPerson(w.userId)?.email ? ` · ${asPerson(w.userId)?.email}` : ''}
+                          </p>
+                        ) : null}
                         {destinationLines(w).length > 0 && (
                           <p className="mt-1 text-[11px] text-on-surface-variant sm:text-xs">
                             {destinationLines(w).join(' · ')}
@@ -318,6 +451,12 @@ export function WithdrawalsPage() {
                           </p>
                           <div className="mt-1 flex flex-wrap items-center gap-1.5 sm:justify-end">
                             <StatusBadge status={w.status} />
+                            {w.origin === 'business' ? (
+                              <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
+                                Business req
+                              </span>
+                            ) : null}
+                            {showP2pListChip(w) ? (
                             <span
                               className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
                                 (w.p2pListStatus || 'awaiting') === 'listed'
@@ -329,6 +468,12 @@ export function WithdrawalsPage() {
                             >
                               {p2pListLabel(w)}
                             </span>
+                            ) : null}
+                            {assigneeName(w) ? (
+                              <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
+                                Assigned: {assigneeName(w)}
+                              </span>
+                            ) : null}
                           </div>
                         </div>
                         <div className="flex flex-col gap-2 sm:flex-row">
@@ -343,20 +488,72 @@ export function WithdrawalsPage() {
                                 loading={listForP2p.isPending}
                                 onClick={() => listForP2p.mutate(w._id)}
                               >
-                                Approve
+                                {w.origin === 'business' ? 'Verify' : 'Approve'}
                               </Button>
                             )}
                           {(w.status === 'pending' || w.status === 'processing') &&
                             w.p2pListStatus === 'listed' && (
-                              <Button
-                                size="sm"
-                                variant="secondary"
-                                loading={unlistForP2p.isPending}
-                                onClick={() => unlistForP2p.mutate(w._id)}
-                              >
-                                Unlist Platform Payment
-                              </Button>
+                              <>
+                                {w.origin === 'business' ? (
+                                  <>
+                                    <Button
+                                      size="sm"
+                                      onClick={() => {
+                                        setPayTarget(w);
+                                        setPayAmount(String(w.amount - (w.paidAmount || 0)));
+                                        setPayUtr('');
+                                        setActionError('');
+                                      }}
+                                    >
+                                      Pay
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      variant="secondary"
+                                      onClick={() => {
+                                        setMarkPaidTarget(w);
+                                        setMarkPaidUtr('');
+                                        setActionError('');
+                                      }}
+                                    >
+                                      Mark paid
+                                    </Button>
+                                  </>
+                                ) : null}
+                                <Button
+                                  size="sm"
+                                  variant="secondary"
+                                  loading={unlistForP2p.isPending}
+                                  onClick={() => unlistForP2p.mutate(w._id)}
+                                >
+                                  Unlist Platform Payment
+                                </Button>
+                              </>
                             )}
+                          {(w.status === 'pending' || w.status === 'processing') &&
+                          Math.max(0, w.amount - (w.paidAmount || 0)) > 0 ? (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => {
+                                setAssignTarget(w);
+                                setActionError('');
+                              }}
+                            >
+                              {assigneeName(w) ? 'Reassign' : 'Assign'}
+                            </Button>
+                          ) : null}
+                          {assigneeName(w) &&
+                          (w.status === 'pending' || w.status === 'processing') ? (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              loading={unassignPayer.isPending}
+                              onClick={() => unassignPayer.mutate(w._id)}
+                            >
+                              Unassign
+                            </Button>
+                          ) : null}
                           {w.status === 'pending' && (w.paidAmount || 0) > 0 && (
                             <p className="text-[11px] text-on-surface-variant">
                               Use Split Payments to approve proofs
@@ -382,33 +579,61 @@ export function WithdrawalsPage() {
         </>
       )}
 
-      <Modal open={!!detail} onClose={() => setDetail(null)} title="Withdrawal details">
-        {detail && (
-          <div className="space-y-2 text-sm">
+      <Modal open={!!detail} onClose={() => setDetail(null)} title="Withdrawal details" className="sm:max-w-2xl">
+        {detailLoading && !detailView ? (
+          <LoadingScreen />
+        ) : detailView ? (
+          <div className="space-y-3 text-sm">
             <p>
               <span className="text-on-surface-variant">Reference:</span>{' '}
-              <span className="font-semibold">{detail.referenceId}</span>
+              <span className="font-semibold">{detailView.referenceId}</span>
             </p>
             <p>
               <span className="text-on-surface-variant">Amount:</span>{' '}
               <span className="font-semibold">
-                {formatCurrency(detail.amount, detail.currency)}
+                {formatCurrency(detailView.amount, detailView.currency)}
               </span>
+              {detailView.paidAmount ? (
+                <span className="text-on-surface-variant">
+                  {' '}
+                  · Paid {formatCurrency(detailView.paidAmount, detailView.currency)}
+                </span>
+              ) : null}
             </p>
             <p>
               <span className="text-on-surface-variant">Method:</span>{' '}
-              {detail.method.toUpperCase()}
+              {detailView.method.toUpperCase()}
             </p>
             <p>
               <span className="text-on-surface-variant">Status:</span>{' '}
-              <StatusBadge status={detail.status} />
+              <StatusBadge status={detailView.status} />
             </p>
+
+            <PersonDetails title="Withdrawer (user)" person={detailView.userId} />
+            {detailView.assignedTo ? (
+              <PersonDetails title="Assigned payer" person={detailView.assignedTo} />
+            ) : null}
+
+            {typeof detailView.businessId === 'object' && detailView.businessId?.name ? (
+              <div className="rounded-lg border border-outline-variant p-3">
+                <p className="mb-1 text-xs font-semibold uppercase text-on-surface-variant">
+                  Business
+                </p>
+                <p className="font-medium">{detailView.businessId.name}</p>
+                {detailView.businessId.referralCode ? (
+                  <p className="text-xs text-on-surface-variant">
+                    Code: {detailView.businessId.referralCode}
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
+
             <div className="rounded-lg border border-outline-variant p-3">
               <p className="mb-1 text-xs font-semibold uppercase text-on-surface-variant">
                 Destination
               </p>
-              {destinationLines(detail).length ? (
-                destinationLines(detail).map((line) => (
+              {destinationLines(detailView).length ? (
+                destinationLines(detailView).map((line) => (
                   <p key={line} className="font-medium">
                     {line}
                   </p>
@@ -416,19 +641,142 @@ export function WithdrawalsPage() {
               ) : (
                 <p className="text-on-surface-variant">No destination details</p>
               )}
-              {detail.upiDetails?.utr ? (
-                <p className="font-medium">UTR: {detail.upiDetails.utr}</p>
+              {detailView.upiDetails?.utr ? (
+                <p className="font-medium">UTR: {detailView.upiDetails.utr}</p>
               ) : null}
-              {detail.bankDetails?.utr ? (
-                <p className="font-medium">UTR: {detail.bankDetails.utr}</p>
+              {detailView.bankDetails?.utr ? (
+                <p className="font-medium">UTR: {detailView.bankDetails.utr}</p>
               ) : null}
-              {detail.usdtDetails?.txHash ? (
-                <p className="break-all font-medium">Tx hash: {detail.usdtDetails.txHash}</p>
+              {detailView.usdtDetails?.txHash ? (
+                <p className="break-all font-medium">Tx hash: {detailView.usdtDetails.txHash}</p>
               ) : null}
             </div>
+
+            <div className="space-y-2">
+              <p className="text-xs font-semibold uppercase text-on-surface-variant">
+                Payers ({detailView.payments?.length ?? 0})
+              </p>
+              {!detailView.payments?.length ? (
+                <p className="rounded-lg border border-outline-variant p-3 text-on-surface-variant">
+                  No split payments yet
+                </p>
+              ) : (
+                detailView.payments.map((p) => (
+                  <div key={p._id} className="rounded-lg border border-outline-variant p-3">
+                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                      <p className="font-semibold">
+                        {formatCurrency(p.amount, p.currency || detailView.currency)}
+                      </p>
+                      <StatusBadge status={p.status} />
+                    </div>
+                    <PersonDetails title="Payer" person={p.payerUserId} compact />
+                    {p.utr ? (
+                      <p className="mt-1 text-xs">
+                        <span className="text-on-surface-variant">UTR:</span> {p.utr}
+                      </p>
+                    ) : null}
+                    {p.referenceId ? (
+                      <p className="text-xs text-on-surface-variant">{p.referenceId}</p>
+                    ) : null}
+                  </div>
+                ))
+              )}
+            </div>
           </div>
-        )}
+        ) : null}
       </Modal>
+
+      <Modal
+        open={!!payTarget}
+        onClose={() => setPayTarget(null)}
+        title="Admin pay"
+        className="sm:max-w-md"
+      >
+        {payTarget ? (
+          <div className="space-y-3">
+            <p className="text-sm text-on-surface-variant">
+              Pay {formatCurrency(payTarget.amount, payTarget.currency)} to this business
+              withdrawal. UTR required; proof optional for admin.
+            </p>
+            <Input
+              label="Amount"
+              type="number"
+              min={1}
+              value={payAmount}
+              onChange={(e) => setPayAmount(e.target.value)}
+            />
+            <Input
+              label="UTR / TxID"
+              value={payUtr}
+              onChange={(e) => setPayUtr(e.target.value)}
+            />
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setPayTarget(null)}>
+                Cancel
+              </Button>
+              <Button
+                loading={payAsAdmin.isPending}
+                onClick={() => {
+                  const amt = Number(payAmount);
+                  if (!amt || !payUtr.trim()) {
+                    setActionError('Amount and UTR are required');
+                    return;
+                  }
+                  payAsAdmin.mutate({ id: payTarget._id, amount: amt, utr: payUtr.trim() });
+                }}
+              >
+                Submit pay
+              </Button>
+            </div>
+          </div>
+        ) : null}
+      </Modal>
+
+      <Modal
+        open={!!markPaidTarget}
+        onClose={() => setMarkPaidTarget(null)}
+        title="Mark paid"
+        className="sm:max-w-md"
+      >
+        {markPaidTarget ? (
+          <div className="space-y-3">
+            <p className="text-sm text-on-surface-variant">
+              Completes this business withdrawal after you already paid the destination.
+            </p>
+            <Input
+              label="UTR / TxID"
+              value={markPaidUtr}
+              onChange={(e) => setMarkPaidUtr(e.target.value)}
+            />
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setMarkPaidTarget(null)}>
+                Cancel
+              </Button>
+              <Button
+                loading={markPaid.isPending}
+                onClick={() => {
+                  if (!markPaidUtr.trim()) {
+                    setActionError('UTR is required');
+                    return;
+                  }
+                  markPaid.mutate({ id: markPaidTarget._id, utr: markPaidUtr.trim() });
+                }}
+              >
+                Confirm paid
+              </Button>
+            </div>
+          </div>
+        ) : null}
+      </Modal>
+
+      <AssignPayerModal
+        open={!!assignTarget}
+        withdrawal={assignTarget}
+        loading={assignPayer.isPending}
+        error={actionError}
+        onClose={() => setAssignTarget(null)}
+        onAssign={(assigneeId) => assignPayer.mutate({ id: assignTarget!._id, assigneeId })}
+      />
     </div>
   );
 }

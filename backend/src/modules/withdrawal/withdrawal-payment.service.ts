@@ -18,6 +18,7 @@ import {
   DisputeWithdrawalPaymentDto,
 } from './dto/withdrawal-payment.dto';
 import { WalletService } from '../wallet/wallet.service';
+import { PlatformCommissionService } from '../wallet/platform-commission.service';
 import { CommissionService } from '../commission/commission.service';
 import { TransactionService } from '../transaction/transaction.service';
 import { BusinessService } from '../business/business.service';
@@ -27,10 +28,11 @@ import { WebhookService } from '../webhook/webhook.service';
 import { AuditService } from '../audit/audit.service';
 import { SupportService } from '../support/support.service';
 import { User, UserDocument } from '../users/schemas/user.schema';
+import { UsersService } from '../users/users.service';
 import { UserRole } from '../../common/enums/role.enum';
 import { TransactionStatus } from '../../common/enums/transaction-status.enum';
 import { CommissionTarget } from '../../common/enums/commission-target.enum';
-import { LedgerType, Currency } from '../../common/enums/currency.enum';
+import { LedgerType, Currency, LedgerDirection, LedgerFlow } from '../../common/enums/currency.enum';
 import { PaymentMethod } from '../../common/enums/payment-method.enum';
 import { SupportPriority } from '../../common/enums/support-status.enum';
 import { ExchangeRateService } from '../wallet/exchange-rate.service';
@@ -47,17 +49,33 @@ import {
   paymentRefErrorForMethod,
 } from '../../common/validators/contact.validators';
 import { PlatformSettingsService } from '../platform-settings/platform-settings.service';
+import { feeCutNote } from '../wallet/utils/platform-commission-ledger.util';
 import { RedisService } from '../../redis/redis.service';
 import {
   paymentReceivedNotification,
   shouldCreditInvestorBonus,
 } from './utils/payment-notification.util';
 import { assertUniquePaymentRef } from './utils/payment-ref-uniqueness.util';
+import { isInvestorToInvestorPay, isOpenOnPayList } from './utils/withdrawal-visibility.util';
+import {
+  assignedToMeFilter,
+  assignedToViewerFilter,
+  isAssignedToOther,
+  isAssignedToPayer,
+  remainingOpenExpr,
+} from './utils/withdrawal-assign.util';
+import {
+  MIN_PARTIAL_INR,
+  MIN_PARTIAL_USDT,
+  partialPayError,
+} from './utils/partial-pay.util';
+import { visibleInvestorBonusAmount } from '../commission/utils/investor-commission-visibility.util';
+import { P2pRealtimeService } from '../realtime/p2p-realtime.service';
 
 const VERIFICATION_WINDOW_MS = 24 * 60 * 60 * 1000;
 const CLAIM_REDIS_PREFIX = 'withdrawal-claim:';
 
-export type WithdrawalPaymentListOpts = ListQueryOpts & { method?: string };
+export type WithdrawalPaymentListOpts = ListQueryOpts & { method?: string; amount?: number };
 
 @Injectable()
 export class WithdrawalPaymentService {
@@ -78,13 +96,39 @@ export class WithdrawalPaymentService {
     private supportService: SupportService,
     private partnerApiService: PartnerApiService,
     private platformSettingsService: PlatformSettingsService,
+    private platformCommissionService: PlatformCommissionService,
     private redis: RedisService,
+    private usersService: UsersService,
+    private p2pRealtime: P2pRealtimeService,
   ) {}
 
   getRemaining(withdrawal: WithdrawalDocument) {
     const locked =
       (withdrawal.paidAmount || 0) + (withdrawal.reservedAmount || 0);
     return Math.max(0, withdrawal.amount - locked);
+  }
+
+  private assignedOpenQuery(userId: string) {
+    const userOid = new Types.ObjectId(userId);
+    return {
+      $and: [
+        assignedToMeFilter(userId),
+        {
+          userId: { $ne: userOid },
+          status: { $in: [TransactionStatus.PENDING, TransactionStatus.PROCESSING] },
+          p2pListStatus: 'listed' as const,
+          $expr: remainingOpenExpr(),
+        },
+      ],
+    };
+  }
+
+  private async loadAssignedOpen(userId: string) {
+    return this.withdrawalModel
+      .find(this.assignedOpenQuery(userId))
+      .sort({ assignedAt: -1, createdAt: -1 })
+      .limit(50)
+      .exec();
   }
 
   /** Credit partner gaming wallet when a normal user deposits via P2P pay. */
@@ -122,8 +166,9 @@ export class WithdrawalPaymentService {
 
     let method: PaymentMethod | undefined;
     let payCurrency = Currency.INR;
-    let businessId = payer.referredByBusiness?.toString();
+    let businessId = await this.businessService.findBusinessIdForUser(payer);
     let withdrawalRemaining: number | null = null;
+    let isBusinessOrigin = false;
     if (withdrawalId) {
       const withdrawal = await this.withdrawalModel.findById(withdrawalId).exec();
       if (!withdrawal) throw new NotFoundException('Withdrawal not found');
@@ -132,6 +177,7 @@ export class WithdrawalPaymentService {
       if (withdrawal.businessId) {
         businessId = withdrawal.businessId.toString();
       }
+      isBusinessOrigin = withdrawal.origin === 'business';
       withdrawalRemaining = this.getRemaining(withdrawal);
       if (amount > withdrawalRemaining) {
         throw new BadRequestException(
@@ -141,14 +187,26 @@ export class WithdrawalPaymentService {
     }
 
     const isInvestor = payer.role === UserRole.INVESTOR;
-    const { maxPayable, p2pPayRemainingInr } =
-      await this.businessService.getMaxPayableAmount(
-        businessId,
-        withdrawalRemaining ?? amount,
+    const { maxPayable: businessMax, p2pPayRemainingInr } = isBusinessOrigin
+      ? { maxPayable: withdrawalRemaining ?? amount, p2pPayRemainingInr: null }
+      : await this.businessService.getMaxPayableAmount(
+          businessId,
+          withdrawalRemaining ?? amount,
+          payCurrency,
+          method,
+          (inr) => this.exchangeRateService.inrBudgetToUsdt(inr),
+        );
+
+    let maxPayable = businessMax;
+    if (isInvestor) {
+      const limitView = this.usersService.getInvestorLimitSnapshot(payer);
+      maxPayable = this.capMaxPayableByInvestorLimit(
+        maxPayable,
+        limitView.remaining,
         payCurrency,
         method,
-        (inr) => this.exchangeRateService.inrBudgetToUsdt(inr),
       );
+    }
 
     if (amount > maxPayable) {
       throw new BadRequestException(
@@ -156,6 +214,19 @@ export class WithdrawalPaymentService {
           ? `Amount exceeds business P2P pay limit. Max payable ${maxPayable} (limit remaining ₹${p2pPayRemainingInr})`
           : `Amount exceeds max payable ${maxPayable}`,
       );
+    }
+
+    if (withdrawalRemaining != null) {
+      const allowPartial = await this.platformSettingsService.allowPartialPay();
+      const partialErr = partialPayError({
+        amount,
+        remaining: withdrawalRemaining,
+        maxPayable,
+        method,
+        currency: payCurrency,
+        allowPartial,
+      });
+      if (partialErr) throw new BadRequestException(partialErr);
     }
 
     const breakdown = await this.computeCreditBreakdown(
@@ -197,7 +268,7 @@ export class WithdrawalPaymentService {
     const platformFee = await this.commissionService.calculate(
       amount,
       CommissionTarget.PLATFORM,
-      undefined,
+      businessId,
       method,
     );
     platformCommission = platformFee.amount;
@@ -264,19 +335,26 @@ export class WithdrawalPaymentService {
 
     const settings = await this.platformSettingsService.get();
     const isInvestor = payer.role === UserRole.INVESTOR;
-    const planAmount = payer.investorPlanAmount || null;
+    const limitView = isInvestor ? this.usersService.getInvestorLimitSnapshot(payer) : null;
     const multiplier = settings.investorPlanTargetMultiplier ?? 1.1;
-    const targetAmount = planAmount != null ? Math.round(planAmount * multiplier * 100) / 100 : null;
+    const added = limitView?.added ?? 0;
+    const targetAmount =
+      added > 0 ? Math.round(added * multiplier * 100) / 100 : null;
 
-    if (isInvestor && !planAmount) {
+    if (isInvestor && limitView?.needsLimit) {
       return {
         items: [],
         total: 0,
         page,
         limit,
         totalPages: 1,
+        needsLimit: true,
         needsPlan: true,
-        planAmounts: settings.investorPlanAmounts ?? [25000, 50000, 100000, 200000],
+        needsAmount: false,
+        matchAmount: null,
+        lots: limitView.lots,
+        limitRemaining: limitView.remaining,
+        limitAdded: limitView.added,
         planAmount: null,
         targetAmount: null,
         paidTowardPlan: 0,
@@ -285,7 +363,54 @@ export class WithdrawalPaymentService {
       };
     }
 
+    const isPayer =
+      payer.role === UserRole.USER || payer.role === UserRole.INVESTOR;
+    const rawAmount = Number(opts.amount);
+    const hasAmount = Number.isFinite(rawAmount) && rawAmount >= 1;
+    if (isPayer && !hasAmount) {
+      const assignedOnly = await this.loadAssignedOpen(userId);
+      return {
+        items: assignedOnly.map((w) => ({
+          ...this.toAvailableView(w, userId),
+          maxPayable: this.getRemaining(w),
+          p2pPayRemainingInr: null,
+          creditIfPayFull: null,
+        })),
+        total: assignedOnly.length,
+        page,
+        limit,
+        totalPages: 1,
+        needsLimit: false,
+        needsPlan: false,
+        needsAmount: true,
+        matchAmount: null,
+        lots: limitView?.lots ?? [],
+        limitRemaining: limitView?.remaining ?? null,
+        limitAdded: limitView?.added ?? null,
+        planAmount: added > 0 ? added : null,
+        targetAmount,
+        paidTowardPlan: isInvestor ? 0 : null,
+        claimLockMinutes: settings.investorClaimLockMinutes,
+        paySubmitMinutes: settings.investorPaySubmitMinutes,
+      };
+    }
+
+    let matchAmount = hasAmount ? Math.round(rawAmount * 100) / 100 : null;
+    if (matchAmount != null && isInvestor && limitView) {
+      matchAmount = Math.min(matchAmount, limitView.remaining);
+    }
+
     const paidTowardPlan = isInvestor ? await this.getPaidTowardPlan(userId) : null;
+
+    const investorOwnerIds = isInvestor
+      ? (
+          await this.userModel
+            .find({ role: UserRole.INVESTOR })
+            .select('_id')
+            .lean()
+            .exec()
+        ).map((u) => u._id)
+      : [];
 
     // Exclude only businesses with an exhausted quota — missing/unknown businessId still shows
     const exhaustedBusinessIds =
@@ -299,17 +424,7 @@ export class WithdrawalPaymentService {
         userId: { $ne: userOid },
         status: { $in: [TransactionStatus.PENDING, TransactionStatus.PROCESSING] },
         p2pListStatus: 'listed',
-        $expr: {
-          $lt: [
-            {
-              $add: [
-                { $ifNull: ['$paidAmount', 0] },
-                { $ifNull: ['$reservedAmount', 0] },
-              ],
-            },
-            '$amount',
-          ],
-        },
+        $expr: remainingOpenExpr(),
       },
       // Exclude active claims by others; include own claims and unlocked/expired
       {
@@ -320,13 +435,20 @@ export class WithdrawalPaymentService {
           { claimLockedUntil: null },
           { claimLockedUntil: { $lte: now } },
           { claimLockedBy: userOid },
+          { claimLockedBy: userId },
         ],
       },
+      assignedToViewerFilter(userId),
     ];
+
+    if (investorOwnerIds.length) {
+      and.push({ userId: { $nin: investorOwnerIds } });
+    }
 
     if (exhaustedBusinessIds.length > 0) {
       and.push({
         $or: [
+          { origin: 'business' },
           { businessId: { $exists: false } },
           { businessId: null },
           { businessId: { $nin: exhaustedBusinessIds } },
@@ -336,6 +458,42 @@ export class WithdrawalPaymentService {
 
     if (opts.method && opts.method !== 'all') {
       and.push({ method: opts.method as PaymentMethod });
+    }
+    if (matchAmount != null) {
+      const remainingExpr = {
+        $subtract: [
+          '$amount',
+          {
+            $add: [
+              { $ifNull: ['$paidAmount', 0] },
+              { $ifNull: ['$reservedAmount', 0] },
+            ],
+          },
+        ],
+      };
+      // Full close if remaining <= budget, or valid partial (min ₹5k / 5 USDT,
+      // leftover also >= min so dust amounts are not created).
+      and.push({
+        $expr: {
+          $or: [
+            { $lte: [remainingExpr, matchAmount] },
+            {
+              $and: [
+                { $eq: ['$method', PaymentMethod.USDT] },
+                { $gte: [matchAmount, MIN_PARTIAL_USDT] },
+                { $gte: [remainingExpr, matchAmount + MIN_PARTIAL_USDT] },
+              ],
+            },
+            {
+              $and: [
+                { $ne: ['$method', PaymentMethod.USDT] },
+                { $gte: [matchAmount, MIN_PARTIAL_INR] },
+                { $gte: [remainingExpr, matchAmount + MIN_PARTIAL_INR] },
+              ],
+            },
+          ],
+        },
+      });
     }
     if (search) {
       and.push({
@@ -349,19 +507,51 @@ export class WithdrawalPaymentService {
       });
     }
 
-    const filter = { $and: and };
-    const sortSpec = listSortMap(sort, {
-      newest: { createdAt: -1 },
-      oldest: { createdAt: 1 },
-      amount_desc: { amount: -1 },
-      amount_asc: { amount: 1 },
-      status: { status: 1, createdAt: -1 },
-    });
+    // Prefer business-origin / non-investor WDs when platform B2B preference is on (#32/#50)
+    const preferB2b = await this.platformSettingsService.preferB2bSettlement();
+    if (preferB2b && !isInvestor) {
+      const preferBiz = [
+        ...and,
+        {
+          $or: [{ origin: { $exists: false } }, { origin: { $ne: 'investor' } }],
+        },
+      ];
+      const bizCount = await this.withdrawalModel.countDocuments({ $and: preferBiz }).exec();
+      if (bizCount > 0) {
+        and.push({
+          $or: [{ origin: { $exists: false } }, { origin: { $ne: 'investor' } }],
+        });
+      }
+    }
 
-    const [items, total] = await Promise.all([
+    const filter = { $and: and };
+    // Users: FIFO (oldest first) for settlement. Investors: LIFO (newest first).
+    const sortSpec: Record<string, 1 | -1> =
+      matchAmount != null && (!opts.sort || opts.sort === 'newest' || opts.sort === 'oldest')
+        ? isInvestor
+          ? { createdAt: -1 }
+          : { createdAt: 1 }
+        : listSortMap(sort, {
+            newest: { createdAt: -1 },
+            oldest: { createdAt: 1 },
+            amount_desc: { amount: -1 },
+            amount_asc: { amount: 1 },
+            status: { status: 1, createdAt: -1 },
+          });
+
+    const [rawItems, total] = await Promise.all([
       this.withdrawalModel.find(filter).skip(skip).limit(limit).sort(sortSpec).exec(),
       this.withdrawalModel.countDocuments(filter).exec(),
     ]);
+
+    let items = rawItems;
+    if (skip === 0) {
+      const assignedDocs = await this.loadAssignedOpen(userId);
+      if (assignedDocs.length) {
+        const seen = new Set(assignedDocs.map((w) => w._id.toString()));
+        items = [...assignedDocs, ...rawItems.filter((w) => !seen.has(w._id.toString()))];
+      }
+    }
 
     // Clear stale claim fields on read
     for (const w of items) {
@@ -399,11 +589,11 @@ export class WithdrawalPaymentService {
       }
     }
 
-    const payerBusinessId = payer.referredByBusiness?.toString();
+    const payerBusinessId = await this.businessService.findBusinessIdForUser(payer);
 
     const itemsWithCredit = await Promise.all(
       items.map(async (w) => {
-        const view = this.toAvailableView(w);
+        const view = this.toAvailableView(w, userId);
         const remaining = view.remainingAmount;
         if (remaining <= 0) {
           return {
@@ -414,14 +604,26 @@ export class WithdrawalPaymentService {
           };
         }
         const businessId = w.businessId?.toString() || payerBusinessId;
-        const { maxPayable, p2pPayRemainingInr } =
-          await this.businessService.getMaxPayableAmount(
-            businessId,
-            remaining,
+        const { maxPayable: businessMax, p2pPayRemainingInr } =
+          w.origin === 'business'
+            ? { maxPayable: remaining, p2pPayRemainingInr: null }
+            : await this.businessService.getMaxPayableAmount(
+                businessId,
+                remaining,
+                w.currency,
+                w.method,
+                (inr) => this.exchangeRateService.inrBudgetToUsdt(inr),
+              );
+
+        let maxPayable = businessMax;
+        if (isInvestor && limitView) {
+          maxPayable = this.capMaxPayableByInvestorLimit(
+            maxPayable,
+            limitView.remaining,
             w.currency,
             w.method,
-            (inr) => this.exchangeRateService.inrBudgetToUsdt(inr),
           );
+        }
 
         if (maxPayable <= 0) {
           return {
@@ -448,7 +650,11 @@ export class WithdrawalPaymentService {
             payCurrency: credit.payCurrency,
             payAmountInr: credit.payAmountInr,
             commissionAmount: credit.commissionAmount,
-            bonusAmount: credit.bonusAmount,
+            bonusAmount: visibleInvestorBonusAmount({
+              viewerRole: payer.role,
+              showToInvestor: settings.showCommissionToInvestor !== false,
+              bonusAmount: credit.bonusAmount,
+            }),
             netCredited: credit.netCredited,
             principalCredit: credit.principalCredit,
             creditCurrency: credit.creditCurrency,
@@ -464,29 +670,46 @@ export class WithdrawalPaymentService {
       page,
       limit,
       totalPages: Math.max(1, Math.ceil(total / limit) || 1),
+      needsLimit: false,
       needsPlan: false,
-      planAmounts: settings.investorPlanAmounts ?? [25000, 50000, 100000, 200000],
-      planAmount,
+      needsAmount: false,
+      matchAmount,
+      lots: limitView?.lots ?? [],
+      limitRemaining: limitView?.remaining ?? null,
+      limitAdded: limitView?.added ?? null,
+      planAmount: added > 0 ? added : null,
       targetAmount,
       paidTowardPlan,
       claimLockMinutes: settings.investorClaimLockMinutes,
       paySubmitMinutes: settings.investorPaySubmitMinutes,
+      showCommissionToInvestor: settings.showCommissionToInvestor !== false,
+      allowMobileNumberUpi: !!settings.allowMobileNumberUpi,
     };
   }
 
   /**
    * Claim a listed withdrawal for exclusive pay window (USER / INVESTOR payers).
-   * Refreshes deadlines if already claimed by self.
+   * Hold hides it from others until claimLockedUntil (default 7 min).
+   * Payer submit TAT is claimPayDeadline (default 5 min).
+   * Atomic so two Pay clicks cannot both succeed.
    */
   async claimWithdrawal(userId: string, withdrawalId: string) {
     const payer = await this.userModel.findById(userId).exec();
     if (!payer) throw new NotFoundException('User not found');
-    if (payer.role !== UserRole.USER && payer.role !== UserRole.INVESTOR) {
-      throw new ForbiddenException('Only users and investors can claim withdrawals for payment');
+    if (
+      payer.role !== UserRole.USER &&
+      payer.role !== UserRole.INVESTOR &&
+      payer.role !== UserRole.ADMIN &&
+      payer.role !== UserRole.SUB_ADMIN
+    ) {
+      throw new ForbiddenException('Not allowed to claim withdrawals for payment');
     }
 
-    if (payer.role === UserRole.INVESTOR && !payer.investorPlanAmount) {
-      throw new BadRequestException('Select an investor plan before claiming withdrawals');
+    if (payer.role === UserRole.INVESTOR) {
+      const limitView = this.usersService.getInvestorLimitSnapshot(payer);
+      if (limitView.needsLimit) {
+        throw new BadRequestException('Add a pay-limit amount first');
+      }
     }
 
     const withdrawal = await this.withdrawalModel.findById(withdrawalId).exec();
@@ -496,6 +719,8 @@ export class WithdrawalPaymentService {
       throw new BadRequestException('Cannot claim your own withdrawal');
     }
 
+    await this.assertNotInvestorToInvestor(payer.role, withdrawal.userId.toString());
+
     if (
       withdrawal.status !== TransactionStatus.PENDING &&
       withdrawal.status !== TransactionStatus.PROCESSING
@@ -503,10 +728,14 @@ export class WithdrawalPaymentService {
       throw new BadRequestException('Withdrawal is not open for payments');
     }
 
-    if (withdrawal.p2pListStatus !== 'listed') {
+    if (!isOpenOnPayList(withdrawal)) {
       throw new BadRequestException(
         'Withdrawal is waiting for business/admin approval before it can be paid',
       );
+    }
+
+    if (isAssignedToOther(withdrawal.assignedTo, userId)) {
+      throw new BadRequestException('This withdrawal is assigned to another payer');
     }
 
     if (this.getRemaining(withdrawal) <= 0) {
@@ -530,22 +759,90 @@ export class WithdrawalPaymentService {
     const paySubmitMs = await this.platformSettingsService.getPaySubmitMs();
     const claimLockedUntil = new Date(now.getTime() + claimLockMs);
     const claimPayDeadline = new Date(now.getTime() + paySubmitMs);
+    const userOid = new Types.ObjectId(userId);
 
-    withdrawal.claimLockedBy = new Types.ObjectId(userId);
-    withdrawal.claimLockedUntil = claimLockedUntil;
-    withdrawal.claimPayDeadline = claimPayDeadline;
-    await withdrawal.save();
+    const claimed = await this.withdrawalModel
+      .findOneAndUpdate(
+        {
+          _id: withdrawal._id,
+          status: { $in: [TransactionStatus.PENDING, TransactionStatus.PROCESSING] },
+          p2pListStatus: 'listed',
+          $or: [
+            { claimLockedBy: { $exists: false } },
+            { claimLockedBy: null },
+            { claimLockedUntil: { $exists: false } },
+            { claimLockedUntil: null },
+            { claimLockedUntil: { $lte: now } },
+            { claimLockedBy: userOid },
+            { claimLockedBy: userId },
+          ],
+        },
+        {
+          $set: {
+            claimLockedBy: userOid,
+            claimLockedUntil,
+            claimPayDeadline,
+          },
+        },
+        { new: true },
+      )
+      .exec();
+
+    if (!claimed) {
+      throw new BadRequestException(
+        'This withdrawal is temporarily claimed by another payer. Try again later.',
+      );
+    }
 
     await this.setClaimRedis(withdrawalId, userId, Math.ceil(claimLockMs / 1000));
+    this.p2pRealtime.emitListChanged('claimed', {
+      withdrawalId,
+      claimedBy: userId,
+    });
 
     return {
-      ...this.toAvailableView(withdrawal),
+      ...this.toAvailableView(claimed),
       claimLockedBy: userId,
       claimLockedUntil,
       claimPayDeadline,
       claimLockMs,
       paySubmitMs,
     };
+  }
+
+  /** Drop expired holds so the item returns to every payer list. */
+  async releaseExpiredClaims() {
+    const now = new Date();
+    const expired = await this.withdrawalModel
+      .find({
+        claimLockedBy: { $ne: null, $exists: true },
+        claimLockedUntil: { $lte: now },
+      })
+      .select('_id')
+      .lean()
+      .exec();
+
+    if (!expired.length) return 0;
+
+    const ids = expired.map((row) => row._id);
+    await this.withdrawalModel
+      .updateMany(
+        { _id: { $in: ids } },
+        {
+          $set: {
+            claimLockedBy: null,
+            claimLockedUntil: null,
+            claimPayDeadline: null,
+          },
+        },
+      )
+      .exec();
+
+    for (const row of expired) {
+      await this.clearClaimRedis(row._id.toString());
+    }
+    this.p2pRealtime.emitListChanged('released');
+    return expired.length;
   }
 
   async findById(withdrawalId: string, userId?: string) {
@@ -585,10 +882,20 @@ export class WithdrawalPaymentService {
       throw new BadRequestException('Withdrawal is not open for payments');
     }
 
-    if (withdrawal.p2pListStatus !== 'listed') {
+    if (!isOpenOnPayList(withdrawal)) {
       throw new BadRequestException(
         'Withdrawal is waiting for business/admin approval before it can be paid',
       );
+    }
+
+    const assignedToMe = isAssignedToPayer(withdrawal.assignedTo, payerUserId);
+    if (isAssignedToOther(withdrawal.assignedTo, payerUserId)) {
+      const rolePeek = await this.userModel.findById(payerUserId).select('role').lean().exec();
+      const adminPayer =
+        rolePeek?.role === UserRole.ADMIN || rolePeek?.role === UserRole.SUB_ADMIN;
+      if (!adminPayer) {
+        throw new BadRequestException('This withdrawal is assigned to another payer');
+      }
     }
 
     const now = new Date();
@@ -597,13 +904,14 @@ export class WithdrawalPaymentService {
       !!withdrawal.claimLockedUntil &&
       withdrawal.claimLockedUntil.getTime() > now.getTime();
 
-    if (claimActive && withdrawal.claimLockedBy!.toString() !== payerUserId) {
+    if (!assignedToMe && claimActive && withdrawal.claimLockedBy!.toString() !== payerUserId) {
       throw new BadRequestException(
         'This withdrawal is temporarily claimed by another payer. Try again later.',
       );
     }
 
     if (
+      !assignedToMe &&
       claimActive &&
       withdrawal.claimLockedBy!.toString() === payerUserId &&
       withdrawal.claimPayDeadline &&
@@ -615,7 +923,7 @@ export class WithdrawalPaymentService {
     }
 
     // Auto-claim if unlocked so lock + pay deadline start on first submit
-    if (!claimActive) {
+    if (!assignedToMe && !claimActive) {
       const claimLockMs = await this.platformSettingsService.getClaimLockMs();
       const paySubmitMs = await this.platformSettingsService.getPaySubmitMs();
       withdrawal.claimLockedBy = new Types.ObjectId(payerUserId);
@@ -641,11 +949,24 @@ export class WithdrawalPaymentService {
 
     const isUsdtPayout = withdrawal.method === PaymentMethod.USDT;
     const refRaw = dto.utr?.trim() ?? '';
-    const refErr = paymentRefErrorForMethod(refRaw, withdrawal.method);
+    const hasSlip = !!dto.proofImageKey;
+    if (assignedToMe && !refRaw && !hasSlip) {
+      throw new BadRequestException('Submit UTR or upload a payment slip');
+    }
+    if (!assignedToMe && !refRaw) {
+      throw new BadRequestException('UTR / TxID is required');
+    }
+    const slipRef =
+      !refRaw && hasSlip
+        ? `SLIP${payerUserId.slice(-8).toUpperCase()}${String(Date.now()).slice(-6)}`
+        : '';
+    const refErr = refRaw ? paymentRefErrorForMethod(refRaw, withdrawal.method) : null;
     if (refErr) throw new BadRequestException(refErr);
-    const utrNorm = isUsdtPayout
-      ? String(normalizeTxHash(refRaw))
-      : String(normalizeUtr(refRaw));
+    const utrNorm = refRaw
+      ? isUsdtPayout
+        ? String(normalizeTxHash(refRaw))
+        : String(normalizeUtr(refRaw))
+      : slipRef;
     await assertUniquePaymentRef({
       paymentModel: this.paymentModel,
       withdrawalModel: this.withdrawalModel,
@@ -653,33 +974,72 @@ export class WithdrawalPaymentService {
       isUsdt: isUsdtPayout,
     });
 
-    this.storageService.validateProofKey(dto.proofImageKey, payerUserId);
-
-    const payer = await this.userModel.findById(payerUserId).exec();
-    // Prefer withdrawal's business (P2P flow) so admin "Set Commission" on that business applies
-    const businessId =
-      withdrawal.businessId?.toString() || payer?.referredByBusiness?.toString();
-    const payerBusinessId = payer?.referredByBusiness?.toString();
-    const isInvestor = payer?.role === UserRole.INVESTOR;
-
-    if (isInvestor && !payer?.investorPlanAmount) {
-      throw new BadRequestException('Select an investor plan before submitting payments');
+    if (dto.proofImageKey) {
+      this.storageService.validateProofKey(dto.proofImageKey, payerUserId);
     }
 
-    const { maxPayable, p2pPayRemainingInr } =
-      await this.businessService.getMaxPayableAmount(
+    const payer = await this.userModel.findById(payerUserId).exec();
+    await this.assertNotInvestorToInvestor(payer?.role, withdrawal.userId.toString());
+    const isAdminPayer =
+      payer?.role === UserRole.ADMIN || payer?.role === UserRole.SUB_ADMIN;
+    if (!assignedToMe && !dto.proofImageKey && !isAdminPayer) {
+      throw new BadRequestException('Payment proof is required');
+    }
+    const isBusinessOrigin = withdrawal.origin === 'business';
+    // Prefer withdrawal's business (P2P flow) so admin "Set Commission" on that business applies
+    const payerBusinessId = await this.businessService.findBusinessIdForUser(payer);
+    const businessId = withdrawal.businessId?.toString() || payerBusinessId;
+    const isInvestor = payer?.role === UserRole.INVESTOR;
+    const investorLimit = isInvestor && payer
+      ? this.usersService.getInvestorLimitSnapshot(payer)
+      : null;
+
+    if (isInvestor && investorLimit?.needsLimit) {
+      throw new BadRequestException('Add a pay-limit amount first');
+    }
+
+    let maxPayable = remaining;
+    let p2pPayRemainingInr: number | null = null;
+    if (!isBusinessOrigin) {
+      const cap = await this.businessService.getMaxPayableAmount(
         businessId,
         remaining,
         withdrawal.currency,
         withdrawal.method,
         (inr) => this.exchangeRateService.inrBudgetToUsdt(inr),
       );
+      maxPayable = cap.maxPayable;
+      p2pPayRemainingInr = cap.p2pPayRemainingInr;
+    }
+    if (isInvestor && investorLimit) {
+      maxPayable = this.capMaxPayableByInvestorLimit(
+        maxPayable,
+        investorLimit.remaining,
+        withdrawal.currency,
+        withdrawal.method,
+      );
+    }
     if (dto.amount > maxPayable) {
       throw new BadRequestException(
-        p2pPayRemainingInr != null
-          ? `Amount exceeds business P2P pay limit. Max payable ${maxPayable} (limit remaining ₹${p2pPayRemainingInr})`
-          : `Amount exceeds max payable ${maxPayable}`,
+        isInvestor && investorLimit
+          ? `Amount exceeds investor pay limit. Max payable ${maxPayable} (limit remaining ₹${investorLimit.remaining})`
+          : p2pPayRemainingInr != null
+            ? `Amount exceeds business P2P pay limit. Max payable ${maxPayable} (limit remaining ₹${p2pPayRemainingInr})`
+            : `Amount exceeds max payable ${maxPayable}`,
       );
+    }
+
+    if (!isAdminPayer) {
+      const allowPartial = await this.platformSettingsService.allowPartialPay();
+      const partialErr = partialPayError({
+        amount: dto.amount,
+        remaining,
+        maxPayable,
+        method: withdrawal.method,
+        currency: withdrawal.currency,
+        allowPartial,
+      });
+      if (partialErr) throw new BadRequestException(partialErr);
     }
 
     const estimate = await this.computeCreditBreakdown(
@@ -693,8 +1053,25 @@ export class WithdrawalPaymentService {
     // Business P2P limit is INR — convert USDT pays to INR for limit accounting
     const limitConsumeAmount = Math.round(estimate.payAmountInr * 100) / 100;
 
-    if (businessId) {
-      await this.businessService.reserveP2pPay(businessId, limitConsumeAmount);
+    if (businessId && !isBusinessOrigin) {
+      await this.businessService.reserveP2pPay(businessId, limitConsumeAmount, {
+        referenceType: 'withdrawal',
+        referenceId: withdrawal._id.toString(),
+      });
+    }
+
+    if (isInvestor) {
+      try {
+        await this.usersService.consumeInvestorLimit(payerUserId, limitConsumeAmount);
+      } catch (err) {
+        if (businessId && !isBusinessOrigin) {
+          await this.businessService.releaseP2pPay(businessId, limitConsumeAmount, {
+            referenceType: 'withdrawal',
+            referenceId: withdrawal._id.toString(),
+          });
+        }
+        throw err;
+      }
     }
 
     const referenceId = `WDP-${Date.now()}-${uuidv4().slice(0, 8).toUpperCase()}`;
@@ -712,7 +1089,7 @@ export class WithdrawalPaymentService {
           : undefined,
         amount: dto.amount,
         currency: withdrawal.currency,
-        utr: dto.utr.trim(),
+        utr: utrNorm,
         proofImageKey: dto.proofImageKey,
         proofImageUrl: dto.proofImageUrl,
         status: TransactionStatus.PENDING,
@@ -722,8 +1099,14 @@ export class WithdrawalPaymentService {
         estimatedNetCredited: estimate.netCredited,
       });
     } catch (err) {
-      if (businessId) {
-        await this.businessService.releaseP2pPay(businessId, limitConsumeAmount);
+      if (businessId && !isBusinessOrigin) {
+        await this.businessService.releaseP2pPay(businessId, limitConsumeAmount, {
+          referenceType: 'withdrawal',
+          referenceId: withdrawal._id.toString(),
+        });
+      }
+      if (isInvestor) {
+        await this.usersService.restoreInvestorLimit(payerUserId, limitConsumeAmount);
       }
       throw err;
     }
@@ -737,6 +1120,7 @@ export class WithdrawalPaymentService {
     withdrawal.set('claimPayDeadline', null);
     await withdrawal.save();
     await this.clearClaimRedis(withdrawalId);
+    this.p2pRealtime.emitListChanged('updated', { withdrawalId });
 
     const note = paymentReceivedNotification({
       payAmount: dto.amount,
@@ -1022,7 +1406,7 @@ export class WithdrawalPaymentService {
 
   /** Payments related to a business: WD owned by biz OR paid by that biz's users. */
   async findForBusinessOwner(ownerUserId: string, opts: WithdrawalPaymentListOpts = {}) {
-    const business = await this.businessService.findByOwner(ownerUserId);
+    const business = await this.businessService.findForActor(ownerUserId);
     return this.findForBusiness(business._id.toString(), opts);
   }
 
@@ -1038,11 +1422,31 @@ export class WithdrawalPaymentService {
       },
     ];
     if (status) and.push({ status });
+    if (opts.method && opts.method !== 'all') {
+      const matchingWithdrawals = await this.withdrawalModel
+        .find({
+          $or: [{ businessId: bid }, { businessId: businessId }],
+          method: opts.method as PaymentMethod,
+        })
+        .select('_id')
+        .lean()
+        .exec();
+      and.push({ withdrawalId: { $in: matchingWithdrawals.map((w) => w._id) } });
+    }
     if (search) {
+      const matchingWithdrawals = await this.withdrawalModel
+        .find({
+          $or: [{ businessId: bid }, { businessId: businessId }],
+          referenceId: { $regex: search, $options: 'i' },
+        })
+        .select('_id')
+        .lean()
+        .exec();
       and.push({
         $or: [
           { referenceId: { $regex: search, $options: 'i' } },
           { utr: { $regex: search, $options: 'i' } },
+          { withdrawalId: { $in: matchingWithdrawals.map((w) => w._id) } },
         ],
       });
     }
@@ -1057,8 +1461,16 @@ export class WithdrawalPaymentService {
     const [items, total] = await Promise.all([
       this.paymentModel
         .find(filter)
-        .populate('withdrawalId', 'referenceId method amount currency userId')
-        .populate('payerUserId', 'name email businessUserCode')
+        .populate({
+          path: 'withdrawalId',
+          select:
+            'referenceId method amount currency userId status paidAmount upiDetails bankDetails usdtDetails createdAt completedAt p2pListStatus origin',
+          populate: {
+            path: 'userId',
+            select: 'name email phone role status businessUserCode externalRef',
+          },
+        })
+        .populate('payerUserId', 'name email phone role status businessUserCode externalRef')
         .skip(skip)
         .limit(limit)
         .sort(sortSpec)
@@ -1124,7 +1536,7 @@ export class WithdrawalPaymentService {
         .limit(limit)
         .sort(sortSpec)
         .populate('withdrawalId')
-        .populate('payerUserId', 'name email')
+        .populate('payerUserId', 'name email phone role status businessUserCode')
         .exec(),
       this.paymentModel.countDocuments(filter).exec(),
     ]);
@@ -1186,11 +1598,29 @@ export class WithdrawalPaymentService {
     const balanceBefore = payerWallet.balance;
 
     // Dispute frees P2P quota so others can pay — reclaim it when admin resolves as approved.
-    if (payment.disputedAt && payment.businessId) {
+    if (payment.disputedAt && payment.businessId && withdrawal.origin !== 'business') {
       await this.businessService.reserveP2pPay(
         payment.businessId.toString(),
         this.paymentLimitInr(payment),
+        { referenceType: 'withdrawal_payment', referenceId: payment._id.toString() },
       );
+    }
+    if (payment.disputedAt && isInvestor) {
+      try {
+        await this.usersService.consumeInvestorLimit(
+          payment.payerUserId.toString(),
+          this.paymentLimitInr(payment),
+        );
+      } catch (err) {
+        if (payment.businessId && withdrawal.origin !== 'business') {
+          await this.businessService.releaseP2pPay(
+            payment.businessId.toString(),
+            this.paymentLimitInr(payment),
+            { referenceType: 'withdrawal_payment', referenceId: payment._id.toString() },
+          );
+        }
+        throw err;
+      }
     }
 
     if (payment.businessId) {
@@ -1206,6 +1636,19 @@ export class WithdrawalPaymentService {
           businessCommission,
         );
       }
+    }
+
+    const payerBizId =
+      payment.payerBusinessId?.toString() ||
+      (await this.businessService.findBusinessIdForUser(payer));
+    if (payerBizId) {
+      if (!payment.payerBusinessId) {
+        payment.payerBusinessId = new Types.ObjectId(payerBizId);
+      }
+      await this.businessService.creditP2pPayQuota(payerBizId, breakdown.payAmountInr, {
+        referenceType: 'withdrawal_payment',
+        referenceId: payment._id.toString(),
+      });
     }
 
     // Regular users (not investors): mirror deposit onto partner site wallet when configured.
@@ -1244,20 +1687,30 @@ export class WithdrawalPaymentService {
       balanceAfter: updatedPayerWallet.balance,
       referenceType: 'withdrawal_payment',
       referenceId: payment._id.toString(),
-      description: isInvestor
+      description: (isInvestor
         ? `Investment via pay — ${withdrawal.referenceId}` +
           (breakdown.payCurrency === Currency.USDT
             ? ` (${payment.amount} USDT → ₹${principalCredit}${rateNote})`
             : '')
-        : `P2P payment — ${withdrawal.referenceId}`,
+        : `P2P payment — ${withdrawal.referenceId}`) +
+        feeCutNote(
+          breakdown.platformCommission || 0,
+          businessCommission,
+          creditCurrency,
+        ),
       businessId: payment.businessId?.toString(),
+      fromParty: payer ? `${payer.name} (${payer.role})` : undefined,
+      toParty: payer ? `${payer.name} wallet` : undefined,
     });
 
     // 2) Investor bonus only after plan target is met (admin-controlled rates).
     let creditedBonus = 0;
     if (investorBonus > 0 && isInvestor) {
       const settings = await this.platformSettingsService.get();
-      const planAmount = payer?.investorPlanAmount || 0;
+      const planAmount =
+        (payer ? this.usersService.getInvestorLimitSnapshot(payer).added : 0) ||
+        payer?.investorPlanAmount ||
+        0;
       const multiplier = settings.investorPlanTargetMultiplier ?? 1.1;
       const paidTowardPlan = await this.getPaidTowardPlan(
         payment.payerUserId.toString(),
@@ -1277,20 +1730,53 @@ export class WithdrawalPaymentService {
           creditedBonus,
           creditField,
         );
+        const admin = await this.platformCommissionService.findPlatformAdmin();
         await this.transactionService.record({
           userId: payment.payerUserId.toString(),
           walletId: payerWallet._id.toString(),
-          type: ledgerType,
+          type: LedgerType.COMMISSION,
+          direction: LedgerDirection.CREDIT,
+          flow: LedgerFlow.INVESTOR_COMMISSION,
           amount: creditedBonus,
           currency: creditCurrency,
           balanceBefore: bonusBefore,
           balanceAfter: updatedPayerWallet.balance,
           referenceType: 'withdrawal_payment_bonus',
           referenceId: payment._id.toString(),
-          description: `Investor bonus (+₹${creditedBonus}) after plan target on ${withdrawal.referenceId}${rateNote}`,
+          description: `Investor commission (+₹${creditedBonus}) from platform after plan target on ${withdrawal.referenceId}${rateNote}`,
+          businessId: payment.businessId?.toString(),
+          counterpartyUserId: admin._id.toString(),
+          fromParty: `${admin.name} (admin)`,
+          toParty: `${payer?.name || 'Investor'} (investor)`,
+        });
+        await this.platformCommissionService.debitInvestorCommission({
+          amount: creditedBonus,
+          currency: creditCurrency,
+          toUserId: payment.payerUserId.toString(),
+          toName: payer?.name || 'Investor',
+          toRole: UserRole.INVESTOR,
+          referenceType: 'withdrawal_payment_bonus',
+          referenceId: payment._id.toString(),
+          referenceLabel: payment.referenceId || withdrawal.referenceId,
           businessId: payment.businessId?.toString(),
         });
       }
+    }
+
+    const platformFeeAmount = breakdown.platformCommission || 0;
+    if (platformFeeAmount > 0 || businessCommission > 0) {
+      await this.platformCommissionService.creditCollectedFees({
+        platformAmount: platformFeeAmount,
+        businessAmount: businessCommission,
+        currency: creditCurrency,
+        fromUserId: payment.payerUserId.toString(),
+        fromName: payer?.name || 'Payer',
+        fromRole: payer?.role,
+        referenceType: 'withdrawal_payment',
+        referenceId: payment._id.toString(),
+        referenceLabel: payment.referenceId || withdrawal.referenceId,
+        businessId: payment.businessId?.toString(),
+      });
     }
 
     payment.commissionAmount = totalCommission;
@@ -1303,7 +1789,7 @@ export class WithdrawalPaymentService {
     payment.autoApproveAt = undefined;
     await payment.save();
 
-    // Business/platform fee is tracked on business stats only — never on user ledger.
+    // Platform fee → admin wallet; investor commission deducted from admin wallet (ledger above).
 
     withdrawal.reservedAmount = Math.max(
       0,
@@ -1364,7 +1850,12 @@ export class WithdrawalPaymentService {
           `Withdrawal payment confirmed — ${payment.referenceId}` +
           (settleInInr
             ? ` (${payment.amount} USDT → ₹${settleAmount})`
-            : ''),
+            : '') +
+          feeCutNote(
+            breakdown.platformCommission || 0,
+            businessCommission,
+            settleCurrency,
+          ),
         businessId: withdrawal.businessId?.toString(),
       });
     }
@@ -1456,6 +1947,10 @@ export class WithdrawalPaymentService {
       },
     });
 
+    this.p2pRealtime.emitListChanged('updated', {
+      withdrawalId: withdrawal._id.toString(),
+    });
+
     return payment;
   }
 
@@ -1480,7 +1975,7 @@ export class WithdrawalPaymentService {
       paymentId,
       userEmail || 'user-received',
       userId,
-      'Confirmed received by withdrawer — investment unlocked from pending lock',
+      'Confirmed received by withdrawer',
     );
   }
 
@@ -1592,8 +2087,10 @@ export class WithdrawalPaymentService {
       await this.businessService.releaseP2pPay(
         payment.businessId.toString(),
         this.paymentLimitInr(payment),
+        { referenceType: 'withdrawal_payment', referenceId: payment._id.toString() },
       );
     }
+    await this.restoreInvestorPayLimit(payment.payerUserId.toString(), payment);
 
     withdrawal.reservedAmount = Math.max(
       0,
@@ -1679,7 +2176,11 @@ export class WithdrawalPaymentService {
       await this.businessService.releaseP2pPay(
         payment.businessId.toString(),
         this.paymentLimitInr(payment),
+        { referenceType: 'withdrawal_payment', referenceId: payment._id.toString() },
       );
+    }
+    if (!wasDisputed) {
+      await this.restoreInvestorPayLimit(payment.payerUserId.toString(), payment);
     }
 
     const withdrawal = await this.withdrawalModel.findById(payment.withdrawalId).exec();
@@ -1711,6 +2212,10 @@ export class WithdrawalPaymentService {
       'withdrawal_payment',
       payment._id.toString(),
     );
+
+    this.p2pRealtime.emitListChanged('updated', {
+      withdrawalId: payment.withdrawalId.toString(),
+    });
 
     return payment;
   }
@@ -1787,6 +2292,14 @@ export class WithdrawalPaymentService {
     withdrawal.p2pListStatus = 'listed';
     await withdrawal.save(session ? { session } : undefined);
 
+    if (withdrawal.origin === 'business' && withdrawal.businessId) {
+      await this.businessService.consumeP2pPay(
+        withdrawal.businessId.toString(),
+        withdrawal.amount,
+        { referenceType: 'withdrawal', referenceId: withdrawal._id.toString() },
+      );
+    }
+
     await this.notificationService.send(
       withdrawal.userId.toString(),
       'Withdrawal Completed',
@@ -1806,12 +2319,27 @@ export class WithdrawalPaymentService {
     }
   }
 
-  private toAvailableView(w: WithdrawalDocument) {
+  private async assertNotInvestorToInvestor(
+    payerRole: string | undefined,
+    ownerUserId: string,
+  ) {
+    if (payerRole !== UserRole.INVESTOR) return;
+    const owner = await this.userModel.findById(ownerUserId).select('role').lean().exec();
+    if (isInvestorToInvestorPay(payerRole, owner?.role)) {
+      throw new ForbiddenException(
+        'Investors cannot pay another investor — deposits and withdrawals are not investor-to-investor',
+      );
+    }
+  }
+
+  private toAvailableView(w: WithdrawalDocument, viewerId?: string) {
     const remaining = this.getRemaining(w);
     const reserved = w.reservedAmount || 0;
     const approved = w.paidAmount || 0;
     const now = Date.now();
+    const assignedToMe = viewerId ? isAssignedToPayer(w.assignedTo, viewerId) : false;
     const claimActive =
+      !assignedToMe &&
       !!w.claimLockedBy &&
       !!w.claimLockedUntil &&
       w.claimLockedUntil.getTime() > now;
@@ -1837,6 +2365,8 @@ export class WithdrawalPaymentService {
       claimLockedBy: claimActive ? w.claimLockedBy?.toString() : null,
       claimLockedUntil: claimActive ? w.claimLockedUntil : null,
       claimPayDeadline: claimActive ? w.claimPayDeadline ?? null : null,
+      origin: w.origin,
+      assignedToMe,
     };
   }
 
@@ -1955,6 +2485,32 @@ export class WithdrawalPaymentService {
       ? this.exchangeRateService.usdtToInr(payment.amount)
       : payment.amount;
     return Math.round(inr * 100) / 100;
+  }
+
+  private capMaxPayableByInvestorLimit(
+    maxPayable: number,
+    remainingInr: number,
+    payCurrency: string,
+    method?: string,
+  ) {
+    const rounded = Math.round(Math.max(0, remainingInr) * 100) / 100;
+    if (rounded <= 0 || maxPayable <= 0) return 0;
+    const payIsUsdt =
+      (payCurrency || '').toUpperCase() === Currency.USDT ||
+      method === PaymentMethod.USDT;
+    const cap = payIsUsdt
+      ? this.exchangeRateService.inrBudgetToUsdt(rounded)
+      : rounded;
+    return Math.min(maxPayable, Math.round(cap * 100) / 100);
+  }
+
+  private async restoreInvestorPayLimit(
+    payerUserId: string,
+    payment: { amount: number; currency?: string },
+  ) {
+    const payer = await this.userModel.findById(payerUserId).select('role').lean().exec();
+    if (payer?.role !== UserRole.INVESTOR) return;
+    await this.usersService.restoreInvestorLimit(payerUserId, this.paymentLimitInr(payment));
   }
 
   private maskUtr(utr: string) {

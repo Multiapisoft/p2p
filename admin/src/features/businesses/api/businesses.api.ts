@@ -1,4 +1,4 @@
-import { apiGet, apiPost } from '@/shared/api/client';
+import { apiGet, apiPatch, apiPost } from '@/shared/api/client';
 import type { Business, BusinessStats, Paginated } from '@/shared/types/api.types';
 
 export type BusinessListQuery = {
@@ -24,4 +24,14 @@ export const businessesApi = {
     apiGet<Paginated<Business>>('/business', cleanQuery(query)),
   approve: (id: string) => apiPost<Business>(`/business/${id}/approve`),
   getStats: (id: string) => apiGet<BusinessStats>(`/business/${id}/stats`),
+  setP2pPayLimit: (id: string, p2pPayLimit: number) =>
+    apiPatch<Business>(`/business/${id}/p2p-pay-limit`, { p2pPayLimit }),
+  update: (
+    id: string,
+    body: Partial<{
+      depositsEnabled: boolean;
+      withdrawalsEnabled: boolean;
+      b2bMatchingEnabled: boolean;
+    }>,
+  ) => apiPatch<Business>(`/business/${id}`, body),
 };

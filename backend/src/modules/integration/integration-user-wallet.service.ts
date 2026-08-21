@@ -14,6 +14,7 @@ import { WebhookService } from '../webhook/webhook.service';
 import { DepositService } from '../deposit/deposit.service';
 import { WithdrawalService } from '../withdrawal/withdrawal.service';
 import { Currency, LedgerType } from '../../common/enums/currency.enum';
+import { BusinessService } from '../business/business.service';
 
 @Injectable()
 export class IntegrationUserWalletService {
@@ -24,6 +25,7 @@ export class IntegrationUserWalletService {
     private webhookService: WebhookService,
     private depositService: DepositService,
     private withdrawalService: WithdrawalService,
+    private businessService: BusinessService,
   ) {}
 
   private async assertBusinessUser(businessId: string, userId: string) {
@@ -102,6 +104,11 @@ export class IntegrationUserWalletService {
       referenceId: externalRef || userId,
       description: reason || 'Balance credited by business partner',
       businessId,
+    });
+
+    await this.businessService.creditP2pPayQuota(businessId, amount, {
+      referenceType: 'integration_credit',
+      referenceId: externalRef || userId,
     });
 
     await this.webhookService.dispatch(businessId, 'user.credited', {

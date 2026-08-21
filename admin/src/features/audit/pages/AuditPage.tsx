@@ -8,6 +8,9 @@ import { Input } from '@/shared/components/ui/Input';
 import { Pagination } from '@/shared/components/ui/Pagination';
 import { LoadingScreen, EmptyState } from '@/shared/components/ui/Icon';
 import { formatDate } from '@/shared/lib/utils';
+import { fetchAllPages } from '@/shared/lib/csv';
+import { CsvDownloadButton } from '@/shared/components/CsvDownloadButton';
+import type { AuditLog } from '@/shared/types/api.types';
 
 const ACTION_FILTERS = [
   { value: 'all', label: 'All actions' },
@@ -67,9 +70,27 @@ export function AuditPage() {
 
   return (
     <div className="mx-auto max-w-7xl space-y-4 sm:space-y-6">
-      <div>
-        <h1 className="font-[family-name:var(--font-headline)] text-xl font-bold sm:text-2xl">Audit Logs</h1>
-        <p className="mt-0.5 text-sm text-on-surface-variant">Admin action history</p>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h1 className="font-[family-name:var(--font-headline)] text-xl font-bold sm:text-2xl">Audit Logs</h1>
+          <p className="mt-0.5 text-sm text-on-surface-variant">Admin action history</p>
+        </div>
+        <CsvDownloadButton<AuditLog>
+          title="Audit log"
+          filename={`audit-${status}`}
+          filters={{ Status: status, Resource: resource, Search: search, Sort: sort }}
+          disabled={!total}
+          columns={[
+            { header: 'Actor', value: (a) => a.actorEmail },
+            { header: 'Action', value: (a) => a.action },
+            { header: 'Resource', value: (a) => a.resource },
+            { header: 'Resource ID', value: (a) => a.resourceId || '' },
+            { header: 'Created', value: (a) => a.createdAt },
+          ]}
+          fetchRows={() =>
+            fetchAllPages((p, l) => auditApi.getAll({ ...listQuery, page: p, limit: l }))
+          }
+        />
       </div>
 
       <div className="grid grid-cols-3 gap-2 sm:gap-3">

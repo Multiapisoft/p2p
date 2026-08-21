@@ -15,6 +15,19 @@ export function buildUpiPayUri(opts: {
   return `upi://pay?${params.toString()}`;
 }
 
+export function buildUpiAppLinks(opts: {
+  upiId: string;
+  name?: string;
+  amount?: number;
+}): { id: string; label: string; href: string }[] {
+  const qs = buildUpiPayUri(opts).replace(/^upi:\/\/pay\?/, '');
+  return [
+    { id: 'phonepe', label: 'PhonePe', href: `phonepe://pay?${qs}` },
+    { id: 'gpay', label: 'GPay', href: `tez://upi/pay?${qs}` },
+    { id: 'paytm', label: 'Paytm', href: `paytmmp://pay?${qs}` },
+  ];
+}
+
 export function formatSecondsMmSs(totalSeconds: number): string {
   const s = Math.max(0, Math.floor(totalSeconds));
   const m = Math.floor(s / 60);

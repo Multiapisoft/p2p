@@ -69,11 +69,12 @@ export class WalletService {
     /** Pass `false` to reverse a mirror credit without counting as withdrawn. */
     field: 'totalWithdrawn' | 'totalRedeemed' | false = 'totalWithdrawn',
     session?: ClientSession,
+    options?: { allowOverdraft?: boolean },
   ) {
     if (amount <= 0) throw new BadRequestException('Amount must be positive');
     const wallet = await this.walletModel.findById(walletId).session(session || null);
     if (!wallet) throw new NotFoundException('Wallet not found');
-    if (wallet.balance - wallet.lockedBalance < amount) {
+    if (!options?.allowOverdraft && wallet.balance - wallet.lockedBalance < amount) {
       throw new BadRequestException('Insufficient balance');
     }
     wallet.balance -= amount;
@@ -168,6 +169,43 @@ export class WalletService {
       amount,
       reason,
     };
+  }
+
+  /**
+   * Super-admin: zero wallets for a user/investor (or business owner) and
+   * cancel open pending withdrawals/deposits (Noida #68).
+   */
+  async resetEntityTxnData(opts: {
+    userIds: string[];
+    adminEmail: string;
+    reason: string;
+  }) {
+    const results: { userId: string; wallets: number }[] = [];
+    for (const userId of opts.userIds) {
+      const wallets = await this.walletModel.find({ userId }).exec();
+      for (const wallet of wallets) {
+        const balanceBefore = wallet.balance;
+        const lockedBefore = wallet.lockedBalance || 0;
+        if (balanceBefore === 0 && lockedBefore === 0) continue;
+        wallet.balance = 0;
+        wallet.lockedBalance = 0;
+        await wallet.save();
+        await this.transactionService.record({
+          userId,
+          walletId: wallet._id.toString(),
+          type: LedgerType.ADJUSTMENT,
+          amount: balanceBefore,
+          balanceBefore,
+          balanceAfter: 0,
+          referenceType: 'txn_data_reset',
+          referenceId: wallet._id.toString(),
+          description: `Txn data reset by ${opts.adminEmail}: ${opts.reason}`,
+        });
+      }
+      await this.invalidateCache(userId);
+      results.push({ userId, wallets: wallets.length });
+    }
+    return results;
   }
 
   private async invalidateCache(userId: string) {

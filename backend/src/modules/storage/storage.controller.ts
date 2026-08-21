@@ -37,7 +37,7 @@ export class StorageController {
   @UseInterceptors(
     FileInterceptor('file', {
       storage: memoryStorage(),
-      limits: { fileSize: 5 * 1024 * 1024 },
+      limits: { fileSize: 10 * 1024 * 1024 },
     }),
   )
   async uploadProof(
@@ -61,10 +61,7 @@ export class StorageController {
       throw new BadRequestException('Invalid path');
     }
     const buffer = await this.storageService.readLocalFile(key);
-    const ext = key.split('.').pop()?.toLowerCase();
-    const type =
-      ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
-    res.setHeader('Content-Type', type);
+    res.setHeader('Content-Type', this.storageService.contentTypeForKey(key));
     res.setHeader('Cache-Control', 'public, max-age=86400');
     res.send(buffer);
   }

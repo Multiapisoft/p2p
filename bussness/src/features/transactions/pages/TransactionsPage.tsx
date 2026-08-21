@@ -12,6 +12,8 @@ import { LoadingScreen, EmptyState } from '@/shared/components/ui/Icon';
 import { PageHeader } from '@/shared/components/layout/PageHeader';
 import { Modal } from '@/shared/components/ui/Modal';
 import { formatCurrency, formatDate } from '@/shared/lib/utils';
+import { CsvDownloadButton } from '@/shared/components/CsvDownloadButton';
+import { fetchAllPages } from '@/shared/lib/csv';
 import type { LedgerEntry } from '@/shared/types/api.types';
 
 const TYPE_FILTERS = [
@@ -22,6 +24,7 @@ const TYPE_FILTERS = [
   { value: 'investment', label: 'Investment' },
   { value: 'redemption', label: 'Redemption' },
   { value: 'adjustment', label: 'Adjustment' },
+  { value: 'p2p_limit', label: 'Pay limit' },
   { value: 'lock', label: 'Lock' },
   { value: 'unlock', label: 'Unlock' },
 ];
@@ -80,7 +83,29 @@ export function TransactionsPage() {
     <div className="mx-auto max-w-7xl space-y-6">
       <PageHeader
         title="Transaction Ledger"
-        description="Your partner float wallet activity — deposits lock, withdrawals credit"
+        description="Bank-statement style activity — credit, debit and running balance for every record"
+        action={
+          <CsvDownloadButton<LedgerEntry>
+            title="Business ledger"
+            filename="business-ledger"
+            filters={{ Type: type, Search: search, Sort: sort }}
+            disabled={!total}
+            columns={[
+              { header: 'Type', value: (t) => t.type },
+              { header: 'Direction', value: (t) => t.direction },
+              { header: 'Amount', value: (t) => t.amount },
+              { header: 'Balance', value: (t) => t.balanceAfter ?? '' },
+              { header: 'Currency', value: (t) => t.currency },
+              { header: 'Description', value: (t) => t.description },
+              { header: 'Created', value: (t) => t.createdAt },
+            ]}
+            fetchRows={() =>
+              fetchAllPages((page, limit) =>
+                transactionsApi.getMy({ ...listQuery, page, limit }),
+              )
+            }
+          />
+        }
       />
 
       <div className="grid gap-3 sm:grid-cols-3">
@@ -190,7 +215,8 @@ export function TransactionsPage() {
                 <thead className="border-b border-outline-variant">
                   <tr>
                     <th className="pb-3 pr-4 font-semibold text-on-surface-variant">Type</th>
-                    <th className="pb-3 pr-4 font-semibold text-on-surface-variant">Amount</th>
+                    <th className="pb-3 pr-4 font-semibold text-on-surface-variant">Credit</th>
+                    <th className="pb-3 pr-4 font-semibold text-on-surface-variant">Debit</th>
                     <th className="pb-3 pr-4 font-semibold text-on-surface-variant">Balance</th>
                     <th className="pb-3 pr-4 font-semibold text-on-surface-variant">Reference</th>
                     <th className="pb-3 pr-4 font-semibold text-on-surface-variant">Description</th>
@@ -205,11 +231,13 @@ export function TransactionsPage() {
                       onClick={() => setSelected(t)}
                     >
                       <td className="py-3 pr-4 capitalize">{t.type}</td>
-                      <td className="py-3 pr-4 font-semibold">
-                        {formatCurrency(t.amount, t.currency)}
+                      <td className="py-3 pr-4 font-semibold text-secondary">
+                        {t.direction === 'credit' ? formatCurrency(t.amount, t.currency) : '—'}
+                      </td>
+                      <td className="py-3 pr-4 font-semibold text-error">
+                        {t.direction === 'debit' ? formatCurrency(t.amount, t.currency) : '—'}
                       </td>
                       <td className="py-3 pr-4 text-xs text-on-surface-variant">
-                        {formatCurrency(t.balanceBefore, t.currency)} →{' '}
                         {formatCurrency(t.balanceAfter, t.currency)}
                       </td>
                       <td className="py-3 pr-4">
@@ -246,7 +274,11 @@ export function TransactionsPage() {
           <div className="space-y-1">
             <DetailRow label="Type" value={<span className="capitalize">{selected.type}</span>} />
             <DetailRow
-              label="Amount"
+              label="Direction"
+              value={<span className="capitalize">{selected.direction || '—'}</span>}
+            />
+            <DetailRow
+              label={selected.direction === 'credit' ? 'Credit' : 'Debit'}
               value={formatCurrency(selected.amount, selected.currency)}
             />
             <DetailRow
@@ -254,9 +286,11 @@ export function TransactionsPage() {
               value={formatCurrency(selected.balanceBefore, selected.currency)}
             />
             <DetailRow
-              label="Balance after"
+              label="Balance after / current"
               value={formatCurrency(selected.balanceAfter, selected.currency)}
             />
+            <DetailRow label="From" value={selected.fromParty || '—'} />
+            <DetailRow label="To" value={selected.toParty || '—'} />
             <DetailRow label="Reference type" value={selected.referenceType || '—'} />
             <DetailRow label="Reference ID" value={selected.referenceId || '—'} />
             <DetailRow label="Description" value={selected.description || '—'} />

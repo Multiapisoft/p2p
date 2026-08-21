@@ -8,14 +8,21 @@ export type DepositDocument = HydratedDocument<Deposit>;
 
 @Schema({ _id: false })
 export class UpiDetails {
-  @Prop({ required: true })
-  upiId!: string;
+  @Prop()
+  upiId?: string;
 
   @Prop()
   payerName?: string;
 
   @Prop()
   utr?: string;
+
+  /** Uploaded UPI QR / scanner (XOR with upiId — Noida #37). */
+  @Prop()
+  qrImageKey?: string;
+
+  @Prop()
+  qrImageUrl?: string;
 }
 
 @Schema({ _id: false })
@@ -46,6 +53,18 @@ export class UsdtDetails {
 
   @Prop()
   txHash?: string;
+}
+
+@Schema({ _id: false })
+export class CdmDetails {
+  @Prop()
+  locationHint?: string;
+
+  @Prop()
+  notes?: string;
+
+  @Prop()
+  payerName?: string;
 }
 
 @Schema({ timestamps: true, collection: 'deposits' })
@@ -82,6 +101,9 @@ export class Deposit {
 
   @Prop({ type: UsdtDetails })
   usdtDetails?: UsdtDetails;
+
+  @Prop({ type: CdmDetails })
+  cdmDetails?: CdmDetails;
 
   @Prop({ default: 0 })
   commissionAmount!: number;

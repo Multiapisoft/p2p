@@ -51,6 +51,8 @@ export interface AvailableWithdrawal {
   claimLockedBy?: string | null;
   claimLockedUntil?: string | null;
   claimPayDeadline?: string | null;
+  origin?: 'user' | 'investor' | 'business';
+  assignedToMe?: boolean;
   /** Estimated wallet credit if you pay maxPayable (after verify, INR points) */
   creditIfPayFull?: {
     payAmount: number;
@@ -65,14 +67,34 @@ export interface AvailableWithdrawal {
   } | null;
 }
 
+export interface InvestorLimitLot {
+  amount: number;
+  remaining: number;
+  createdAt: string;
+}
+
+export interface InvestorLimitSnapshot {
+  lots: InvestorLimitLot[];
+  remaining: number;
+  added: number;
+  needsLimit: boolean;
+}
+
 export interface AvailableWithdrawalsResponse extends Paginated<AvailableWithdrawal> {
+  needsLimit?: boolean;
   needsPlan?: boolean;
-  planAmounts?: number[];
+  needsAmount?: boolean;
+  matchAmount?: number | null;
+  lots?: InvestorLimitLot[];
+  limitRemaining?: number | null;
+  limitAdded?: number | null;
   planAmount?: number | null;
   targetAmount?: number | null;
   paidTowardPlan?: number | null;
   claimLockMinutes?: number;
   paySubmitMinutes?: number;
+  showCommissionToInvestor?: boolean;
+  allowMobileNumberUpi?: boolean;
 }
 
 export interface ClaimWithdrawalResult extends AvailableWithdrawal {
@@ -112,9 +134,9 @@ export interface PresignResponse {
 
 export interface SubmitPaymentPayload {
   amount: number;
-  utr: string;
-  proofImageKey: string;
-  proofImageUrl: string;
+  utr?: string;
+  proofImageKey?: string;
+  proofImageUrl?: string;
 }
 
 export type FulfillListQuery = {
@@ -124,6 +146,7 @@ export type FulfillListQuery = {
   search?: string;
   sort?: string;
   method?: string;
+  amount?: number;
 };
 
 function cleanFulfillQuery(query: FulfillListQuery = {}) {
@@ -134,6 +157,7 @@ function cleanFulfillQuery(query: FulfillListQuery = {}) {
     search: query.search?.trim() || undefined,
     sort: query.sort || 'newest',
     method: query.method && query.method !== 'all' ? query.method : undefined,
+    amount: query.amount != null && query.amount >= 1 ? query.amount : undefined,
   };
 }
 
@@ -143,11 +167,10 @@ export const fulfillApi = {
       '/withdrawal-payments/available-withdrawals',
       cleanFulfillQuery(query),
     ),
+  addInvestorLimit: (amount: number) =>
+    apiPost<InvestorLimitSnapshot>('/users/me/investor-limit', { amount }),
   setInvestorPlan: (planAmount: number) =>
-    apiPatch<{ investorPlanAmount: number; targetAmount?: number }>(
-      '/users/me/investor-plan',
-      { planAmount },
-    ),
+    apiPatch<InvestorLimitSnapshot>('/users/me/investor-plan', { planAmount }),
   claimWithdrawal: (withdrawalId: string) =>
     apiPost<ClaimWithdrawalResult>(
       `/withdrawal-payments/withdrawal/${withdrawalId}/claim`,

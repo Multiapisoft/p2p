@@ -14,14 +14,21 @@ import { AddressQr } from '@/shared/components/AddressQr';
 import { LoadingScreen, EmptyState } from '@/shared/components/ui/Icon';
 import { apiErrorMessage, formatCurrency, formatDate } from '@/shared/lib/utils';
 import { normalizeUtr, normalizeTxHash, paymentRefErrorForMethod } from '@/shared/lib/validation';
-import {
-  buildUpiPayUri,
-  formatSecondsMmSs,
-  planAmountLabel,
-} from '@/shared/lib/upi-qr';
+import { buildUpiPayUri, buildUpiAppLinks, formatSecondsMmSs } from '@/shared/lib/upi-qr';
+import { minPartialAmount, partialPayError } from '@/shared/lib/partial-pay';
+import { InvestorLimitPanel } from '@/features/invest/components/InvestorLimitPanel';
+import { InvestAmountModal } from '@/features/invest/components/InvestAmountModal';
+import { apiGet } from '@/shared/api/client';
 import type { PaymentMethod } from '@/shared/types/api.types';
 
+const MATCH_AMOUNT_KEY = 'p2p-match-amount';
 const PAGE_SIZES = [5, 10, 20];
+
+function readStoredMatchAmount() {
+  if (typeof window === 'undefined') return null;
+  const n = Number(sessionStorage.getItem(MATCH_AMOUNT_KEY));
+  return Number.isFinite(n) && n >= 1 ? n : null;
+}
 
 type SortKey = 'amount_desc' | 'amount_asc' | 'remaining_desc' | 'remaining_asc' | 'newest' | 'oldest';
 
@@ -29,6 +36,7 @@ const METHOD_META: Record<PaymentMethod, { label: string; icon: string; color: s
   upi: { label: 'UPI', icon: 'qr_code_2', color: 'text-blue-600 bg-blue-500/10' },
   bank: { label: 'Bank', icon: 'account_balance', color: 'text-violet-600 bg-violet-500/10' },
   usdt: { label: 'USDT', icon: 'currency_bitcoin', color: 'text-orange-600 bg-orange-500/10' },
+  cdm: { label: 'CDM', icon: 'atm', color: 'text-emerald-700 bg-emerald-500/10' },
 };
 
 function moneyCurrency(w: { currency?: string; method?: string }) {
@@ -41,6 +49,7 @@ const METHOD_TABS: { value: PaymentMethod | 'all'; label: string }[] = [
   { value: 'upi', label: 'UPI' },
   { value: 'bank', label: 'Bank' },
   { value: 'usdt', label: 'USDT' },
+  { value: 'cdm', label: 'CDM' },
 ];
 
 const SORT_OPTIONS: { value: SortKey; label: string }[] = [
@@ -127,6 +136,21 @@ function PaymentDetailsPanel({
                   })}
                   label="Scan UPI QR"
                 />
+                <div className="flex flex-wrap gap-2 pt-2">
+                  {buildUpiAppLinks({
+                    upiId: w.upiDetails.upiId,
+                    name: w.upiDetails.payerName,
+                    amount: upiAmount > 0 ? upiAmount : undefined,
+                  }).map((app) => (
+                    <a
+                      key={app.id}
+                      href={app.href}
+                      className="rounded-full bg-secondary/15 px-2.5 py-1 text-[11px] font-semibold text-secondary"
+                    >
+                      Pay with {app.label}
+                    </a>
+                  ))}
+                </div>
               </div>
             ) : null}
           </>
@@ -206,6 +230,12 @@ export function InvestWithdrawalsList() {
   const [proofUrl, setProofUrl] = useState('');
   const [formError, setFormError] = useState('');
   const [now, setNow] = useState(() => Date.now());
+  const [matchAmount, setMatchAmount] = useState<number | null>(null);
+  const [matchInput, setMatchInput] = useState(() => {
+    const stored = readStoredMatchAmount();
+    return stored != null ? String(stored) : '';
+  });
+  const [amountModalOpen, setAmountModalOpen] = useState(false);
   const qc = useQueryClient();
 
   useEffect(() => {
@@ -223,8 +253,8 @@ export function InvestWithdrawalsList() {
   }, [claimPayDeadline, target]);
 
   const listQuery = useMemo(
-    () => ({ page, limit, search, sort, method }),
-    [page, limit, search, sort, method],
+    () => ({ page, limit, search, sort, method, amount: matchAmount ?? undefined }),
+    [page, limit, search, sort, method, matchAmount],
   );
 
   const payAmountNum = Number(payAmount);
@@ -243,10 +273,17 @@ export function InvestWithdrawalsList() {
   const { data, isLoading, isFetching, isError, error, refetch } = useQuery({
     queryKey: ['invest-withdrawals', listQuery],
     queryFn: () => fulfillApi.getAvailable(listQuery),
+    refetchInterval: 30_000,
   });
 
-  const selectPlan = useMutation({
-    mutationFn: (planAmount: number) => fulfillApi.setInvestorPlan(planAmount),
+  const { data: platformSettings } = useQuery({
+    queryKey: ['platform-settings'],
+    queryFn: () =>
+      apiGet<{ investorPlanAmounts?: number[] }>('/platform-settings'),
+  });
+
+  const addLimit = useMutation({
+    mutationFn: (amount: number) => fulfillApi.addInvestorLimit(amount),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['invest-withdrawals'] });
       qc.invalidateQueries({ queryKey: ['portfolio'] });
@@ -257,10 +294,13 @@ export function InvestWithdrawalsList() {
     mutationFn: () =>
       fulfillApi.submitPayment(target!._id, {
         amount: Number(payAmount),
-        utr:
-          moneyCurrency(target!) === 'USDT' ? normalizeTxHash(utr) : normalizeUtr(utr),
-        proofImageKey: proofKey,
-        proofImageUrl: proofUrl,
+        utr: utr.trim()
+          ? moneyCurrency(target!) === 'USDT'
+            ? normalizeTxHash(utr)
+            : normalizeUtr(utr)
+          : undefined,
+        proofImageKey: proofKey || undefined,
+        proofImageUrl: proofUrl || undefined,
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['invest-withdrawals'] });
@@ -290,6 +330,19 @@ export function InvestWithdrawalsList() {
     setFormError('');
     setClaimingId(w._id);
     try {
+      if (w.assignedToMe) {
+        setTarget(w);
+        setClaimPayDeadline(null);
+        resetForm();
+        const maxPay =
+          w.maxPayable != null
+            ? Math.min(w.maxPayable, w.remainingAmount)
+            : w.remainingAmount;
+        const pref =
+          matchAmount != null && matchAmount >= 1 ? Math.min(matchAmount, maxPay) : maxPay;
+        setPayAmount(String(pref > 0 ? pref : maxPay));
+        return;
+      }
       const claimed = await fulfillApi.claimWithdrawal(w._id);
       setTarget({ ...w, ...claimed });
       setClaimPayDeadline(claimed.claimPayDeadline);
@@ -298,7 +351,9 @@ export function InvestWithdrawalsList() {
         claimed.maxPayable != null
           ? Math.min(claimed.maxPayable, claimed.remainingAmount)
           : claimed.remainingAmount;
-      setPayAmount(String(maxPay > 0 ? maxPay : claimed.remainingAmount));
+      const pref =
+        matchAmount != null && matchAmount >= 1 ? Math.min(matchAmount, maxPay) : maxPay;
+      setPayAmount(String(pref > 0 ? pref : maxPay));
       qc.invalidateQueries({ queryKey: ['invest-withdrawals'] });
     } catch (err: unknown) {
       setFormError(apiErrorMessage(err, 'Could not claim this withdrawal'));
@@ -331,14 +386,36 @@ export function InvestWithdrawalsList() {
       );
       return;
     }
-    const refErr = paymentRefErrorForMethod(utr, target.method);
-    if (refErr) {
-      setFormError(refErr);
+    const partialErr = partialPayError({
+      amount: num,
+      remaining: target.remainingAmount,
+      maxPayable: maxPay,
+      method: target.method,
+      currency: target.currency,
+    });
+    if (partialErr) {
+      setFormError(partialErr);
       return;
     }
-    if (!proofKey || !proofUrl) {
-      setFormError('Please upload a payment screenshot');
-      return;
+    const refErr = utr.trim() ? paymentRefErrorForMethod(utr, target.method) : null;
+    if (target.assignedToMe) {
+      if (!utr.trim() && !proofKey) {
+        setFormError('UTR ya payment slip upload karo');
+        return;
+      }
+      if (refErr) {
+        setFormError(refErr);
+        return;
+      }
+    } else {
+      if (refErr) {
+        setFormError(refErr);
+        return;
+      }
+      if (!proofKey || !proofUrl) {
+        setFormError('Please upload a payment screenshot');
+        return;
+      }
     }
     submit.mutate();
   };
@@ -346,13 +423,37 @@ export function InvestWithdrawalsList() {
   const items = data?.items ?? [];
   const total = data?.total ?? 0;
   const totalPages = data?.totalPages ?? 1;
-  const needsPlan = !!data?.needsPlan;
-  const planAmounts = data?.planAmounts ?? [25000, 50000, 100000, 200000];
+  const needsLimit = !!(data?.needsLimit ?? data?.needsPlan);
+  const showBonus = data?.showCommissionToInvestor !== false;
+  const needsAmount = !needsLimit && (!matchAmount || !!data?.needsAmount);
+  const limitLots = data?.lots ?? [];
+  const limitRemaining = data?.limitRemaining ?? 0;
+  const limitAdded = data?.limitAdded ?? 0;
   const claimLockMinutes = data?.claimLockMinutes ?? 7;
   const paySecondsLeft = claimPayDeadline
     ? Math.max(0, Math.ceil((new Date(claimPayDeadline).getTime() - now) / 1000))
     : 0;
-  const payExpired = !!claimPayDeadline && paySecondsLeft <= 0;
+  const payExpired =
+    !target?.assignedToMe && !!claimPayDeadline && paySecondsLeft <= 0;
+
+  const applyMatchAmount = (n: number) => {
+    const cap = limitRemaining > 0 ? limitRemaining : null;
+    const amount = cap != null ? Math.min(n, cap) : n;
+    setMatchAmount(amount);
+    setMatchInput(String(amount));
+    setPage(1);
+    setAmountModalOpen(false);
+    sessionStorage.setItem(MATCH_AMOUNT_KEY, String(amount));
+  };
+
+  useEffect(() => {
+    if (loadingPortfolio || !data) return;
+    if (needsLimit) {
+      setAmountModalOpen(false);
+      return;
+    }
+    if (matchAmount == null) setAmountModalOpen(true);
+  }, [loadingPortfolio, data, needsLimit, matchAmount]);
 
   if (loadingPortfolio) return <LoadingScreen />;
 
@@ -373,44 +474,59 @@ export function InvestWithdrawalsList() {
 
   return (
     <div className="space-y-3">
+      <InvestAmountModal
+        open={amountModalOpen}
+        initialValue={matchInput}
+        cap={limitRemaining > 0 ? limitRemaining : null}
+        title="Enter invest amount"
+        onClose={() => setAmountModalOpen(false)}
+        onApply={applyMatchAmount}
+      />
       {formError && !target && (
         <div className="rounded-lg bg-error-container px-3 py-2 text-xs text-on-error-container">
           {formError}
         </div>
       )}
 
-      {data && !needsPlan && data.planAmount != null && data.targetAmount != null && (
+      {data && !needsLimit && (
         <div className="rounded-xl border border-secondary/25 bg-secondary-container/15 p-3">
-          <div className="flex flex-wrap items-end justify-between gap-2">
+          <InvestorLimitPanel
+            compact
+            remaining={limitRemaining}
+            added={limitAdded}
+            lots={limitLots}
+            planAmounts={platformSettings?.investorPlanAmounts}
+            pending={addLimit.isPending}
+            error={addLimit.error}
+            onAdd={(amount) => addLimit.mutate(amount)}
+          />
+        </div>
+      )}
+
+      {!needsLimit && (
+        <div className="rounded-xl border border-outline-variant/60 bg-surface-container-lowest p-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <p className="text-[10px] font-semibold uppercase tracking-wide text-on-surface-variant">
-                Your plan · {planAmountLabel(data.planAmount)}
+                Amount to pay
               </p>
-              <p className="text-sm font-bold text-secondary">
-                Target {formatCurrency(data.targetAmount)}
+              <p className="text-lg font-bold text-secondary">
+                {matchAmount != null ? formatCurrency(matchAmount) : 'Enter amount first'}
+              </p>
+              <p className="mt-0.5 text-xs text-on-surface-variant">
+                {matchAmount != null
+                  ? `Showing matches for ${formatCurrency(matchAmount)}`
+                  : 'Amount confirm karo, phir matching list dikhegi'}
               </p>
             </div>
-            <p className="text-xs text-on-surface-variant">
-              Paid toward plan{' '}
-              <span className="font-semibold text-on-surface">
-                {formatCurrency(data.paidTowardPlan ?? 0)}
-              </span>
-              {' / '}
-              {formatCurrency(data.targetAmount)}
-            </p>
-          </div>
-          <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-surface-container-high">
-            <div
-              className="h-full rounded-full bg-secondary"
-              style={{
-                width: `${Math.min(
-                  100,
-                  data.targetAmount > 0
-                    ? ((data.paidTowardPlan ?? 0) / data.targetAmount) * 100
-                    : 0,
-                )}%`,
-              }}
-            />
+            <Button
+              type="button"
+              size="sm"
+              variant={matchAmount ? 'outline' : 'primary'}
+              onClick={() => setAmountModalOpen(true)}
+            >
+              {matchAmount != null ? 'Change amount' : 'Enter amount'}
+            </Button>
           </div>
         </div>
       )}
@@ -503,6 +619,9 @@ export function InvestWithdrawalsList() {
             {total} request{total !== 1 ? 's' : ''}
             {search || method !== 'all' ? ' matching filters' : ''}
           </p>
+          <Button type="button" size="sm" variant="outline" onClick={() => refetch()}>
+            Refresh
+          </Button>
           <p className="text-[10px] text-outline">
             {items.length} on this page
           </p>
@@ -521,10 +640,17 @@ export function InvestWithdrawalsList() {
               Retry
             </Button>
           </div>
-        ) : needsPlan ? (
+        ) : needsLimit ? (
           <div className="p-6">
             <EmptyState
-              message="Select an investment plan to see available withdrawals."
+              message="Add a pay-limit amount first to see available withdrawals."
+              icon="payments"
+            />
+          </div>
+        ) : needsAmount && !items.length ? (
+          <div className="p-6">
+            <EmptyState
+              message="Enter how much you want to pay to see matching withdrawals."
               icon="payments"
             />
           </div>
@@ -534,7 +660,9 @@ export function InvestWithdrawalsList() {
               message={
                 search || method !== 'all'
                   ? 'No requests match your filters'
-                  : 'No approved Platform Payment withdrawals yet. Business or admin must list a request first.'
+                  : matchAmount
+                    ? `No matching requests for ${formatCurrency(matchAmount)}`
+                    : 'No matching withdrawals right now. Waiting — this list refreshes every 10 seconds.'
               }
               icon="payments"
             />
@@ -561,6 +689,16 @@ export function InvestWithdrawalsList() {
                             {formatCurrency(w.amount, moneyCurrency(w))}
                           </span>
                           <StatusBadge status={w.status} />
+                          {w.origin === 'business' ? (
+                            <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
+                              Business
+                            </span>
+                          ) : null}
+                          {w.assignedToMe ? (
+                            <span className="rounded-full bg-secondary/15 px-2 py-0.5 text-[10px] font-semibold text-secondary">
+                              Assigned to you
+                            </span>
+                          ) : null}
                         </div>
                         <p className="truncate font-mono text-[10px] text-on-surface-variant">
                           {w.referenceId} · {formatDate(w.createdAt)}
@@ -599,7 +737,7 @@ export function InvestWithdrawalsList() {
                                 w.creditIfPayFull.netCredited,
                                 w.creditIfPayFull.creditCurrency || 'INR',
                               )}
-                              {w.creditIfPayFull.bonusAmount > 0
+                              {showBonus && w.creditIfPayFull.bonusAmount > 0
                                 ? ` (incl. +${formatCurrency(w.creditIfPayFull.bonusAmount, 'INR')} bonus)`
                                 : ''}
                               {moneyCurrency(w) === 'USDT' && w.creditIfPayFull.exchangeRate
@@ -644,38 +782,21 @@ export function InvestWithdrawalsList() {
       </div>
 
       <Modal
-        open={needsPlan}
+        open={needsLimit}
         onClose={() => undefined}
-        title="Choose investment plan"
+        title="Choose an Investment plan to unlock Earnings"
         className="sm:max-w-md"
       >
-        <div className="space-y-3">
-          <p className="text-sm text-on-surface-variant">
-            Pick a plan to unlock Platform Payment withdrawals. Your target is plan × multiplier
-            from platform settings.
-          </p>
-          <div className="grid grid-cols-2 gap-2">
-            {planAmounts.map((amount) => (
-              <button
-                key={amount}
-                type="button"
-                disabled={selectPlan.isPending}
-                onClick={() => selectPlan.mutate(amount)}
-                className="rounded-xl border border-outline-variant bg-surface-container-low px-3 py-4 text-center transition hover:border-secondary hover:bg-secondary-container/20 disabled:opacity-60"
-              >
-                <p className="text-lg font-bold text-secondary">{planAmountLabel(amount)}</p>
-                <p className="mt-0.5 text-[11px] text-on-surface-variant">
-                  {formatCurrency(amount)}
-                </p>
-              </button>
-            ))}
-          </div>
-          {selectPlan.isError && (
-            <p className="text-xs text-error">
-              {apiErrorMessage(selectPlan.error, 'Could not save plan')}
-            </p>
-          )}
-        </div>
+        <InvestorLimitPanel
+          remaining={limitRemaining}
+          added={limitAdded}
+          lots={limitLots}
+          firstLogin
+          planAmounts={platformSettings?.investorPlanAmounts}
+          pending={addLimit.isPending}
+          error={addLimit.error}
+          onAdd={(amount) => addLimit.mutate(amount)}
+        />
       </Modal>
 
       <Modal
@@ -699,6 +820,16 @@ export function InvestWithdrawalsList() {
       >
         {target && (
           <form id="invest-pay-form" onSubmit={handleSubmit} className="space-y-3">
+            {target.assignedToMe ? (
+            <div className="rounded-xl border border-secondary/30 bg-secondary-container/30 px-3 py-2.5">
+              <p className="text-xs font-bold uppercase tracking-wide text-secondary">
+                Assigned to you
+              </p>
+              <p className="mt-1 text-[11px] font-medium text-on-surface">
+                Sirf tumhe ye request dikh rahi hai. UTR ya payment slip upload karke pay karo.
+              </p>
+            </div>
+            ) : (
             <div
               className={`rounded-xl border px-3 py-2.5 ${
                 payExpired
@@ -717,6 +848,7 @@ export function InvestWithdrawalsList() {
                 (claim lock).
               </p>
             </div>
+            )}
 
             <div className="grid grid-cols-3 gap-1.5 rounded-xl bg-gradient-to-r from-secondary-container/30 to-primary-container/20 p-2.5 text-center">
               <div>
@@ -781,6 +913,10 @@ export function InvestWithdrawalsList() {
               required
               disabled={payExpired}
             />
+            <p className="text-[11px] text-on-surface-variant">
+              Partial min {formatCurrency(minPartialAmount(target.method, target.currency), moneyCurrency(target))}.
+              Smaller leftover only as full pay.
+            </p>
 
             {payAmountNum >= 1 && (
               <div
@@ -809,7 +945,7 @@ export function InvestWithdrawalsList() {
                         </span>
                       )}
                     </p>
-                    {creditPreview.bonusAmount > 0 && (
+                    {showBonus && creditPreview.bonusAmount > 0 && (
                       <p>
                         Investor bonus{' '}
                         <span className="font-semibold text-secondary">
@@ -840,6 +976,7 @@ export function InvestWithdrawalsList() {
               }}
               disabled={submit.isPending || payExpired}
               referenceKind={moneyCurrency(target) === 'USDT' ? 'txid' : 'utr'}
+              utrRequired={!target.assignedToMe}
             />
 
             {formError && (

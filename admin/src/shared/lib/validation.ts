@@ -122,3 +122,69 @@ export function paymentRefErrorForMethod(
   if (method === 'usdt') return txHashError(v, true);
   return utrError(v, true);
 }
+
+/** Name: alphabets + spaces only */
+export function personNameError(value: string, required = true): string | null {
+  const v = value.trim();
+  if (!v) return required ? 'Name of Account Holder is required' : null;
+  if (!/^[A-Za-z ]+$/.test(v)) {
+    return 'Name of Account Holder must contain letters and spaces only (no numbers)';
+  }
+  return null;
+}
+
+/** UPI: no more than 9 consecutive digits unless mobile-number UPI is allowed */
+export function upiIdError(
+  value: string,
+  required = true,
+  opts?: { allowMobileNumber?: boolean },
+): string | null {
+  const v = value.trim();
+  if (!v) return required ? 'UPI ID is required' : null;
+  if (opts?.allowMobileNumber && /^\d{10}@[a-zA-Z0-9.\-]+$/.test(v)) return null;
+  if (/\d{10,}/.test(v)) {
+    return 'UPI ID cannot contain more than 9 consecutive digits';
+  }
+  return null;
+}
+
+export const ACCOUNT_NUMBER_MAX_LEN = 18;
+
+export function sanitizeAccountNumber(value: string): string {
+  return value.replace(/\D/g, '').slice(0, ACCOUNT_NUMBER_MAX_LEN);
+}
+
+export function accountNumberError(value: string, required = true): string | null {
+  const v = value.trim();
+  if (!v) return required ? 'Account number is required' : null;
+  if (!/^\d+$/.test(v)) return 'Account number must be numeric only';
+  if (v.length < 9 || v.length > ACCOUNT_NUMBER_MAX_LEN) {
+    return 'Account number must be 9 to 18 digits';
+  }
+  return null;
+}
+
+export function ifscError(value: string, required = true): string | null {
+  const v = value.trim().toUpperCase();
+  if (!v) return required ? 'IFSC is required' : null;
+  if (v.length !== 11) {
+    return 'IFSC must be exactly 11 characters (e.g. SBIN0001234)';
+  }
+  if (!/^[A-Z]{4}/.test(v)) {
+    return 'IFSC first 4 characters must be letters';
+  }
+  if (v[4] !== '0') {
+    return 'IFSC 5th character must be zero (0), e.g. SBIN0001234';
+  }
+  if (!/^[A-Z]{4}0[A-Z0-9]{6}$/.test(v)) {
+    return 'IFSC must be 11 characters: 4 letters, then 0, then 6 alphanumeric';
+  }
+  return null;
+}
+
+export function bankNameError(value: string, required = true): string | null {
+  const v = value.trim();
+  if (!v) return required ? 'Bank name is required' : null;
+  if (/\d/.test(v)) return 'Bank name must not contain numeric characters';
+  return null;
+}

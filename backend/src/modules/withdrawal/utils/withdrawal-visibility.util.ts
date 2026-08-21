@@ -29,19 +29,22 @@ export function remainingTatSeconds(
   return Math.ceil((tatMs - elapsed) / 1000);
 }
 
-/** Business list: only after TAT expired */
 export function businessWithdrawalVisibilityFilter(tatCutoff: Date) {
-  return { createdAt: { $lte: tatCutoff } };
+  return {
+    $or: [{ createdAt: { $lte: tatCutoff } }, { origin: 'business' as const }],
+  };
 }
 
 /**
  * Admin list: listed for Platform Payment, OR terminal status,
+ * OR business-origin requests (admin must verify those),
  * OR non-business WD after TAT.
  */
 export function adminWithdrawalVisibilityFilter(tatCutoff: Date) {
   return {
     $or: [
       { p2pListStatus: 'listed' },
+      { origin: 'business' },
       {
         status: {
           $in: ['completed', 'rejected', 'cancelled'],
@@ -59,13 +62,34 @@ export function adminWithdrawalVisibilityFilter(tatCutoff: Date) {
   };
 }
 
-/** Investor/user pay list requires Platform Payment listed */
+/**
+ * Investor/user pay list: only admin-listed P2P requests.
+ * Business-origin WDs stay off the pay list until admin lists them.
+ */
 export function availableForPaymentBaseFilter(excludeUserId: unknown) {
   return {
     userId: { $ne: excludeUserId },
     status: { $in: ['pending', 'processing'] },
-    p2pListStatus: 'listed',
+    p2pListStatus: 'listed' as const,
   };
+}
+
+/** Claim / pay: listed only — awaiting business WDs are not payable yet. */
+export function isOpenOnPayList(w: {
+  p2pListStatus?: string | null;
+  status?: string;
+}) {
+  if (w.p2pListStatus !== 'listed') return false;
+  if (w.status && w.status !== 'pending' && w.status !== 'processing') return false;
+  return true;
+}
+
+/** Investors may pay user withdrawals only — never another investor. */
+export function isInvestorToInvestorPay(
+  payerRole?: string | null,
+  ownerRole?: string | null,
+) {
+  return payerRole === 'investor' && ownerRole === 'investor';
 }
 
 export function userCanCancelWithdrawal(opts: {

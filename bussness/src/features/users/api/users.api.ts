@@ -1,5 +1,19 @@
 import { apiGet, apiPatch, apiPost } from '@/shared/api/client';
-import type { Paginated, User } from '@/shared/types/api.types';
+import type { Paginated, PaymentMethod, SavedWithdrawalMethod, User } from '@/shared/types/api.types';
+
+export type UpsertSavedWithdrawalMethodPayload = {
+  label?: string;
+  method: PaymentMethod;
+  isDefault?: boolean;
+  upiDetails?: { upiId: string; payerName: string };
+  bankDetails?: {
+    accountNumber: string;
+    ifscCode: string;
+    accountHolderName: string;
+    bankName: string;
+  };
+  usdtDetails?: { walletAddress: string; network?: string };
+};
 
 export type UsersListQuery = {
   page?: number;
@@ -24,6 +38,14 @@ function cleanQuery(query: UsersListQuery = {}) {
 export const usersApi = {
   getMe: () => apiGet<User>('/users/me'),
   updateMe: (body: { name?: string; phone?: string }) => apiPatch<User>('/users/me', body),
+  getWithdrawalMethods: () =>
+    apiGet<{ items: SavedWithdrawalMethod[] }>('/users/me/withdrawal-methods'),
+  saveWithdrawalMethod: (payload: UpsertSavedWithdrawalMethodPayload) =>
+    apiPost<{ items: SavedWithdrawalMethod[] }>('/users/me/withdrawal-methods', payload),
+  setDefaultWithdrawalMethod: (methodId: string) =>
+    apiPatch<{ items: SavedWithdrawalMethod[] }>(`/users/me/withdrawal-methods/${methodId}/default`),
+  deleteWithdrawalMethod: (methodId: string) =>
+    apiPost<{ items: SavedWithdrawalMethod[] }>(`/users/me/withdrawal-methods/${methodId}/delete`),
   getBusinessUsers: (query: UsersListQuery = {}) =>
     apiGet<Paginated<User>>('/business/me/users', cleanQuery(query)),
   /** Reset a linked end-user's password (business panel). */

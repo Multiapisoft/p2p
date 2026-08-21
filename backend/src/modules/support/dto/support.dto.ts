@@ -1,4 +1,16 @@
-import { IsEnum, IsOptional, IsString } from 'class-validator';
+import {
+  IsArray,
+  IsEnum,
+  IsNumber,
+  IsOptional,
+  IsString,
+  ArrayMaxSize,
+  MaxLength,
+  MinLength,
+  ValidateIf,
+  ValidateNested,
+} from 'class-validator';
+import { Type } from 'class-transformer';
 import { SupportPriority } from '../../../common/enums/support-status.enum';
 import { ListQueryDto } from '../../../common/dto/list-query.dto';
 
@@ -12,12 +24,36 @@ export class SupportListQueryDto extends ListQueryDto {
   priority?: string;
 }
 
-export class CreateTicketDto {
+export class TicketAttachmentDto {
   @IsString()
-  subject!: string;
+  key!: string;
 
   @IsString()
-  message!: string;
+  publicUrl!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(180)
+  filename?: string;
+
+  @IsOptional()
+  @IsString()
+  contentType?: string;
+
+  @IsOptional()
+  @IsNumber()
+  size?: number;
+}
+
+export class CreateTicketDto {
+  @IsString()
+  @MinLength(1)
+  subject!: string;
+
+  @ValidateIf((o: CreateTicketDto) => !o.attachments?.length)
+  @IsString()
+  @MinLength(1)
+  message?: string;
 
   @IsOptional()
   @IsEnum(SupportPriority)
@@ -26,11 +62,27 @@ export class CreateTicketDto {
   @IsOptional()
   @IsString()
   category?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(5)
+  @ValidateNested({ each: true })
+  @Type(() => TicketAttachmentDto)
+  attachments?: TicketAttachmentDto[];
 }
 
 export class ReplyTicketDto {
+  @ValidateIf((o: ReplyTicketDto) => !o.attachments?.length)
   @IsString()
-  message!: string;
+  @MinLength(1)
+  message?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(5)
+  @ValidateNested({ each: true })
+  @Type(() => TicketAttachmentDto)
+  attachments?: TicketAttachmentDto[];
 }
 
 export class UpdateTicketStatusDto {

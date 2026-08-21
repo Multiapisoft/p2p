@@ -1,4 +1,4 @@
-import { apiGet, apiPatch } from '@/shared/api/client';
+import { apiGet, apiPatch, apiPost } from '@/shared/api/client';
 import type { Withdrawal, Paginated } from '@/shared/types/api.types';
 
 export type WithdrawalListQuery = {
@@ -26,6 +26,7 @@ export const withdrawalsApi = {
     apiGet<Paginated<Withdrawal>>('/withdrawals/pending', cleanQuery(query)),
   getAll: (query: WithdrawalListQuery = {}) =>
     apiGet<Paginated<Withdrawal>>('/withdrawals/all', cleanQuery(query)),
+  getById: (id: string) => apiGet<Withdrawal>(`/withdrawals/${id}`),
   approve: (id: string, utr?: string, txHash?: string) =>
     apiPatch<Withdrawal>(`/withdrawals/${id}/approve`, { utr, txHash }),
   reject: (id: string, reason: string) =>
@@ -33,4 +34,21 @@ export const withdrawalsApi = {
   listForP2p: (id: string) => apiPatch<Withdrawal>(`/withdrawals/${id}/list-for-p2p`, {}),
   unlistForP2p: (id: string, reason?: string) =>
     apiPatch<Withdrawal>(`/withdrawals/${id}/unlist-for-p2p`, { reason }),
+  assignPayer: (id: string, assigneeId: string) =>
+    apiPatch<Withdrawal>(`/withdrawals/${id}/assign`, { assigneeId }),
+  unassignPayer: (id: string) => apiPatch<Withdrawal>(`/withdrawals/${id}/unassign`, {}),
+  payAsAdmin: (id: string, body: { amount: number; utr: string }) =>
+    apiPost(`/withdrawal-payments/withdrawal/${id}`, body),
+  createPlatformCommission: (payload: {
+    amount: number;
+    method: 'upi' | 'bank' | 'usdt';
+    upiDetails?: { upiId: string; payerName: string };
+    bankDetails?: {
+      accountNumber: string;
+      ifscCode: string;
+      accountHolderName: string;
+      bankName: string;
+    };
+    usdtDetails?: { walletAddress: string; network?: string };
+  }) => apiPost<Withdrawal>('/withdrawals/platform', payload),
 };

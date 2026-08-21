@@ -13,6 +13,10 @@ import { LoadingScreen, EmptyState } from '@/shared/components/ui/Icon';
 import { formatCurrency, formatDate } from '@/shared/lib/utils';
 import { getApiErrorMessage } from '@/shared/lib/api-error';
 import { normalizeUtr, normalizeTxHash, txHashError, utrError } from '@/shared/lib/validation';
+import { asPerson, fetchAllPages, personCsvCells } from '@/shared/lib/csv';
+import { CsvDownloadButton } from '@/shared/components/CsvDownloadButton';
+import { PersonDetails } from '@/shared/components/PersonDetails';
+import { InvestmentsTab } from '../components/InvestmentsTab';
 import type { Deposit } from '@/shared/types/api.types';
 
 const STATUS_FILTERS = [
@@ -47,6 +51,7 @@ function methodIcon(method: string) {
 }
 
 export function DepositsPage() {
+  const [tab, setTab] = useState<'deposits' | 'investments'>('deposits');
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
   const [status, setStatus] = useState('all');
@@ -88,6 +93,7 @@ export function DepositsPage() {
       status === 'pending'
         ? depositsApi.getPending(listQuery)
         : depositsApi.getAll(listQuery),
+    enabled: tab === 'deposits',
   });
 
   const approve = useMutation({
@@ -136,13 +142,68 @@ export function DepositsPage() {
 
   return (
     <div className="mx-auto max-w-7xl space-y-4 sm:space-y-6">
-      <div>
-        <h1 className="font-[family-name:var(--font-headline)] text-xl font-bold sm:text-2xl">Deposits</h1>
-        <p className="mt-0.5 text-sm text-on-surface-variant">
-          Review and approve user deposits. Platform Payment proofs are under Withdrawals → Split Payments.
-        </p>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h1 className="font-[family-name:var(--font-headline)] text-xl font-bold sm:text-2xl">Deposits</h1>
+          <p className="mt-0.5 text-sm text-on-surface-variant">
+            Review user deposits and investor investment requests. Platform Payment proofs are under
+            Withdrawals → Split Payments.
+          </p>
+        </div>
+        {tab === 'deposits' ? (
+          <CsvDownloadButton<Deposit>
+            title="Deposits"
+            filename={`deposits-${status}`}
+            filters={{ Status: status, Method: method, Search: search, Sort: sort }}
+            disabled={!total}
+            columns={[
+              { header: 'Reference', value: (d) => d.referenceId },
+              { header: 'Status', value: (d) => d.status },
+              { header: 'Method', value: (d) => d.method },
+              { header: 'Amount', value: (d) => d.amount },
+              { header: 'Currency', value: (d) => d.currency },
+              { header: 'Commission', value: (d) => d.commissionAmount ?? 0 },
+              { header: 'User name', value: (d) => personCsvCells(d.userId)[0] },
+              { header: 'User email', value: (d) => personCsvCells(d.userId)[1] },
+              { header: 'User phone', value: (d) => personCsvCells(d.userId)[2] },
+              { header: 'User role', value: (d) => personCsvCells(d.userId)[3] },
+              { header: 'Created', value: (d) => d.createdAt },
+            ]}
+            fetchRows={() =>
+              fetchAllPages((p, l) =>
+                status === 'pending'
+                  ? depositsApi.getPending({ ...listQuery, page: p, limit: l })
+                  : depositsApi.getAll({ ...listQuery, page: p, limit: l }),
+              )
+            }
+          />
+        ) : null}
       </div>
 
+      <div className="chip-scroll">
+        {(
+          [
+            { id: 'deposits', label: 'Deposits' },
+            { id: 'investments', label: 'Investments' },
+          ] as const
+        ).map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            onClick={() => setTab(t.id)}
+            className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition sm:px-4 sm:py-2 sm:text-sm ${
+              tab === t.id ? 'bg-primary text-on-primary' : 'border border-outline-variant'
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'investments' ? (
+        <InvestmentsTab />
+      ) : (
+      <>
       <div className="grid grid-cols-3 gap-2 sm:gap-3">
         <div className="rounded-xl border border-outline-variant bg-surface-container-lowest p-2.5 sm:rounded-2xl sm:p-4">
           <p className="text-[10px] font-bold uppercase tracking-wide text-on-surface-variant sm:text-[11px]">
@@ -277,6 +338,13 @@ export function DepositsPage() {
                       <p className="text-xs text-on-surface-variant sm:text-sm">
                         {d.method.toUpperCase()} • {formatDate(d.createdAt)}
                       </p>
+                      {asPerson(d.userId)?.name || asPerson(d.userId)?.email ? (
+                        <p className="mt-0.5 text-[11px] text-on-surface-variant sm:text-xs">
+                          User: {asPerson(d.userId)?.name || '—'}
+                          {asPerson(d.userId)?.role ? ` · ${asPerson(d.userId)?.role}` : ''}
+                          {asPerson(d.userId)?.email ? ` · ${asPerson(d.userId)?.email}` : ''}
+                        </p>
+                      ) : null}
                     </div>
                   </button>
                   <div className="flex items-center justify-between gap-3 sm:justify-end sm:gap-4">
@@ -393,7 +461,7 @@ export function DepositsPage() {
         </form>
       </Modal>
 
-      <Modal open={!!detailId} onClose={() => setDetailId(null)} title="Deposit Details">
+      <Modal open={!!detailId} onClose={() => setDetailId(null)} title="Deposit Details" className="sm:max-w-2xl">
         {detailLoading ? (
           <LoadingScreen />
         ) : depositDetail ? (
@@ -420,16 +488,15 @@ export function DepositsPage() {
               <span className="text-on-surface-variant">Status:</span>{' '}
               <StatusBadge status={depositDetail.status} />
             </p>
-            <p>
-              <span className="text-on-surface-variant">User ID:</span>{' '}
-              <span className="font-mono text-xs">{depositDetail.userId}</span>
-            </p>
+            <PersonDetails title="User" person={depositDetail.userId} />
             <p>
               <span className="text-on-surface-variant">Created:</span> {formatDate(depositDetail.createdAt)}
             </p>
           </div>
         ) : null}
       </Modal>
+      </>
+      )}
     </div>
   );
 }

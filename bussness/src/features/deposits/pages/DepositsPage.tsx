@@ -1,7 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { depositsApi } from '@/features/deposits/api/deposits.api';
 import { platformPaymentsApi } from '@/features/deposits/api/platform-payments.api';
@@ -15,16 +14,15 @@ import { LoadingScreen, EmptyState } from '@/shared/components/ui/Icon';
 import { PageHeader } from '@/shared/components/layout/PageHeader';
 import { Modal } from '@/shared/components/ui/Modal';
 import { formatCurrency, formatDate } from '@/shared/lib/utils';
-import { resolveUser } from '@/shared/lib/entity-user';
-import type { Deposit } from '@/shared/types/api.types';
+import { CsvDownloadButton } from '@/shared/components/CsvDownloadButton';
+import { fetchAllPages } from '@/shared/lib/csv';
+import type { BusinessPlatformPayment } from '@/features/deposits/api/platform-payments.api';
 
 const STATUS_FILTERS = [
   { value: 'all', label: 'All' },
   { value: 'pending', label: 'Pending' },
   { value: 'processing', label: 'Processing' },
   { value: 'completed', label: 'Completed' },
-  { value: 'failed', label: 'Failed' },
-  { value: 'cancelled', label: 'Cancelled' },
   { value: 'rejected', label: 'Rejected' },
 ];
 
@@ -45,43 +43,57 @@ const SORT_OPTIONS = [
 
 const PAGE_SIZES = [5, 10, 20];
 
-function DetailRow({ label, value }: { label: string; value: ReactNode }) {
+function DetailRow({ label, value }: { label: string; value: string }) {
+  if (!value || value === '—') return null;
   return (
-    <div className="flex justify-between gap-4 border-b border-outline-variant/40 py-2 text-sm">
-      <span className="shrink-0 text-on-surface-variant">{label}</span>
-      <span className="text-right font-medium break-all">{value}</span>
+    <div className="grid gap-1 sm:grid-cols-[140px_1fr] sm:gap-3">
+      <p className="text-xs text-on-surface-variant">{label}</p>
+      <p className="break-all text-sm font-medium">{value}</p>
     </div>
   );
 }
 
-function paymentLine(d: Deposit) {
-  if (d.method === 'upi' && d.upiDetails?.upiId) {
-    return `UPI · ${d.upiDetails.upiId}${d.upiDetails.utr ? ` · UTR ${d.upiDetails.utr}` : ''}`;
+function personSummary(
+  person:
+    | {
+        name?: string;
+        email?: string;
+        phone?: string;
+        role?: string;
+        status?: string;
+        businessUserCode?: string;
+        externalRef?: string;
+      }
+    | string
+    | undefined,
+) {
+  if (!person || typeof person === 'string') return null;
+  return person;
+}
+
+function destinationSummary(wd: BusinessPlatformPayment['withdrawalId']) {
+  if (!wd || typeof wd === 'string') return '—';
+  if (wd.upiDetails?.upiId) {
+    return `UPI · ${wd.upiDetails.upiId}${wd.upiDetails.payerName ? ` · ${wd.upiDetails.payerName}` : ''}`;
   }
-  if (d.method === 'bank' && d.bankDetails?.accountNumber) {
-    return `Bank · ${d.bankDetails.accountHolderName || ''} · ${d.bankDetails.accountNumber}`;
+  if (wd.bankDetails?.accountNumber) {
+    return `Bank · ${wd.bankDetails.accountHolderName || '—'} · ${wd.bankDetails.accountNumber}${wd.bankDetails.ifscCode ? ` · ${wd.bankDetails.ifscCode}` : ''}`;
   }
-  if (d.method === 'usdt' && d.usdtDetails?.walletAddress) {
-    return `USDT · ${d.usdtDetails.walletAddress.slice(0, 12)}…`;
+  if (wd.usdtDetails?.walletAddress) {
+    return `USDT · ${wd.usdtDetails.walletAddress}${wd.usdtDetails.network ? ` · ${wd.usdtDetails.network}` : ''}`;
   }
-  return String(d.method).toUpperCase();
+  return '—';
 }
 
 export function DepositsPage() {
-  const searchParams = useSearchParams();
-  const statusFromUrl = searchParams.get('status');
+  const [selectedPayment, setSelectedPayment] = useState<BusinessPlatformPayment | null>(null);
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
-  const [status, setStatus] = useState(
-    statusFromUrl && STATUS_FILTERS.some((s) => s.value === statusFromUrl)
-      ? statusFromUrl
-      : 'all',
-  );
+  const [status, setStatus] = useState('all');
   const [method, setMethod] = useState('all');
   const [sort, setSort] = useState('newest');
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
-  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -107,34 +119,51 @@ export function DepositsPage() {
     queryFn: () => depositsApi.getBusinessSummary(),
   });
 
-  const { data, isLoading, isFetching, isError, error, refetch } = useQuery({
-    queryKey: ['business-deposits', listQuery],
-    queryFn: () => depositsApi.getBusinessDeposits(listQuery),
+  const {
+    data: platformPays,
+    isLoading: loadingPays,
+    isFetching,
+    isError: paysError,
+    error: paysErr,
+    refetch: refetchPays,
+  } = useQuery({
+    queryKey: ['business-platform-payments', listQuery],
+    queryFn: () => platformPaymentsApi.list(listQuery),
   });
 
-  const { data: platformPays } = useQuery({
-    queryKey: ['business-platform-payments'],
-    queryFn: () => platformPaymentsApi.list({ page: 1, limit: 10 }),
-  });
-
-  const { data: detail, isLoading: loadingDetail } = useQuery({
-    queryKey: ['business-deposit', selectedId],
-    queryFn: () => depositsApi.getById(selectedId!),
-    enabled: !!selectedId,
-  });
-
-  const items = data?.items ?? [];
-  const total = data?.total ?? 0;
-  const totalPages = data?.totalPages ?? 1;
   const totalFromSummary = summary?.reduce((sum, row) => sum + row.totalDeposited, 0) ?? 0;
+  const payItems = platformPays?.items ?? [];
+  const total = platformPays?.total ?? 0;
+  const totalPages = platformPays?.totalPages ?? 1;
 
-  if (loadingSummary && isLoading) return <LoadingScreen />;
+  if (loadingSummary && loadingPays) return <LoadingScreen />;
 
   return (
     <div className="mx-auto max-w-7xl space-y-6">
-      <PageHeader title="Deposits" description="Business deposit activity & per-user summary" />
+      <PageHeader
+        title="Deposits"
+        description="User deposit summary and Platform Payment activity"
+        action={
+          <CsvDownloadButton<BusinessPlatformPayment>
+            filename="business-platform-payments"
+            title="Platform payments"
+            filters={{ Status: status, Method: method, Search: search, Sort: sort }}
+            disabled={!total}
+            columns={[
+              { header: 'Reference', value: (p) => p.referenceId },
+              { header: 'Status', value: (p) => p.status },
+              { header: 'Amount', value: (p) => p.amount },
+              { header: 'UTR', value: (p) => p.utr || '' },
+              { header: 'Created', value: (p) => p.createdAt || '' },
+            ]}
+            fetchRows={() =>
+              fetchAllPages((page, limit) => platformPaymentsApi.list({ ...listQuery, page, limit }))
+            }
+          />
+        }
+      />
 
-      <section className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+      <section className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div className="rounded-2xl border border-outline-variant bg-surface-container-lowest p-5">
           <p className="text-sm font-semibold uppercase tracking-wide text-on-surface-variant">
             Total Completed
@@ -150,12 +179,6 @@ export function DepositsPage() {
           <p className="mt-2 font-[family-name:var(--font-headline)] text-2xl font-bold">
             {summary?.length ?? 0}
           </p>
-        </div>
-        <div className="rounded-2xl border border-outline-variant bg-surface-container-lowest p-5">
-          <p className="text-sm font-semibold uppercase tracking-wide text-on-surface-variant">
-            All Deposits
-          </p>
-          <p className="mt-2 font-[family-name:var(--font-headline)] text-2xl font-bold">{total}</p>
         </div>
       </section>
 
@@ -198,12 +221,12 @@ export function DepositsPage() {
         )
       )}
 
-      <Card title="All Deposits">
+      <Card title="Platform Payment activity (your users as payers + your WDs)">
         <div className="mb-4 space-y-3">
           <div className="flex flex-wrap gap-2">
             <Input
               className="min-w-[220px] flex-1"
-              placeholder="Search reference, UPI, account, external ref…"
+              placeholder="Search payment, request, UTR…"
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
             />
@@ -216,20 +239,6 @@ export function DepositsPage() {
               }}
             >
               {SORT_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-            <select
-              className="rounded-lg border border-outline-variant bg-surface-container-lowest px-3 py-2.5 text-sm"
-              value={method}
-              onChange={(e) => {
-                setMethod(e.target.value);
-                setPage(1);
-              }}
-            >
-              {METHOD_FILTERS.map((o) => (
                 <option key={o.value} value={o.value}>
                   {o.label}
                 </option>
@@ -250,7 +259,6 @@ export function DepositsPage() {
               ))}
             </select>
           </div>
-
           <div className="chip-scroll">
             {STATUS_FILTERS.map((s) => (
               <button
@@ -266,51 +274,99 @@ export function DepositsPage() {
               </button>
             ))}
           </div>
+          <div className="chip-scroll">
+            {METHOD_FILTERS.map((m) => (
+              <button
+                key={m.value}
+                type="button"
+                onClick={() => {
+                  setMethod(m.value);
+                  setPage(1);
+                }}
+                className={`chip ${method === m.value ? 'chip-active' : ''}`}
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>
         </div>
 
-        {isLoading ? (
+        {loadingPays ? (
           <LoadingScreen />
-        ) : isError ? (
+        ) : paysError ? (
           <div className="rounded-2xl border border-error/30 bg-error-container/40 px-4 py-8 text-center">
             <p className="text-sm font-medium text-on-surface">
-              {getApiErrorMessage(error, 'Could not load deposits')}
+              {getApiErrorMessage(paysErr, 'Could not load payments')}
             </p>
-            <Button type="button" className="mt-4" onClick={() => refetch()}>
+            <Button type="button" className="mt-4" onClick={() => refetchPays()}>
               Retry
             </Button>
           </div>
-        ) : !items.length ? (
+        ) : payItems.length === 0 ? (
           <EmptyState
             message={
               search || status !== 'all' || method !== 'all'
-                ? 'No deposits match your filters'
-                : 'No deposits yet'
+                ? 'No payments match your filters'
+                : 'No Platform Payment activity yet'
             }
-            icon="south_west"
+            icon="inbox"
           />
         ) : (
           <>
-            <div className={`space-y-3 ${isFetching ? 'opacity-70' : ''}`}>
-              {items.map((d) => {
-                const user = resolveUser(d.userId);
+            <div className={`space-y-2 ${isFetching ? 'opacity-70' : ''}`}>
+              {payItems.map((p) => {
+                const payer = personSummary(p.payerUserId);
+                const wd = p.withdrawalId && typeof p.withdrawalId !== 'string' ? p.withdrawalId : null;
+                const owner = personSummary(wd?.userId);
                 return (
                   <button
-                    key={d._id}
+                    key={p._id}
                     type="button"
-                    onClick={() => setSelectedId(d._id)}
-                    className="flex w-full flex-wrap items-center justify-between gap-3 rounded-xl border border-outline-variant p-4 text-left transition hover:border-secondary/40 hover:bg-surface-container-low/50"
+                    onClick={() => setSelectedPayment(p)}
+                    className="w-full rounded-xl border border-outline-variant p-4 text-left transition hover:border-secondary/40 hover:bg-surface-container-low/40"
                   >
-                    <div className="min-w-0">
-                      <p className="font-semibold">{formatCurrency(d.amount, d.currency)}</p>
-                      <p className="mt-1 truncate text-sm font-medium">{user.name}</p>
-                      <p className="text-xs text-on-surface-variant">
-                        {user.email || '—'} · {d.referenceId}
-                      </p>
-                      <p className="mt-0.5 text-xs text-outline">
-                        {paymentLine(d)} · {formatDate(d.createdAt)}
-                      </p>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-lg font-bold">{formatCurrency(p.amount, p.currency)}</p>
+                        <p className="mt-0.5 font-mono text-[11px] text-on-surface-variant">
+                          {p.referenceId}
+                        </p>
+                      </div>
+                      <StatusBadge status={p.status} />
                     </div>
-                    <StatusBadge status={d.status} />
+
+                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                      <div className="rounded-lg bg-surface-container-low px-3 py-2">
+                        <p className="text-[10px] font-bold uppercase tracking-wide text-on-surface-variant">
+                          Request
+                        </p>
+                        <p className="mt-0.5 break-all font-mono text-xs font-semibold">
+                          {wd?.referenceId || '—'}
+                        </p>
+                        <p className="mt-0.5 truncate text-xs text-on-surface-variant">
+                          {owner?.name || owner?.email || 'Owner —'}
+                          {owner?.role ? ` · ${owner.role}` : ''}
+                          {wd?.method ? ` · ${String(wd.method).toUpperCase()}` : ''}
+                        </p>
+                      </div>
+                      <div className="rounded-lg bg-surface-container-low px-3 py-2">
+                        <p className="text-[10px] font-bold uppercase tracking-wide text-on-surface-variant">
+                          Payer
+                        </p>
+                        <p className="mt-0.5 truncate text-sm font-semibold">
+                          {payer?.name || payer?.email || '—'}
+                        </p>
+                        <p className="mt-0.5 truncate text-xs text-on-surface-variant">
+                          {[payer?.role, payer?.email, payer?.phone, payer?.businessUserCode]
+                            .filter(Boolean)
+                            .join(' · ') || '—'}
+                        </p>
+                      </div>
+                    </div>
+
+                    {p.utr ? (
+                      <p className="mt-2 break-all text-xs text-on-surface-variant">UTR {p.utr}</p>
+                    ) : null}
                   </button>
                 );
               })}
@@ -326,126 +382,113 @@ export function DepositsPage() {
         )}
       </Card>
 
-      <Card title="Platform Payment activity (your users as payers + your WDs)">
-        {(platformPays?.items?.length || 0) === 0 ? (
-          <EmptyState message="No Platform Payment activity yet" icon="inbox" />
-        ) : (
-          <div className="space-y-2">
-            {platformPays!.items.map((p) => {
-              const payer =
-                typeof p.payerUserId === 'object' && p.payerUserId
-                  ? p.payerUserId
-                  : null;
-              const wd =
-                typeof p.withdrawalId === 'object' && p.withdrawalId
-                  ? p.withdrawalId
-                  : null;
-              return (
-                <div
-                  key={p._id}
-                  className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-outline-variant p-3"
-                >
-                  <div className="min-w-0">
-                    <p className="font-semibold">
-                      {formatCurrency(p.amount, p.currency)}
-                    </p>
-                    <p className="text-xs text-on-surface-variant">
-                      {p.referenceId}
-                      {wd?.referenceId ? ` · WD ${wd.referenceId}` : ''}
-                    </p>
-                    <p className="text-xs text-outline">
-                      {payer?.name || payer?.email || 'Payer'}
-                      {payer?.businessUserCode ? ` · ${payer.businessUserCode}` : ''}
-                      {p.utr ? ` · UTR ${p.utr}` : ''}
-                    </p>
-                  </div>
-                  <StatusBadge status={p.status} />
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </Card>
-
-      <Modal
-        open={!!selectedId}
-        onClose={() => setSelectedId(null)}
-        title="Deposit details"
-        className="sm:max-w-xl"
-      >
-        {loadingDetail || !detail ? (
-          <LoadingScreen />
-        ) : (
-          <div className="space-y-1">
-            {(() => {
-              const user = resolveUser(detail.userId);
-              return (
-                <>
-                  <DetailRow label="Amount" value={formatCurrency(detail.amount, detail.currency)} />
-                  <DetailRow label="Status" value={<StatusBadge status={detail.status} />} />
-                  <DetailRow label="Method" value={String(detail.method).toUpperCase()} />
-                  <DetailRow label="Reference" value={detail.referenceId} />
-                  <DetailRow label="User" value={user.name} />
-                  <DetailRow label="Email" value={user.email || '—'} />
-                  {user.phone ? <DetailRow label="Phone" value={user.phone} /> : null}
-                  {user.externalRef ? (
-                    <DetailRow label="User external ref" value={user.externalRef} />
-                  ) : null}
-                  {detail.externalRef ? (
-                    <DetailRow label="Deposit external ref" value={detail.externalRef} />
-                  ) : null}
-                  {detail.upiDetails?.upiId ? (
-                    <DetailRow label="UPI ID" value={detail.upiDetails.upiId} />
-                  ) : null}
-                  {detail.upiDetails?.payerName ? (
-                    <DetailRow label="Payer name" value={detail.upiDetails.payerName} />
-                  ) : null}
-                  {detail.upiDetails?.utr ? (
-                    <DetailRow label="UTR" value={detail.upiDetails.utr} />
-                  ) : null}
-                  {detail.bankDetails?.accountNumber ? (
-                    <DetailRow label="Account" value={detail.bankDetails.accountNumber} />
-                  ) : null}
-                  {detail.bankDetails?.ifscCode ? (
-                    <DetailRow label="IFSC" value={detail.bankDetails.ifscCode} />
-                  ) : null}
-                  {detail.bankDetails?.accountHolderName ? (
-                    <DetailRow label="Holder" value={detail.bankDetails.accountHolderName} />
-                  ) : null}
-                  {detail.bankDetails?.bankName ? (
-                    <DetailRow label="Bank" value={detail.bankDetails.bankName} />
-                  ) : null}
-                  {detail.bankDetails?.utr ? (
-                    <DetailRow label="UTR" value={detail.bankDetails.utr} />
-                  ) : null}
-                  {detail.usdtDetails?.walletAddress ? (
-                    <DetailRow label="Wallet" value={detail.usdtDetails.walletAddress} />
-                  ) : null}
-                  {detail.usdtDetails?.network ? (
-                    <DetailRow label="Network" value={detail.usdtDetails.network} />
-                  ) : null}
-                  {detail.usdtDetails?.txHash ? (
-                    <DetailRow label="Tx hash" value={detail.usdtDetails.txHash} />
-                  ) : null}
-                  {(detail.commissionAmount || 0) > 0 ? (
-                    <DetailRow
-                      label="Commission cut"
-                      value={formatCurrency(detail.commissionAmount!, detail.currency)}
-                    />
-                  ) : null}
-                  {detail.failureReason ? (
-                    <DetailRow label="Failure" value={detail.failureReason} />
-                  ) : null}
-                  <DetailRow label="Created" value={formatDate(detail.createdAt)} />
-                  {detail.completedAt ? (
-                    <DetailRow label="Completed" value={formatDate(detail.completedAt)} />
-                  ) : null}
-                </>
-              );
-            })()}
-          </div>
-        )}
-      </Modal>
+      <PaymentDetailsModal
+        payment={selectedPayment}
+        onClose={() => setSelectedPayment(null)}
+      />
     </div>
+  );
+}
+
+function PaymentDetailsModal({
+  payment,
+  onClose,
+}: {
+  payment: BusinessPlatformPayment | null;
+  onClose: () => void;
+}) {
+  if (!payment) return null;
+  const payer = personSummary(payment.payerUserId);
+  const wd = payment.withdrawalId && typeof payment.withdrawalId !== 'string' ? payment.withdrawalId : null;
+  const owner = personSummary(wd?.userId);
+
+  return (
+    <Modal open={!!payment} onClose={onClose} title={`Payment ${payment.referenceId}`} className="sm:max-w-3xl">
+      <div className="space-y-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <StatusBadge status={payment.status} />
+          {wd?.status && wd.status !== payment.status ? (
+            <span className="flex items-center gap-1.5 text-xs text-on-surface-variant">
+              Request <StatusBadge status={wd.status} />
+            </span>
+          ) : null}
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="space-y-2 rounded-lg bg-surface-container-low p-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-on-surface-variant">
+              Request Owner
+            </p>
+            <DetailRow label="Name" value={owner?.name || '—'} />
+            <DetailRow label="Email" value={owner?.email || '—'} />
+            <DetailRow label="Phone" value={owner?.phone || '—'} />
+            <DetailRow label="Role" value={owner?.role || '—'} />
+            <DetailRow label="Code" value={owner?.businessUserCode || '—'} />
+            <DetailRow label="External ref" value={owner?.externalRef || '—'} />
+          </div>
+
+          <div className="space-y-2 rounded-lg bg-surface-container-low p-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-on-surface-variant">
+              Payer
+            </p>
+            <DetailRow label="Name" value={payer?.name || '—'} />
+            <DetailRow label="Email" value={payer?.email || '—'} />
+            <DetailRow label="Phone" value={payer?.phone || '—'} />
+            <DetailRow label="Role" value={payer?.role || '—'} />
+            <DetailRow label="Code" value={payer?.businessUserCode || '—'} />
+            <DetailRow label="External ref" value={payer?.externalRef || '—'} />
+          </div>
+        </div>
+
+        <div className="grid gap-2 rounded-lg border border-outline-variant/60 p-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-on-surface-variant">
+            Request Details
+          </p>
+          <DetailRow label="Request ref" value={wd?.referenceId || '—'} />
+          <DetailRow
+            label="Requested amount"
+            value={wd ? formatCurrency(wd.amount || 0, wd.currency || payment.currency) : '—'}
+          />
+          <DetailRow
+            label="Paid on request"
+            value={
+              wd?.paidAmount != null ? formatCurrency(wd.paidAmount, wd.currency || payment.currency) : '—'
+            }
+          />
+          <DetailRow label="Method" value={wd?.method ? String(wd.method).toUpperCase() : '—'} />
+          <DetailRow label="Destination" value={destinationSummary(wd || undefined)} />
+          <DetailRow label="Origin" value={wd?.origin || '—'} />
+          <DetailRow label="List status" value={wd?.p2pListStatus || '—'} />
+          <DetailRow label="Request created" value={wd?.createdAt ? formatDate(wd.createdAt) : '—'} />
+          <DetailRow label="Request completed" value={wd?.completedAt ? formatDate(wd.completedAt) : '—'} />
+        </div>
+
+        <div className="grid gap-2 rounded-lg border border-outline-variant/60 p-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-on-surface-variant">
+            Payment Details
+          </p>
+          <DetailRow label="Payment ref" value={payment.referenceId} />
+          <DetailRow label="Paid amount" value={formatCurrency(payment.amount, payment.currency)} />
+          <DetailRow label="UTR" value={payment.utr || '—'} />
+          <DetailRow
+            label="Commission"
+            value={payment.commissionAmount ? formatCurrency(payment.commissionAmount, payment.currency) : '—'}
+          />
+          <DetailRow
+            label="Bonus"
+            value={payment.bonusAmount ? formatCurrency(payment.bonusAmount, payment.currency) : '—'}
+          />
+          <DetailRow
+            label="Net credited"
+            value={payment.netCreditedAmount ? formatCurrency(payment.netCreditedAmount, payment.currency) : '—'}
+          />
+          <DetailRow label="Created" value={payment.createdAt ? formatDate(payment.createdAt) : '—'} />
+          <DetailRow label="Completed" value={payment.completedAt ? formatDate(payment.completedAt) : '—'} />
+          <DetailRow label="Notes" value={payment.notes || '—'} />
+          <DetailRow label="Reject reason" value={payment.rejectionReason || '—'} />
+          <DetailRow label="Proof URL" value={payment.proofImageUrl || '—'} />
+        </div>
+      </div>
+    </Modal>
   );
 }

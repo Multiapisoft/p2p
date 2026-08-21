@@ -24,7 +24,8 @@ function LoginForm() {
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [showPass, setShowPass] = useState(false);
+  const [totpCode, setTotpCode] = useState('');
+  const [needs2fa, setNeeds2fa] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -33,7 +34,7 @@ function LoginForm() {
   }, [searchParams]);
 
   const login = useMutation({
-    mutationFn: () => loginApi(normalizeEmail(email), password),
+    mutationFn: () => loginApi(normalizeEmail(email), password, totpCode || undefined),
     onSuccess: (data) => {
       if (!data?.accessToken || !data?.user) {
         setError('Login response incomplete. Try again.');
@@ -58,6 +59,14 @@ function LoginForm() {
       router.replace(next.startsWith('/') ? next : '/home');
     },
     onError: (err: unknown) => {
+      const code = (err as { response?: { data?: { code?: string } } }).response?.data?.code;
+      if (code === 'REQUIRES_2FA') {
+        setNeeds2fa(true);
+        const text = 'Enter your authenticator code';
+        setError(text);
+        toast.error('2FA required', text);
+        return;
+      }
       const text = getApiErrorMessage(err, 'Invalid email or password');
       setError(text);
       toast.error('Login failed', text);
@@ -72,7 +81,7 @@ function LoginForm() {
           <div className="mb-3 inline-flex items-center gap-2 sm:mb-6 sm:gap-3">
             <span className="material-symbols-outlined text-4xl text-secondary-container sm:text-5xl">account_balance_wallet</span>
             <h1 className="font-[family-name:var(--font-headline)] text-2xl font-bold sm:text-3xl md:text-4xl">
-              FairPlay
+              PaySecure247
             </h1>
           </div>
           <p className="hidden font-[family-name:var(--font-headline)] text-4xl font-bold md:block">
@@ -116,24 +125,27 @@ function LoginForm() {
               placeholder="you@example.com"
               required
             />
-            <div>
+            <Input
+              label="Password"
+              icon="lock"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="••••••••"
+              required
+            />
+
+            {needs2fa && (
               <Input
-                label="Password"
-                icon="lock"
-                type={showPass ? 'text' : 'password'}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
+                label="Authenticator code"
+                value={totpCode}
+                onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                inputMode="numeric"
+                maxLength={6}
+                placeholder="6-digit code"
                 required
               />
-              <button
-                type="button"
-                className="mt-1 text-xs text-secondary hover:underline"
-                onClick={() => setShowPass(!showPass)}
-              >
-                {showPass ? 'Hide' : 'Show'} password
-              </button>
-            </div>
+            )}
 
             {error && (
               <div className="rounded-lg bg-error-container px-4 py-3 text-sm text-on-error-container">

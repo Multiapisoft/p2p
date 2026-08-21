@@ -1,8 +1,8 @@
 export const brand = {
-  name: 'FairPlay',
-  shortName: 'FairPlay',
+  name: 'PaySecure247',
+  shortName: 'PaySecure',
   productLine: 'Wallet',
-  domainHint: 'fairplayoffical.com',
+  domainHint: 'paysecure247.com',
   tagline: 'Pay and get paid — your everyday wallet',
   description:
     'Deposit, withdraw, and settle Platform Payments in one place. Built for users who want clear balances and fast payouts.',
@@ -12,7 +12,7 @@ export const brand = {
     'Secure deposits and withdrawals with live Platform Payment matching — no clutter, just your wallet.',
   ctaPrimary: 'Open wallet',
   ctaSecondary: 'Create account',
-  metaTitle: 'FairPlay Wallet',
-  metaDescription: 'FairPlay user wallet — deposits, withdrawals, Platform Payments',
+  metaTitle: 'PaySecure247 Wallet',
+  metaDescription: 'PaySecure247 user wallet — deposits, withdrawals, Platform Payments',
   themeColor: '#1a2e1a',
 } as const;

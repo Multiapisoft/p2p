@@ -104,6 +104,29 @@ export class RedisService implements OnModuleDestroy {
     return this.client.ping();
   }
 
+  channelKey(channel: string): string {
+    return this.key(channel);
+  }
+
+  /** Dedicated subscriber connection (ioredis subscribe mode is exclusive). */
+  duplicateSubscriber(): Redis | null {
+    if (!this.client) return null;
+    return this.client.duplicate({
+      lazyConnect: true,
+      enableOfflineQueue: false,
+      maxRetriesPerRequest: null,
+    });
+  }
+
+  async publish(channel: string, payload: unknown): Promise<void> {
+    if (!this.ready) return;
+    try {
+      await this.client!.publish(this.key(channel), JSON.stringify(payload));
+    } catch {
+      // live fan-out is best-effort
+    }
+  }
+
   async onModuleDestroy() {
     await this.client?.quit().catch(() => undefined);
   }

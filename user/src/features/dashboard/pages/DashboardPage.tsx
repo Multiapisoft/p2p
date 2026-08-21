@@ -70,7 +70,7 @@ export function DashboardPage() {
         </p>
       )}
 
-      <section className="grid grid-cols-2 gap-2 sm:gap-4 lg:grid-cols-4">
+      <section className="grid grid-cols-2 gap-2 sm:gap-4">
         <StatCard
           label="Available Balance"
           value={formatCurrency(balance?.availableBalance ?? 0, displayCurrency)}
@@ -82,19 +82,6 @@ export function DashboardPage() {
           value={formatCurrency(pendingLocked, 'INR')}
           icon="lock"
           trend={pendingLocked > 0 ? 'In open withdrawals' : 'Nothing locked'}
-        />
-        <StatCard
-          label="Total deposited"
-          value={formatCurrency(dep?.completedAmount ?? inrWallet?.totalDeposited ?? 0)}
-          icon="south_west"
-          trend={`${dep?.completed ?? 0} completed deposits`}
-          variant="success"
-        />
-        <StatCard
-          label="Total withdrawn"
-          value={formatCurrency(wd?.completedAmount ?? inrWallet?.totalWithdrawn ?? 0)}
-          icon="north_east"
-          trend={`${wd?.completed ?? 0} completed withdrawals`}
         />
       </section>
 

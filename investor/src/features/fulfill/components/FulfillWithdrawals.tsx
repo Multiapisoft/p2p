@@ -14,20 +14,28 @@ import { AddressQr } from '@/shared/components/AddressQr';
 import { LoadingScreen, EmptyState } from '@/shared/components/ui/Icon';
 import { apiErrorMessage, formatCurrency, formatDate } from '@/shared/lib/utils';
 import { normalizeUtr, normalizeTxHash, paymentRefErrorForMethod } from '@/shared/lib/validation';
-import {
-  buildUpiPayUri,
-  formatSecondsMmSs,
-  planAmountLabel,
-} from '@/shared/lib/upi-qr';
+import { buildUpiPayUri, buildUpiAppLinks, formatSecondsMmSs } from '@/shared/lib/upi-qr';
+import { minPartialAmount, partialPayError } from '@/shared/lib/partial-pay';
+import { InvestorLimitPanel } from '@/features/invest/components/InvestorLimitPanel';
+import { InvestAmountModal } from '@/features/invest/components/InvestAmountModal';
+import { apiGet } from '@/shared/api/client';
 import type { PaymentMethod } from '@/shared/types/api.types';
 
 const PAGE_SIZES = [5, 10, 20];
+const MATCH_AMOUNT_KEY = 'p2p-match-amount';
+
+function readStoredMatchAmount() {
+  if (typeof window === 'undefined') return null;
+  const n = Number(sessionStorage.getItem(MATCH_AMOUNT_KEY));
+  return Number.isFinite(n) && n >= 1 ? n : null;
+}
 
 const METHOD_OPTIONS: { value: PaymentMethod | 'all'; label: string }[] = [
   { value: 'all', label: 'All methods' },
   { value: 'upi', label: 'UPI' },
   { value: 'bank', label: 'Bank' },
   { value: 'usdt', label: 'USDT' },
+  { value: 'cdm', label: 'CDM' },
 ];
 
 const AVAILABLE_SORT_OPTIONS = [
@@ -89,6 +97,21 @@ function DestinationInfo({
           })}
           label="Scan UPI QR"
         />
+        <div className="flex flex-wrap gap-2 pt-2">
+          {buildUpiAppLinks({
+            upiId: w.upiDetails.upiId,
+            name: w.upiDetails.payerName,
+            amount: upiAmount > 0 ? upiAmount : undefined,
+          }).map((app) => (
+            <a
+              key={app.id}
+              href={app.href}
+              className="rounded-full bg-secondary/15 px-2.5 py-1 text-[11px] font-semibold text-secondary"
+            >
+              Pay with {app.label}
+            </a>
+          ))}
+        </div>
       </div>
     );
   }
@@ -232,7 +255,7 @@ export function FulfillWithdrawals({
       ? 'Withdrawal Requests (Pay = Invest)'
       : 'Open Withdrawal Requests',
     emptyList:
-      'No approved Platform Payment withdrawals yet. Business or admin must list a request before you can pay.',
+      'No matching withdrawals right now. Waiting — this list refreshes every 10 seconds.',
     myTitle: isInvest ? 'My Investments (via Pay)' : 'My Fulfillments',
     myEmpty: isInvest ? 'No payments submitted yet' : 'No fulfillments yet',
     credited: isInvest ? 'Invested' : 'Points credited',
@@ -267,6 +290,12 @@ export function FulfillWithdrawals({
   const [proofUrl, setProofUrl] = useState('');
   const [formError, setFormError] = useState('');
   const [now, setNow] = useState(() => Date.now());
+  const [matchAmount, setMatchAmount] = useState<number | null>(null);
+  const [matchInput, setMatchInput] = useState(() => {
+    const stored = readStoredMatchAmount();
+    return stored != null ? String(stored) : '';
+  });
+  const [amountModalOpen, setAmountModalOpen] = useState(false);
   const qc = useQueryClient();
 
   useEffect(() => {
@@ -292,8 +321,8 @@ export function FulfillWithdrawals({
   }, [claimPayDeadline, target]);
 
   const availableQuery = useMemo(
-    () => ({ page, limit, search, sort, method }),
-    [page, limit, search, sort, method],
+    () => ({ page, limit, search, sort, method, amount: matchAmount ?? undefined }),
+    [page, limit, search, sort, method, matchAmount],
   );
 
   const myPaymentsQuery = useMemo(
@@ -304,6 +333,13 @@ export function FulfillWithdrawals({
   const { data, isLoading, isFetching, isError, error, refetch } = useQuery({
     queryKey: ['fulfill-available', availableQuery],
     queryFn: () => fulfillApi.getAvailable(availableQuery),
+    refetchInterval: 30_000,
+  });
+
+  const { data: platformSettings } = useQuery({
+    queryKey: ['platform-settings'],
+    queryFn: () =>
+      apiGet<{ investorPlanAmounts?: number[] }>('/platform-settings'),
   });
 
   const payAmountNum = Number(amount);
@@ -338,8 +374,8 @@ export function FulfillWithdrawals({
     return { earned, pending };
   }, [myPayments]);
 
-  const selectPlan = useMutation({
-    mutationFn: (planAmount: number) => fulfillApi.setInvestorPlan(planAmount),
+  const addLimit = useMutation({
+    mutationFn: (amount: number) => fulfillApi.addInvestorLimit(amount),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['fulfill-available'] });
     },
@@ -349,9 +385,13 @@ export function FulfillWithdrawals({
     mutationFn: () =>
       fulfillApi.submitPayment(target!._id, {
         amount: Number(amount),
-        utr: target!.method === 'usdt' ? normalizeTxHash(utr) : normalizeUtr(utr),
-        proofImageKey: proofKey,
-        proofImageUrl: proofUrl,
+        utr: utr.trim()
+          ? target!.method === 'usdt'
+            ? normalizeTxHash(utr)
+            : normalizeUtr(utr)
+          : undefined,
+        proofImageKey: proofKey || undefined,
+        proofImageUrl: proofUrl || undefined,
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['fulfill-available'] });
@@ -381,6 +421,19 @@ export function FulfillWithdrawals({
     setFormError('');
     setClaimingId(w._id);
     try {
+      if (w.assignedToMe) {
+        setTarget(w);
+        setClaimPayDeadline(null);
+        resetForm();
+        const maxPay =
+          w.maxPayable != null
+            ? Math.min(w.maxPayable, w.remainingAmount)
+            : w.remainingAmount;
+        const pref =
+          matchAmount != null && matchAmount >= 1 ? Math.min(matchAmount, maxPay) : maxPay;
+        setAmount(String(pref > 0 ? pref : maxPay));
+        return;
+      }
       const claimed = await fulfillApi.claimWithdrawal(w._id);
       setTarget({ ...w, ...claimed });
       setClaimPayDeadline(claimed.claimPayDeadline);
@@ -389,7 +442,9 @@ export function FulfillWithdrawals({
         claimed.maxPayable != null
           ? Math.min(claimed.maxPayable, claimed.remainingAmount)
           : claimed.remainingAmount;
-      setAmount(String(maxPay > 0 ? maxPay : claimed.remainingAmount));
+      const pref =
+        matchAmount != null && matchAmount >= 1 ? Math.min(matchAmount, maxPay) : maxPay;
+      setAmount(String(pref > 0 ? pref : maxPay));
       qc.invalidateQueries({ queryKey: ['fulfill-available'] });
     } catch (err: unknown) {
       setFormError(apiErrorMessage(err, 'Could not claim this withdrawal'));
@@ -422,14 +477,36 @@ export function FulfillWithdrawals({
       );
       return;
     }
-    const refErr = paymentRefErrorForMethod(utr, target.method);
-    if (refErr) {
-      setFormError(refErr);
+    const partialErr = partialPayError({
+      amount: num,
+      remaining: target.remainingAmount,
+      maxPayable: maxPay,
+      method: target.method,
+      currency: target.currency,
+    });
+    if (partialErr) {
+      setFormError(partialErr);
       return;
     }
-    if (!proofKey || !proofUrl) {
-      setFormError('Please upload a payment screenshot');
-      return;
+    const refErr = utr.trim() ? paymentRefErrorForMethod(utr, target.method) : null;
+    if (target.assignedToMe) {
+      if (!utr.trim() && !proofKey) {
+        setFormError('UTR ya payment slip upload karo');
+        return;
+      }
+      if (refErr) {
+        setFormError(refErr);
+        return;
+      }
+    } else {
+      if (refErr) {
+        setFormError(refErr);
+        return;
+      }
+      if (!proofKey || !proofUrl) {
+        setFormError('Please upload a payment screenshot');
+        return;
+      }
     }
     submit.mutate();
   };
@@ -437,13 +514,37 @@ export function FulfillWithdrawals({
   const availableItems = data?.items ?? [];
   const availableTotal = data?.total ?? 0;
   const availableTotalPages = data?.totalPages ?? 1;
-  const needsPlan = isInvest && !!data?.needsPlan;
-  const planAmounts = data?.planAmounts ?? [25000, 50000, 100000, 200000];
+  const needsLimit = !!(data?.needsLimit ?? data?.needsPlan);
+  const showBonus = data?.showCommissionToInvestor !== false;
+  const needsAmount = !needsLimit && (!matchAmount || !!data?.needsAmount);
+  const limitLots = data?.lots ?? [];
+  const limitRemaining = data?.limitRemaining ?? 0;
+  const limitAdded = data?.limitAdded ?? 0;
   const claimLockMinutes = data?.claimLockMinutes ?? 7;
   const paySecondsLeft = claimPayDeadline
     ? Math.max(0, Math.ceil((new Date(claimPayDeadline).getTime() - now) / 1000))
     : 0;
-  const payExpired = !!claimPayDeadline && paySecondsLeft <= 0;
+  const payExpired =
+    !target?.assignedToMe && !!claimPayDeadline && paySecondsLeft <= 0;
+
+  const applyMatchAmount = (n: number) => {
+    const cap = limitRemaining > 0 ? limitRemaining : null;
+    const amount = cap != null ? Math.min(n, cap) : n;
+    setMatchAmount(amount);
+    setMatchInput(String(amount));
+    setPage(1);
+    setAmountModalOpen(false);
+    sessionStorage.setItem(MATCH_AMOUNT_KEY, String(amount));
+  };
+
+  useEffect(() => {
+    if (!data) return;
+    if (needsLimit) {
+      setAmountModalOpen(false);
+      return;
+    }
+    if (matchAmount == null) setAmountModalOpen(true);
+  }, [data, needsLimit, matchAmount]);
 
   const paymentItems = myPayments?.items ?? [];
   const paymentsTotal = myPayments?.total ?? 0;
@@ -451,44 +552,58 @@ export function FulfillWithdrawals({
 
   return (
     <div className="space-y-6">
+      <InvestAmountModal
+        open={amountModalOpen}
+        initialValue={matchInput}
+        cap={limitRemaining > 0 ? limitRemaining : null}
+        title="Enter amount first"
+        onClose={() => setAmountModalOpen(false)}
+        onApply={applyMatchAmount}
+      />
       {formError && !target && (
         <div className="rounded-lg bg-error-container px-4 py-3 text-sm text-on-error-container">
           {formError}
         </div>
       )}
 
-      {isInvest && data && !needsPlan && data.planAmount != null && data.targetAmount != null && (
+      {data && !needsLimit && (
         <Card>
-          <div className="flex flex-wrap items-end justify-between gap-2">
+          <InvestorLimitPanel
+            remaining={limitRemaining}
+            added={limitAdded}
+            lots={limitLots}
+            planAmounts={platformSettings?.investorPlanAmounts}
+            pending={addLimit.isPending}
+            error={addLimit.error}
+            onAdd={(amount) => addLimit.mutate(amount)}
+          />
+        </Card>
+      )}
+
+      {!needsLimit && (
+        <Card>
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <p className="text-sm text-on-surface-variant">
-                Your plan · {planAmountLabel(data.planAmount)}
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-on-surface-variant">
+                Amount to pay
               </p>
-              <p className="mt-1 text-2xl font-bold text-secondary">
-                Target {formatCurrency(data.targetAmount)}
+              <p className="text-lg font-bold text-secondary">
+                {matchAmount != null ? formatCurrency(matchAmount) : 'Enter amount first'}
+              </p>
+              <p className="mt-0.5 text-xs text-on-surface-variant">
+                {matchAmount != null
+                  ? `Showing matches for ${formatCurrency(matchAmount)}`
+                  : 'Amount confirm karo, phir matching list dikhegi'}
               </p>
             </div>
-            <p className="text-sm text-on-surface-variant">
-              Paid toward plan{' '}
-              <span className="font-semibold text-on-surface">
-                {formatCurrency(data.paidTowardPlan ?? 0)}
-              </span>
-              {' / '}
-              {formatCurrency(data.targetAmount)}
-            </p>
-          </div>
-          <div className="mt-3 h-2 overflow-hidden rounded-full bg-surface-container-high">
-            <div
-              className="h-full rounded-full bg-secondary"
-              style={{
-                width: `${Math.min(
-                  100,
-                  data.targetAmount > 0
-                    ? ((data.paidTowardPlan ?? 0) / data.targetAmount) * 100
-                    : 0,
-                )}%`,
-              }}
-            />
+            <Button
+              type="button"
+              size="sm"
+              variant={matchAmount ? 'outline' : 'primary'}
+              onClick={() => setAmountModalOpen(true)}
+            >
+              {matchAmount != null ? 'Change amount' : 'Enter amount'}
+            </Button>
           </div>
         </Card>
       )}
@@ -532,6 +647,11 @@ export function FulfillWithdrawals({
           showMethod
           sortOptions={AVAILABLE_SORT_OPTIONS}
         />
+        <div className="mb-3">
+          <Button type="button" size="sm" variant="outline" onClick={() => refetch()}>
+            Refresh
+          </Button>
+        </div>
 
         <div className="mb-4 flex flex-wrap gap-2">
           {METHOD_OPTIONS.map((m) => (
@@ -564,15 +684,24 @@ export function FulfillWithdrawals({
               Retry
             </Button>
           </div>
-        ) : needsPlan ? (
+        ) : needsLimit ? (
           <EmptyState
-            message="Select an investment plan to see available withdrawals."
+            message="Add a pay-limit amount first to see available withdrawals."
+            icon="payments"
+          />
+        ) : needsAmount && !availableItems.length ? (
+          <EmptyState
+            message="Enter how much you want to pay to see matching withdrawals."
             icon="payments"
           />
         ) : !availableItems.length ? (
           <EmptyState
             message={
-              search || method !== 'all' ? 'No requests match your filters' : labels.emptyList
+              search || method !== 'all'
+                ? 'No requests match your filters'
+                : matchAmount
+                  ? `No matching requests for ${formatCurrency(matchAmount)}`
+                  : labels.emptyList
             }
             icon="payments"
           />
@@ -587,6 +716,11 @@ export function FulfillWithdrawals({
                       <p className="text-xs text-on-surface-variant">
                         {w.referenceId} · {w.method.toUpperCase()} · {formatDate(w.createdAt)}
                       </p>
+                      {w.assignedToMe ? (
+                        <span className="mt-1 inline-block rounded-full bg-secondary/15 px-2 py-0.5 text-[10px] font-semibold text-secondary">
+                          Assigned to you
+                        </span>
+                      ) : null}
                       <div className="mt-2 flex flex-wrap gap-2 text-sm">
                         <span className="rounded-full bg-secondary-container px-2 py-0.5 font-semibold text-on-secondary-container">
                           Paid: {formatCurrency(w.paidAmount, w.currency)}
@@ -602,7 +736,7 @@ export function FulfillWithdrawals({
                             w.creditIfPayFull.netCredited,
                             w.creditIfPayFull.creditCurrency || 'INR',
                           )}
-                          {w.creditIfPayFull.bonusAmount > 0
+                          {showBonus && w.creditIfPayFull.bonusAmount > 0
                             ? ` (+${formatCurrency(w.creditIfPayFull.bonusAmount, 'INR')} bonus)`
                             : ''}
                           {w.currency?.toUpperCase() === 'USDT' && w.creditIfPayFull.exchangeRate
@@ -614,6 +748,11 @@ export function FulfillWithdrawals({
                     </div>
                     <div className="flex items-center gap-2">
                       <StatusBadge status={w.status} />
+                      {w.origin === 'business' ? (
+                        <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
+                          Business
+                        </span>
+                      ) : null}
                       <Button
                         size="sm"
                         onClick={() => openPay(w)}
@@ -717,7 +856,7 @@ export function FulfillWithdrawals({
                       {p.netCreditedAmount ? (
                         <p className="text-xs text-secondary">
                           {labels.credited}: {formatCurrency(p.netCreditedAmount, 'INR')}
-                          {p.bonusAmount
+                          {showBonus && p.bonusAmount
                             ? ` (incl. bonus ${formatCurrency(p.bonusAmount, 'INR')})`
                             : ''}
                         </p>
@@ -762,38 +901,21 @@ export function FulfillWithdrawals({
       )}
 
       <Modal
-        open={needsPlan}
+        open={needsLimit}
         onClose={() => undefined}
-        title="Choose investment plan"
+        title="Choose an Investment plan to unlock Earnings"
         className="sm:max-w-md"
       >
-        <div className="space-y-3">
-          <p className="text-sm text-on-surface-variant">
-            Pick a plan to unlock Platform Payment withdrawals. Your target is plan × multiplier
-            from platform settings.
-          </p>
-          <div className="grid grid-cols-2 gap-2">
-            {planAmounts.map((amt) => (
-              <button
-                key={amt}
-                type="button"
-                disabled={selectPlan.isPending}
-                onClick={() => selectPlan.mutate(amt)}
-                className="rounded-xl border border-outline-variant bg-surface-container-low px-3 py-4 text-center transition hover:border-secondary hover:bg-secondary-container/20 disabled:opacity-60"
-              >
-                <p className="text-lg font-bold text-secondary">{planAmountLabel(amt)}</p>
-                <p className="mt-0.5 text-[11px] text-on-surface-variant">
-                  {formatCurrency(amt)}
-                </p>
-              </button>
-            ))}
-          </div>
-          {selectPlan.isError && (
-            <p className="text-xs text-error">
-              {apiErrorMessage(selectPlan.error, 'Could not save plan')}
-            </p>
-          )}
-        </div>
+        <InvestorLimitPanel
+          remaining={limitRemaining}
+          added={limitAdded}
+          lots={limitLots}
+          firstLogin
+          planAmounts={platformSettings?.investorPlanAmounts}
+          pending={addLimit.isPending}
+          error={addLimit.error}
+          onAdd={(amount) => addLimit.mutate(amount)}
+        />
       </Modal>
 
       <Modal
@@ -816,6 +938,16 @@ export function FulfillWithdrawals({
       >
         {target && (
           <form id="fulfill-pay-form" onSubmit={handleSubmit} className="space-y-4">
+            {target.assignedToMe ? (
+            <div className="rounded-xl border border-secondary/30 bg-secondary-container/30 px-3 py-2.5">
+              <p className="text-xs font-bold uppercase tracking-wide text-secondary">
+                Assigned to you
+              </p>
+              <p className="mt-1 text-[11px] font-medium text-on-surface">
+                Sirf tumhe ye request dikh rahi hai. UTR ya payment slip upload karke pay karo.
+              </p>
+            </div>
+            ) : (
             <div
               className={`rounded-xl border px-3 py-2.5 ${
                 payExpired
@@ -834,6 +966,7 @@ export function FulfillWithdrawals({
                 (claim lock).
               </p>
             </div>
+            )}
 
             <div className="rounded-lg bg-surface-container-low p-3 text-sm">
               <p>Total: {formatCurrency(target.amount, target.currency)}</p>
@@ -878,6 +1011,10 @@ export function FulfillWithdrawals({
               required
               disabled={payExpired}
             />
+            <p className="text-[11px] text-on-surface-variant">
+              Partial min {formatCurrency(minPartialAmount(target.method, target.currency), target.currency)}.
+              Smaller leftover only as full pay.
+            </p>
 
             {isInvest && payAmountNum >= 1 && (
               <div
@@ -905,7 +1042,7 @@ export function FulfillWithdrawals({
                           </span>
                         )}
                     </p>
-                    {creditPreview.bonusAmount > 0 && (
+                    {showBonus && creditPreview.bonusAmount > 0 && (
                       <p>
                         Investor bonus:{' '}
                         <span className="font-semibold text-secondary">
@@ -938,6 +1075,7 @@ export function FulfillWithdrawals({
               }}
               disabled={submit.isPending || payExpired}
               referenceKind={target.method === 'usdt' ? 'txid' : 'utr'}
+              utrRequired={!target.assignedToMe}
             />
 
             {formError && (

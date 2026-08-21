@@ -23,6 +23,7 @@ import { IntegrationModule } from '../integration/integration.module';
 import { Business, BusinessSchema } from '../business/schemas/business.schema';
 import { SupportModule } from '../support/support.module';
 import { PlatformSettingsModule } from '../platform-settings/platform-settings.module';
+import { UsersModule } from '../users/users.module';
 
 @Module({
   imports: [
@@ -42,6 +43,7 @@ import { PlatformSettingsModule } from '../platform-settings/platform-settings.m
     AuditModule,
     SupportModule,
     PlatformSettingsModule,
+    UsersModule,
     forwardRef(() => IntegrationModule),
   ],
   controllers: [WithdrawalController, WithdrawalPaymentController],

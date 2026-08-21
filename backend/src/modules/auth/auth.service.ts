@@ -2,12 +2,17 @@ import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/
 import { JwtService } from '@nestjs/jwt';
 import { UsersService } from '../users/users.service';
 import { BusinessService } from '../business/business.service';
-import { LoginDto, RegisterDto, SetPasswordDto } from './dto/auth.dto';
+import { LoginDto, RegisterDto, SetPasswordDto, EnableTwoFactorDto, DisableTwoFactorDto } from './dto/auth.dto';
 import { UserRole } from '../../common/enums/role.enum';
 import { UserStatus } from '../../common/enums/currency.enum';
 import { PaymentMethod } from '../../common/enums/payment-method.enum';
 import { JwtPayload } from '../../common/interfaces/jwt-payload.interface';
 import { UsersRepository } from '../users/users.repository';
+import {
+  buildOtpauthUrl,
+  generateTotpSecret,
+  verifyTotp,
+} from './utils/totp.util';
 
 @Injectable()
 export class AuthService {
@@ -65,7 +70,7 @@ export class AuthService {
 
   async login(dto: LoginDto) {
     const email = dto.email.trim().toLowerCase();
-    const user = await this.usersService.findByEmail(email);
+    const user = await this.usersRepo.findByEmailWithSecrets(email);
     if (!user) throw new UnauthorizedException('Invalid credentials');
 
     if (user.status !== UserStatus.ACTIVE) {
@@ -75,9 +80,69 @@ export class AuthService {
     const valid = await this.usersService.validatePassword(dto.password, user.password);
     if (!valid) throw new UnauthorizedException('Invalid credentials');
 
+    if (user.twoFactorEnabled) {
+      if (!dto.totpCode) {
+        throw new UnauthorizedException({
+          message: 'Two-factor authentication code required',
+          code: 'REQUIRES_2FA',
+        });
+      }
+      if (!user.twoFactorSecret || !verifyTotp(user.twoFactorSecret, dto.totpCode)) {
+        throw new UnauthorizedException('Invalid two-factor code');
+      }
+    }
+
     await this.usersRepo.update(user._id.toString(), { lastLoginAt: new Date() });
 
     return this.generateToken(user);
+  }
+
+  async twoFactorStatus(userId: string) {
+    const user = await this.usersRepo.findById(userId);
+    if (!user) throw new UnauthorizedException('User not found');
+    return { enabled: !!user.twoFactorEnabled };
+  }
+
+  async setupTwoFactor(userId: string) {
+    const user = await this.usersRepo.findByIdWithSecrets(userId);
+    if (!user) throw new UnauthorizedException('User not found');
+    if (user.twoFactorEnabled) {
+      throw new BadRequestException('Two-factor authentication is already enabled');
+    }
+    const secret = generateTotpSecret();
+    await this.usersRepo.update(userId, { twoFactorSecret: secret, twoFactorEnabled: false });
+    return {
+      secret,
+      otpauthUrl: buildOtpauthUrl({ secret, email: user.email, issuer: 'PaySecure247' }),
+    };
+  }
+
+  async enableTwoFactor(userId: string, dto: EnableTwoFactorDto) {
+    const user = await this.usersRepo.findByIdWithSecrets(userId);
+    if (!user) throw new UnauthorizedException('User not found');
+    if (user.twoFactorEnabled) {
+      throw new BadRequestException('Two-factor authentication is already enabled');
+    }
+    if (!user.twoFactorSecret || !verifyTotp(user.twoFactorSecret, dto.code)) {
+      throw new BadRequestException('Invalid two-factor code');
+    }
+    await this.usersRepo.update(userId, { twoFactorEnabled: true });
+    return { enabled: true };
+  }
+
+  async disableTwoFactor(userId: string, dto: DisableTwoFactorDto) {
+    const user = await this.usersRepo.findByIdWithSecrets(userId);
+    if (!user) throw new UnauthorizedException('User not found');
+    if (!user.twoFactorEnabled) {
+      throw new BadRequestException('Two-factor authentication is not enabled');
+    }
+    const valid = await this.usersService.validatePassword(dto.password, user.password);
+    if (!valid) throw new UnauthorizedException('Invalid credentials');
+    if (!user.twoFactorSecret || !verifyTotp(user.twoFactorSecret, dto.code)) {
+      throw new BadRequestException('Invalid two-factor code');
+    }
+    await this.usersRepo.clearTwoFactor(userId);
+    return { enabled: false };
   }
 
   async setPassword(userId: string, dto: SetPasswordDto) {
@@ -90,9 +155,12 @@ export class AuthService {
   private generateToken(user: {
     _id: { toString(): string };
     email: string;
+    name?: string;
     role: UserRole;
     permissions?: string[];
     mustSetPassword?: boolean;
+    twoFactorEnabled?: boolean;
+    staffBusinessId?: { toString(): string } | string;
   }) {
     const payload: JwtPayload = {
       sub: user._id.toString(),
@@ -100,14 +168,23 @@ export class AuthService {
       role: user.role,
     };
 
+    const staffBusinessId =
+      typeof user.staffBusinessId === 'string'
+        ? user.staffBusinessId
+        : user.staffBusinessId?.toString() || null;
+
     return {
       accessToken: this.jwtService.sign(payload),
       user: {
         id: user._id.toString(),
         email: user.email,
+        name: user.name || '',
         role: user.role,
         permissions: user.permissions ?? [],
         mustSetPassword: !!user.mustSetPassword,
+        twoFactorEnabled: !!user.twoFactorEnabled,
+        staffBusinessId,
+        isBusinessOwner: user.role === UserRole.BUSINESS && !staffBusinessId,
       },
     };
   }

@@ -3,7 +3,6 @@ export const PERMISSIONS = {
   WITHDRAWALS: 'withdrawals.manage',
   USERS: 'users.manage',
   BUSINESS: 'business.manage',
-  INVESTORS: 'investors.manage',
   COMMISSIONS: 'commissions.manage',
   SUPPORT: 'support.manage',
   PAYMENT_CONFIG: 'payment_config.manage',

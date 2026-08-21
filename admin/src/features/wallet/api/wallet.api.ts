@@ -34,6 +34,12 @@ export const walletApi = {
   getByUser: (userId: string) =>
     apiGet<WalletUserLookup>(`/wallets/by-user/${userId}`),
 
+  getPlatform: () =>
+    apiGet<{
+      admin: { _id: string; name: string; email: string; role: string };
+      wallet: WalletSummary;
+    }>('/wallets/platform'),
+
   adjust: (payload: {
     userId?: string;
     email?: string;
@@ -43,4 +49,16 @@ export const walletApi = {
     reason: string;
     currency?: string;
   }) => apiPost<WalletAdjustResult>('/wallets/adjust', payload),
+
+  resetTxnData: (payload: {
+    entityType: 'user' | 'investor' | 'business';
+    entityId: string;
+    confirm: string;
+  }) =>
+    apiPost<{
+      ok: boolean;
+      users: number;
+      cancelledWithdrawals: number;
+      cancelledDeposits: number;
+    }>('/wallets/reset-txn-data', payload),
 };

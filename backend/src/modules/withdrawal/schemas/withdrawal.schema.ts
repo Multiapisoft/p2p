@@ -3,7 +3,7 @@ import { HydratedDocument, Types } from 'mongoose';
 import { PaymentMethod } from '../../../common/enums/payment-method.enum';
 import { TransactionStatus } from '../../../common/enums/transaction-status.enum';
 import { Currency } from '../../../common/enums/currency.enum';
-import { UpiDetails, BankDetails, UsdtDetails } from '../../deposit/schemas/deposit.schema';
+import { UpiDetails, BankDetails, UsdtDetails, CdmDetails } from '../../deposit/schemas/deposit.schema';
 
 export type WithdrawalDocument = HydratedDocument<Withdrawal>;
 
@@ -52,6 +52,16 @@ export class Withdrawal {
 
   @Prop({ type: UsdtDetails })
   usdtDetails?: UsdtDetails;
+
+  @Prop({ type: CdmDetails })
+  cdmDetails?: CdmDetails;
+
+  /** Evidence when admin/business marks paid directly (Noida #64). */
+  @Prop()
+  approveProofKey?: string;
+
+  @Prop()
+  approveProofUrl?: string;
 
   @Prop({ default: 0 })
   commissionAmount!: number;
@@ -110,7 +120,12 @@ export class Withdrawal {
   @Prop()
   p2pListRejectReason?: string;
 
-  /** Investor/user who claimed this withdrawal for exclusive pay window. */
+  /**
+   * Who opened this request. Business-origin WDs count against the P2P pay
+   * limit and appear on user/investor pay lists as soon as they are created.
+   */
+  @Prop({ type: String, enum: ['user', 'investor', 'business'], default: 'user', index: true })
+  origin?: 'user' | 'investor' | 'business';
   @Prop({ type: Types.ObjectId, ref: 'User', index: true })
   claimLockedBy?: Types.ObjectId;
 
@@ -121,6 +136,19 @@ export class Withdrawal {
   /** Deadline for the claimer to submit payment proof. */
   @Prop()
   claimPayDeadline?: Date;
+
+  /**
+   * Exclusive payer: only this user/investor sees the request on the pay list
+   * and may submit UTR / slip proof.
+   */
+  @Prop({ type: Types.ObjectId, ref: 'User', index: true })
+  assignedTo?: Types.ObjectId;
+
+  @Prop()
+  assignedBy?: string;
+
+  @Prop()
+  assignedAt?: Date;
 }
 
 export const WithdrawalSchema = SchemaFactory.createForClass(Withdrawal);

@@ -24,18 +24,45 @@ export class WithdrawalListQueryDto extends ListQueryDto {
 }
 
 export class WithdrawalUpiDetailsDto {
+  @IsOptional()
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   @IsString()
-  @Matches(/^(?!.*\d{10,}).+$/, {
-    message: 'UPI ID cannot contain more than 9 consecutive digits',
-  })
-  upiId!: string;
+  @MinLength(3, { message: 'UPI ID is required' })
+  upiId?: string;
 
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
-  @IsString({ message: 'Account name is required' })
-  @MinLength(2, { message: 'Account name is required' })
+  @IsString({ message: 'Name of Account Holder is required' })
+  @MinLength(2, { message: 'Name of Account Holder is required' })
   @Matches(/^[A-Za-z ]+$/, {
-    message: 'Account name must contain letters and spaces only (no numbers)',
+    message: 'Name of Account Holder must contain letters and spaces only (no numbers)',
+  })
+  payerName!: string;
+
+  @IsOptional()
+  @IsString()
+  qrImageKey?: string;
+
+  @IsOptional()
+  @IsString()
+  qrImageUrl?: string;
+}
+
+export class WithdrawalCdmDetailsDto {
+  @IsOptional()
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @IsString()
+  locationHint?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @IsString()
+  notes?: string;
+
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @IsString({ message: 'Name of Account Holder is required' })
+  @MinLength(2)
+  @Matches(/^[A-Za-z ]+$/, {
+    message: 'Name of Account Holder must contain letters and spaces only (no numbers)',
   })
   payerName!: string;
 }
@@ -95,6 +122,11 @@ export class CreateWithdrawalDto {
   usdtDetails?: UsdtDetailsDto;
 
   @IsOptional()
+  @ValidateNested()
+  @Type(() => WithdrawalCdmDetailsDto)
+  cdmDetails?: WithdrawalCdmDetailsDto;
+
+  @IsOptional()
   @IsString()
   integrationToken?: string;
 }
@@ -114,6 +146,11 @@ export class UpdateWithdrawalDestinationDto {
   @ValidateNested()
   @Type(() => UsdtDetailsDto)
   usdtDetails?: UsdtDetailsDto;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => WithdrawalCdmDetailsDto)
+  cdmDetails?: WithdrawalCdmDetailsDto;
 }
 
 export class ProcessWithdrawalDto {
@@ -122,6 +159,14 @@ export class ProcessWithdrawalDto {
 
   @IsOptionalAppTxHash()
   txHash?: string;
+
+  @IsOptional()
+  @IsString()
+  proofImageKey?: string;
+
+  @IsOptional()
+  @IsString()
+  proofImageUrl?: string;
 }
 
 export class RejectWithdrawalDto {
@@ -133,4 +178,10 @@ export class RejectP2pListDto {
   @IsOptional()
   @IsString()
   reason?: string;
+}
+
+export class AssignWithdrawalDto {
+  @IsString()
+  @MinLength(1)
+  assigneeId!: string;
 }

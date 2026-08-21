@@ -15,6 +15,8 @@ import {
 import { PaymentMethod } from '../../common/enums/payment-method.enum';
 import { RedisService } from '../../redis/redis.service';
 import { Business, BusinessDocument } from '../business/schemas/business.schema';
+import { BusinessService } from '../business/business.service';
+import { p2pPayQuotaRemaining } from '../business/utils/p2p-pay-quota.util';
 
 export interface CommissionResult {
   amount: number;
@@ -32,6 +34,7 @@ export class CommissionService {
     @InjectModel(Business.name)
     private businessModel: Model<BusinessDocument>,
     private redis: RedisService,
+    private businessService: BusinessService,
   ) {}
 
   async create(dto: CreateCommissionDto) {
@@ -85,13 +88,19 @@ export class CommissionService {
       this.businessModel.findById(businessId).exec(),
     ]);
     const limit = business?.p2pPayLimit || 0;
+    const earned = business?.p2pPayEarned || 0;
     const used = business?.p2pPayUsed || 0;
     return {
       businessTake,
       investorBonus,
       p2pPayLimit: limit,
+      p2pPayEarned: earned,
       p2pPayUsed: used,
-      p2pPayRemaining: limit > 0 ? Math.max(0, limit - used) : null,
+      p2pPayRemaining: p2pPayQuotaRemaining({
+        p2pPayLimit: limit,
+        p2pPayEarned: earned,
+        p2pPayUsed: used,
+      }),
     };
   }
 
@@ -104,8 +113,9 @@ export class CommissionService {
       businessTake: [] as CommissionConfigDocument[],
       investorBonus: [] as CommissionConfigDocument[],
       p2pPayLimit: 0,
+      p2pPayEarned: 0,
       p2pPayUsed: 0,
-      p2pPayRemaining: null as number | null,
+      p2pPayRemaining: 0 as number,
     };
 
     if (dto.businessTake) {
@@ -136,18 +146,21 @@ export class CommissionService {
     }
 
     if (dto.p2pPayLimit != null) {
-      await this.businessModel
-        .findByIdAndUpdate(businessId, { p2pPayLimit: dto.p2pPayLimit })
-        .exec();
+      await this.businessService.setP2pPayLimit(businessId, dto.p2pPayLimit, {
+        referenceType: 'p2p_pay_limit_set',
+        referenceId: businessId,
+      });
     }
 
     const business = await this.businessModel.findById(businessId).exec();
     results.p2pPayLimit = business?.p2pPayLimit || 0;
+    results.p2pPayEarned = business?.p2pPayEarned || 0;
     results.p2pPayUsed = business?.p2pPayUsed || 0;
-    results.p2pPayRemaining =
-      results.p2pPayLimit > 0
-        ? Math.max(0, results.p2pPayLimit - results.p2pPayUsed)
-        : null;
+    results.p2pPayRemaining = p2pPayQuotaRemaining({
+      p2pPayLimit: results.p2pPayLimit,
+      p2pPayEarned: results.p2pPayEarned,
+      p2pPayUsed: results.p2pPayUsed,
+    });
 
     await this.redis.delPattern('commission:*');
     return results;

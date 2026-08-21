@@ -13,7 +13,15 @@ export interface WithdrawalPaymentAdmin {
     upiDetails?: { upiId?: string };
     bankDetails?: { accountNumber?: string; ifscCode?: string };
   };
-  payerUserId: { _id: string; name: string; email: string };
+  payerUserId: {
+    _id: string;
+    name: string;
+    email: string;
+    phone?: string;
+    role?: string;
+    status?: string;
+    businessUserCode?: string;
+  };
   amount: number;
   currency: string;
   utr: string;

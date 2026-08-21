@@ -21,7 +21,6 @@ function IntegrationPortalInner() {
   const [needsPassword, setNeedsPassword] = useState(false);
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [showPass, setShowPass] = useState(false);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState('');
 
@@ -138,7 +137,7 @@ function IntegrationPortalInner() {
             <Input
               label="New password"
               icon="lock"
-              type={showPass ? 'text' : 'password'}
+              type="password"
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
               placeholder="At least 8 characters"
@@ -148,20 +147,13 @@ function IntegrationPortalInner() {
             <Input
               label="Confirm password"
               icon="lock"
-              type={showPass ? 'text' : 'password'}
+              type="password"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
               placeholder="Re-enter password"
               required
               minLength={8}
             />
-            <button
-              type="button"
-              className="text-xs text-secondary hover:underline"
-              onClick={() => setShowPass(!showPass)}
-            >
-              {showPass ? 'Hide' : 'Show'} password
-            </button>
 
             {formError ? (
               <div className="rounded-lg bg-error-container px-4 py-3 text-sm text-on-error-container">

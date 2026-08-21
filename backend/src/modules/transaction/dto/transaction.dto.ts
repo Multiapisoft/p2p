@@ -9,4 +9,8 @@ export class TransactionListQueryDto extends ListQueryDto {
   @IsOptional()
   @IsString()
   userId?: string;
+
+  @IsOptional()
+  @IsString()
+  direction?: string;
 }

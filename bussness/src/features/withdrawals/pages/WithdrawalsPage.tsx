@@ -14,7 +14,12 @@ import { LoadingScreen, EmptyState } from '@/shared/components/ui/Icon';
 import { PageHeader } from '@/shared/components/layout/PageHeader';
 import { Modal } from '@/shared/components/ui/Modal';
 import { formatCurrency, formatDate } from '@/shared/lib/utils';
+import { CsvDownloadButton } from '@/shared/components/CsvDownloadButton';
+import { fetchAllPages } from '@/shared/lib/csv';
 import { resolveUser } from '@/shared/lib/entity-user';
+import { BusinessWithdrawalForm } from '../components/BusinessWithdrawalForm';
+import { AssignPayerModal } from '../components/AssignPayerModal';
+import { useAuthStore } from '@/features/auth/store/auth.store';
 import type { Withdrawal } from '@/shared/types/api.types';
 
 const STATUS_FILTERS = [
@@ -106,7 +111,11 @@ export function WithdrawalsPage() {
   const [rejectTarget, setRejectTarget] = useState<Withdrawal | null>(null);
   const [utr, setUtr] = useState('');
   const [txHash, setTxHash] = useState('');
+  const [proofKey, setProofKey] = useState('');
+  const [proofUrl, setProofUrl] = useState('');
+  const [proofUploading, setProofUploading] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
+  const [assignTarget, setAssignTarget] = useState<Withdrawal | null>(null);
   const [actionError, setActionError] = useState('');
   const qc = useQueryClient();
 
@@ -155,17 +164,43 @@ export function WithdrawalsPage() {
     onError: (err) => setActionError(getApiErrorMessage(err, 'Failed to unlist')),
   });
 
+  const assignPayer = useMutation({
+    mutationFn: ({ id, assigneeId }: { id: string; assigneeId: string }) =>
+      withdrawalsApi.assignPayer(id, assigneeId),
+    onSuccess: () => {
+      setAssignTarget(null);
+      setActionError('');
+      qc.invalidateQueries({ queryKey: ['business-withdrawals'] });
+      qc.invalidateQueries({ queryKey: ['business-withdrawal'] });
+    },
+    onError: (err) => setActionError(getApiErrorMessage(err, 'Assign failed')),
+  });
+
+  const unassignPayer = useMutation({
+    mutationFn: (id: string) => withdrawalsApi.unassignPayer(id),
+    onSuccess: () => {
+      setActionError('');
+      qc.invalidateQueries({ queryKey: ['business-withdrawals'] });
+      qc.invalidateQueries({ queryKey: ['business-withdrawal'] });
+    },
+    onError: (err) => setActionError(getApiErrorMessage(err, 'Unassign failed')),
+  });
+
   const approveMutation = useMutation({
     mutationFn: (id: string) =>
       withdrawalsApi.approve(id, {
         utr: utr.trim() || undefined,
         txHash: txHash.trim() || undefined,
+        proofImageKey: proofKey || undefined,
+        proofImageUrl: proofUrl || undefined,
       }),
     onSuccess: () => {
       setActionError('');
       setApproveTarget(null);
       setUtr('');
       setTxHash('');
+      setProofKey('');
+      setProofUrl('');
       qc.invalidateQueries({ queryKey: ['business-withdrawals'] });
       qc.invalidateQueries({ queryKey: ['business-withdrawal'] });
     },
@@ -200,6 +235,8 @@ export function WithdrawalsPage() {
 
   function p2pLabel(w: Withdrawal) {
     const s = w.p2pListStatus || 'awaiting';
+    if (w.origin === 'business' && s === 'awaiting') return 'Waiting admin verify';
+    if (w.origin === 'business' && s === 'listed') return 'On pay list';
     if (s === 'listed') return 'Approved';
     if (s === 'rejected') return 'Approval rejected';
     return 'Awaiting approval';
@@ -209,8 +246,32 @@ export function WithdrawalsPage() {
     <div className="mx-auto max-w-7xl space-y-6">
       <PageHeader
         title="Withdrawals"
-        description="Approve = verified, now visible to everyone to pay. It is not marked paid. Use Mark paid by business only if you paid the user yourself."
+        description="Request from remaining limit, or approve user withdrawals. Admin verifies your own requests."
+        action={
+          <CsvDownloadButton<Withdrawal>
+            title="Business withdrawals"
+            filename="business-withdrawals"
+            filters={{ Status: status, Method: method, Search: search, Sort: sort }}
+            disabled={!data?.total}
+            columns={[
+              { header: 'Reference', value: (w) => w.referenceId },
+              { header: 'Status', value: (w) => w.status },
+              { header: 'Method', value: (w) => w.method },
+              { header: 'Amount', value: (w) => w.amount },
+              { header: 'List status', value: (w) => w.p2pListStatus || '' },
+              { header: 'Assigned to', value: (w) => resolveUser(w.assignedTo).name },
+              { header: 'Created', value: (w) => w.createdAt },
+            ]}
+            fetchRows={() =>
+              fetchAllPages((page, limit) =>
+                withdrawalsApi.getBusinessWithdrawals({ ...listQuery, page, limit }),
+              )
+            }
+          />
+        }
       />
+
+      <BusinessWithdrawalForm />
 
       {actionError ? (
         <p className="rounded-lg border border-error/30 bg-error/5 px-3 py-2 text-sm text-error">
@@ -364,6 +425,8 @@ export function WithdrawalsPage() {
                     <div className="flex flex-col items-end gap-2">
                       <div className="flex flex-wrap items-center justify-end gap-1.5">
                         <StatusBadge status={w.status} />
+                        {(w.status === 'pending' || w.status === 'processing') &&
+                        Math.max(0, w.amount - (w.paidAmount || 0)) > 0 ? (
                         <span
                           className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
                             (w.p2pListStatus || 'awaiting') === 'listed'
@@ -375,8 +438,14 @@ export function WithdrawalsPage() {
                         >
                           {p2pLabel(w)}
                         </span>
+                        ) : null}
+                        {resolveUser(w.assignedTo).id ? (
+                          <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
+                            Assigned: {resolveUser(w.assignedTo).name}
+                          </span>
+                        ) : null}
                       </div>
-                      {w.status === 'pending' && (w.paidAmount || 0) <= 0 && (
+                      {w.status === 'pending' && (w.paidAmount || 0) <= 0 && w.origin !== 'business' && (
                         <div className="flex gap-2">
                           {(w.p2pListStatus || 'awaiting') !== 'listed' ? (
                             <Button
@@ -405,7 +474,8 @@ export function WithdrawalsPage() {
                         </div>
                       )}
                       {(w.status === 'pending' || w.status === 'processing') &&
-                        (w.p2pListStatus || 'awaiting') !== 'listed' && (
+                        (w.p2pListStatus || 'awaiting') !== 'listed' &&
+                        w.origin !== 'business' && (
                           <Button
                             size="sm"
                             variant="secondary"
@@ -434,6 +504,35 @@ export function WithdrawalsPage() {
                             Unlist
                           </Button>
                         )}
+                      {(w.status === 'pending' || w.status === 'processing') &&
+                      Math.max(0, w.amount - (w.paidAmount || 0)) > 0 &&
+                      (w.origin !== 'business' || w.p2pListStatus === 'listed') ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setActionError('');
+                            setAssignTarget(w);
+                          }}
+                        >
+                          {resolveUser(w.assignedTo).id ? 'Reassign' : 'Assign user'}
+                        </Button>
+                      ) : null}
+                      {resolveUser(w.assignedTo).id &&
+                      (w.status === 'pending' || w.status === 'processing') ? (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          loading={unassignPayer.isPending}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            unassignPayer.mutate(w._id);
+                          }}
+                        >
+                          Unassign
+                        </Button>
+                      ) : null}
                     </div>
                   </div>
                 );
@@ -474,6 +573,7 @@ export function WithdrawalsPage() {
                     value={formatCurrency(detail.remainingAmount || 0, detail.currency)}
                   />
                   <DetailRow label="Status" value={<StatusBadge status={detail.status} />} />
+                  {detail.status === 'pending' || detail.status === 'processing' ? (
                   <DetailRow
                     label="Platform Payment list"
                     value={
@@ -483,11 +583,21 @@ export function WithdrawalsPage() {
                       </span>
                     }
                   />
+                  ) : null}
+                  {resolveUser(detail.assignedTo).id ? (
+                    <DetailRow
+                      label="Assigned payer"
+                      value={`${resolveUser(detail.assignedTo).name}${
+                        resolveUser(detail.assignedTo).email
+                          ? ` · ${resolveUser(detail.assignedTo).email}`
+                          : ''
+                      }`}
+                    />
+                  ) : null}
                   <DetailRow label="Method" value={String(detail.method).toUpperCase()} />
                   <DetailRow label="Reference" value={detail.referenceId} />
                   <DetailRow label="User" value={user.name} />
                   <DetailRow label="Email" value={user.email || '—'} />
-                  {user.phone ? <DetailRow label="Phone" value={user.phone} /> : null}
                   {user.externalRef ? (
                     <DetailRow label="External ref" value={user.externalRef} />
                   ) : null}
@@ -497,7 +607,9 @@ export function WithdrawalsPage() {
                   {destinationRows(detail).map((row) => (
                     <DetailRow key={row.label} label={row.label} value={row.value} />
                   ))}
-                  {detail.status === 'pending' && (detail.paidAmount || 0) <= 0 && (
+                  {detail.origin !== 'business' &&
+                    detail.status === 'pending' &&
+                    (detail.paidAmount || 0) <= 0 && (
                     <div className="mt-4 flex flex-wrap gap-2">
                       {(detail.p2pListStatus || 'awaiting') !== 'listed' ? (
                         <Button
@@ -521,7 +633,8 @@ export function WithdrawalsPage() {
                       </Button>
                     </div>
                   )}
-                  {(detail.status === 'pending' || detail.status === 'processing') && (
+                  {detail.origin !== 'business' &&
+                    (detail.status === 'pending' || detail.status === 'processing') && (
                     <div className="mt-3 flex flex-wrap gap-2">
                       {(detail.p2pListStatus || 'awaiting') !== 'listed' ? (
                         <Button
@@ -548,6 +661,32 @@ export function WithdrawalsPage() {
                       )}
                     </div>
                   )}
+                  {(detail.status === 'pending' || detail.status === 'processing') &&
+                  Math.max(0, detail.amount - (detail.paidAmount || 0)) > 0 &&
+                  (detail.origin !== 'business' || detail.p2pListStatus === 'listed') ? (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <Button
+                        className="flex-1"
+                        variant="outline"
+                        onClick={() => {
+                          setActionError('');
+                          setAssignTarget(detail);
+                        }}
+                      >
+                        {resolveUser(detail.assignedTo).id ? 'Reassign' : 'Assign user'}
+                      </Button>
+                      {resolveUser(detail.assignedTo).id ? (
+                        <Button
+                          className="flex-1"
+                          variant="ghost"
+                          loading={unassignPayer.isPending}
+                          onClick={() => unassignPayer.mutate(detail._id)}
+                        >
+                          Unassign
+                        </Button>
+                      ) : null}
+                    </div>
+                  ) : null}
                   {(detail.commissionAmount || 0) > 0 ? (
                     <DetailRow
                       label="Commission cut"
@@ -680,12 +819,57 @@ export function WithdrawalsPage() {
               maxLength={66}
             />
           )}
+          <div>
+            <p className="mb-1 text-sm font-semibold">Payment evidence (optional)</p>
+            <input
+              type="file"
+              accept="image/*,application/pdf"
+              className="block w-full text-sm"
+              onChange={async (e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                setProofUploading(true);
+                setActionError('');
+                try {
+                  const form = new FormData();
+                  form.append('file', file);
+                  form.append('purpose', 'withdrawal-approve-proof');
+                  const base = process.env.NEXT_PUBLIC_API_URL || '/api/v1';
+                  const authToken = useAuthStore.getState().token || '';
+                  const res = await fetch(`${base}/uploads/proof`, {
+                    method: 'POST',
+                    headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
+                    body: form,
+                  });
+                  const json = (await res.json()) as {
+                    data?: { key?: string; url?: string };
+                    key?: string;
+                    url?: string;
+                    message?: string;
+                  };
+                  if (!res.ok) throw new Error(json.message || 'Upload failed');
+                  setProofKey(json.data?.key || json.key || '');
+                  setProofUrl(json.data?.url || json.url || '');
+                } catch (err) {
+                  setActionError(err instanceof Error ? err.message : 'Upload failed');
+                } finally {
+                  setProofUploading(false);
+                }
+              }}
+            />
+            {proofUploading ? (
+              <p className="mt-1 text-xs text-on-surface-variant">Uploading…</p>
+            ) : null}
+            {proofUrl ? (
+              <p className="mt-1 truncate text-xs text-secondary">Evidence attached</p>
+            ) : null}
+          </div>
           {actionError && (
             <div className="rounded-lg bg-error-container px-4 py-3 text-sm text-on-error-container">
               {actionError}
             </div>
           )}
-          <Button type="submit" loading={approveMutation.isPending} className="w-full">
+          <Button type="submit" loading={approveMutation.isPending || proofUploading} className="w-full">
             Confirm paid
           </Button>
         </form>
@@ -729,6 +913,15 @@ export function WithdrawalsPage() {
           </Button>
         </form>
       </Modal>
+
+      <AssignPayerModal
+        open={!!assignTarget}
+        withdrawal={assignTarget}
+        loading={assignPayer.isPending}
+        error={actionError}
+        onClose={() => setAssignTarget(null)}
+        onAssign={(assigneeId) => assignPayer.mutate({ id: assignTarget!._id, assigneeId })}
+      />
     </div>
   );
 }

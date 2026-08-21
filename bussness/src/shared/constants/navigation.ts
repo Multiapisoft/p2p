@@ -38,3 +38,22 @@ export function isNavActive(pathname: string, to: string) {
   if (to === '/home') return pathname === '/home' || pathname === '/';
   return pathname === to || pathname.startsWith(`${to}/`);
 }
+
+export function navItemsForUser(user?: {
+  staffBusinessId?: string | null;
+  permissions?: string[];
+} | null) {
+  if (!user?.staffBusinessId) return NAV_ITEMS;
+  const perms = user.permissions ?? [];
+  return NAV_ITEMS.filter((item) => {
+    if (item.to === '/deposits') return perms.includes('business.deposit_verify');
+    if (item.to === '/withdrawals') {
+      return (
+        perms.includes('business.withdrawals') ||
+        perms.includes('business.manual_withdrawal')
+      );
+    }
+    if (item.to === '/integration') return false;
+    return true;
+  });
+}

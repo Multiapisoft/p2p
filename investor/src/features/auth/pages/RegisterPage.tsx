@@ -39,7 +39,7 @@ export function RegisterPage() {
         name,
         email: normalizeEmail(email),
         password,
-        phone: phone.trim() ? normalizePhone(phone) : undefined,
+        phone: normalizePhone(phone),
       }),
     onSuccess: (data) => {
       setAuth(data.accessToken, data.user);
@@ -61,7 +61,7 @@ export function RegisterPage() {
       setError(eMsg);
       return;
     }
-    const pMsg = phoneError(phone, false);
+    const pMsg = phoneError(phone, true);
     if (pMsg) {
       setError(pMsg);
       return;
@@ -114,7 +114,7 @@ export function RegisterPage() {
               required
             />
             <Input
-              label="Phone (optional)"
+              label="Phone *"
               icon="phone"
               type="tel"
               value={phone}
@@ -122,6 +122,7 @@ export function RegisterPage() {
               placeholder="10-digit mobile"
               inputMode="numeric"
               maxLength={13}
+              required
             />
             <Input
               label="Password"

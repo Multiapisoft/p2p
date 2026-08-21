@@ -1,7 +1,11 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument, Types } from 'mongoose';
-import { LedgerType } from '../../../common/enums/currency.enum';
-import { Currency } from '../../../common/enums/currency.enum';
+import {
+  Currency,
+  LedgerDirection,
+  LedgerFlow,
+  LedgerType,
+} from '../../../common/enums/currency.enum';
 
 export type LedgerEntryDocument = HydratedDocument<LedgerEntry>;
 
@@ -15,6 +19,12 @@ export class LedgerEntry {
 
   @Prop({ type: String, enum: LedgerType, required: true })
   type!: LedgerType;
+
+  @Prop({ type: String, enum: LedgerDirection })
+  direction?: LedgerDirection;
+
+  @Prop({ type: String, enum: LedgerFlow })
+  flow?: LedgerFlow;
 
   @Prop({ required: true })
   amount!: number;
@@ -37,9 +47,20 @@ export class LedgerEntry {
   @Prop()
   description?: string;
 
+  /** Other party in this movement (payer, investor, admin, …). */
+  @Prop({ type: Types.ObjectId, ref: 'User' })
+  counterpartyUserId?: Types.ObjectId;
+
+  @Prop()
+  fromParty?: string;
+
+  @Prop()
+  toParty?: string;
+
   @Prop({ type: Types.ObjectId, ref: 'Business' })
   businessId?: Types.ObjectId;
 }
 
 export const LedgerEntrySchema = SchemaFactory.createForClass(LedgerEntry);
 LedgerEntrySchema.index({ userId: 1, createdAt: -1 });
+LedgerEntrySchema.index({ flow: 1, createdAt: -1 });

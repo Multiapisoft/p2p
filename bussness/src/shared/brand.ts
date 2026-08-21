@@ -2,7 +2,7 @@ export const brand = {
   name: 'PaySecure247',
   shortName: 'PaySecure',
   productLine: 'Business',
-  domainHint: 'paysecure247.com',
+  domainHint: 'dashboard.paysecure247.com',
   tagline: 'Business payments that stay under your control',
   description:
     'Approve withdrawals, track deposits, and manage your users with codes and clear settlement trails — around the clock.',

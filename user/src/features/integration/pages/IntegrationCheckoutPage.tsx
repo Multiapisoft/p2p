@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useEffect, useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -239,7 +239,7 @@ function IntegrationCheckoutInner({ type }: { type: 'deposit' | 'withdrawal' }) 
           <>
             <Input label="UPI ID" value={upiId} onChange={(e) => setUpiId(e.target.value)} required />
             <Input
-              label="Account name *"
+              label="Name of Account Holder *"
               value={payerName}
               onChange={(e) => setPayerName(e.target.value)}
               required

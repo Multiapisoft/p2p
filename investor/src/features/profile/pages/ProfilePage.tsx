@@ -10,6 +10,7 @@ import { Input } from '@/shared/components/ui/Input';
 import { LoadingScreen } from '@/shared/components/ui/Icon';
 import { formatDate } from '@/shared/lib/utils';
 import { normalizePhone, phoneError } from '@/shared/lib/validation';
+import { TwoFactorPanel } from '../components/TwoFactorPanel';
 
 export function ProfilePage() {
   const user = useAuthStore((s) => s.user);
@@ -36,7 +37,7 @@ export function ProfilePage() {
     mutationFn: () =>
       profileApi.updateMe({
         name,
-        phone: phone.trim() ? normalizePhone(phone) : undefined,
+        phone: normalizePhone(phone),
       }),
     onSuccess: () => {
       setMessage('Profile updated successfully');
@@ -74,6 +75,12 @@ export function ProfilePage() {
               <span className="font-medium">{formatDate(profile.createdAt)}</span>
             </div>
           )}
+          {profile?.referralCode ? (
+            <div className="flex justify-between gap-2">
+              <span className="text-on-surface-variant">Referral code</span>
+              <span className="font-medium break-all">{profile.referralCode}</span>
+            </div>
+          ) : null}
         </div>
 
         <form
@@ -81,7 +88,7 @@ export function ProfilePage() {
           onSubmit={(e) => {
             e.preventDefault();
             setMessage('');
-            const pMsg = phoneError(phone, false);
+            const pMsg = phoneError(phone, true);
             if (pMsg) {
               setMessage(pMsg);
               return;
@@ -91,7 +98,7 @@ export function ProfilePage() {
         >
           <Input label="Full Name" icon="person" value={name} onChange={(e) => setName(e.target.value)} required />
           <Input
-            label="Phone"
+            label="Phone *"
             icon="phone"
             type="tel"
             value={phone}
@@ -99,6 +106,7 @@ export function ProfilePage() {
             placeholder="10-digit mobile"
             inputMode="numeric"
             maxLength={13}
+            required
           />
 
           {message && (
@@ -114,6 +122,8 @@ export function ProfilePage() {
           </Button>
         </form>
       </Card>
+
+      <TwoFactorPanel />
 
       <Card>
         <Button variant="danger" className="w-full" onClick={() => logout()}>

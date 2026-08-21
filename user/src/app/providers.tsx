@@ -4,6 +4,14 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useState, type ReactNode } from 'react';
 import { Toaster } from '@/shared/ui/toast/Toaster';
 import { ConfirmDialogHost } from '@/shared/ui/confirm/ConfirmDialogHost';
+import { useP2pListLive } from '@/shared/hooks/useP2pListLive';
+
+const P2P_LIST_KEYS = ['available-withdrawals'];
+
+function P2pListLiveSync() {
+  useP2pListLive(P2P_LIST_KEYS);
+  return null;
+}
 
 export function AppProviders({ children }: { children: ReactNode }) {
   const [queryClient] = useState(
@@ -21,6 +29,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
   return (
     <QueryClientProvider client={queryClient}>
+      <P2pListLiveSync />
       {children}
       <Toaster />
       <ConfirmDialogHost />

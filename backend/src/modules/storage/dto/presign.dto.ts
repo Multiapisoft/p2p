@@ -5,11 +5,21 @@ export class PresignUploadDto {
   filename!: string;
 
   @IsString()
-  @IsIn(['image/jpeg', 'image/png', 'image/webp', 'image/jpg'])
   contentType!: string;
 
   @IsOptional()
   @IsString()
-  @IsIn(['deposit-proof', 'withdrawal-payment-proof'])
-  purpose?: 'deposit-proof' | 'withdrawal-payment-proof';
+  @IsIn([
+    'deposit-proof',
+    'withdrawal-payment-proof',
+    'withdrawal-approve-proof',
+    'support-ticket',
+    'upi-qr',
+  ])
+  purpose?:
+    | 'deposit-proof'
+    | 'withdrawal-payment-proof'
+    | 'withdrawal-approve-proof'
+    | 'support-ticket'
+    | 'upi-qr';
 }

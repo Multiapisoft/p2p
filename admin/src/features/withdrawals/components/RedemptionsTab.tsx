@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { investorsApi, type InvestorPayRecord } from '../api/investors.api';
+import { investorsApi } from '@/features/investors/api/investors.api';
 import { Card } from '@/shared/components/ui/Card';
 import { Button } from '@/shared/components/ui/Button';
 import { Input } from '@/shared/components/ui/Input';
@@ -12,7 +12,9 @@ import { Pagination } from '@/shared/components/ui/Pagination';
 import { LoadingScreen, EmptyState } from '@/shared/components/ui/Icon';
 import { formatCurrency, formatDate } from '@/shared/lib/utils';
 import { getApiErrorMessage } from '@/shared/lib/api-error';
-import type { Investment, Redemption } from '@/shared/types/api.types';
+import { fetchAllPages, personCsvCells } from '@/shared/lib/csv';
+import { CsvDownloadButton } from '@/shared/components/CsvDownloadButton';
+import type { Redemption } from '@/shared/types/api.types';
 
 const SORT_OPTIONS = [
   { value: 'newest', label: 'Newest first' },
@@ -23,19 +25,18 @@ const SORT_OPTIONS = [
 
 const PAGE_SIZES = [5, 10, 20];
 
-function investorLabel(investorId: Redemption['investorId'] | Investment['investorId'] | InvestorPayRecord['payerUserId']) {
+function personLabel(investorId: Redemption['investorId']) {
   if (!investorId) return '—';
   if (typeof investorId === 'string') return investorId;
   const parts = [investorId.name, investorId.email, investorId.phone].filter(Boolean);
   return parts.length ? parts.join(' · ') : investorId._id;
 }
 
-export function InvestorsPage() {
-  const [tab, setTab] = useState<'redemptions' | 'investments' | 'payments'>('redemptions');
-  const [invStatus, setInvStatus] = useState('all');
+export function RedemptionsTab() {
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
   const [sort, setSort] = useState('newest');
+  const [status, setStatus] = useState('pending');
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
   const [rejectId, setRejectId] = useState<string | null>(null);
@@ -53,66 +54,23 @@ export function InvestorsPage() {
   }, [searchInput]);
 
   const listQuery = useMemo(
-    () => ({
-      page,
-      limit,
-      sort,
-      search,
-      status: tab === 'redemptions' ? undefined : invStatus,
-    }),
-    [page, limit, sort, search, tab, invStatus],
+    () => ({ page, limit, sort, search, status }),
+    [page, limit, sort, search, status],
   );
 
-  const {
-    data: redemptions,
-    isLoading: loadingR,
-    isFetching: fetchingR,
-    isError: errorR,
-    error: errR,
-  } = useQuery({
+  const { data, isLoading, isFetching, isError, error } = useQuery({
     queryKey: ['investor-redemptions', listQuery],
     queryFn: () => investorsApi.getPendingRedemptions(listQuery),
-    enabled: tab === 'redemptions',
   });
 
-  const {
-    data: investments,
-    isLoading: loadingI,
-    isFetching: fetchingI,
-    isError: errorI,
-    error: errI,
-  } = useQuery({
-    queryKey: ['investor-investments', listQuery],
-    queryFn: () => investorsApi.getAllInvestments(listQuery),
-    enabled: tab === 'investments',
-  });
-
-  const {
-    data: payments,
-    isLoading: loadingP,
-    isFetching: fetchingP,
-    isError: errorP,
-    error: errP,
-  } = useQuery({
-    queryKey: ['investor-payments', listQuery],
-    queryFn: () => investorsApi.getInvestorPayments(listQuery),
-    enabled: tab === 'payments',
-  });
-
-  const refresh = () => {
-    void qc.invalidateQueries({ queryKey: ['investor-redemptions'] });
-    void qc.invalidateQueries({ queryKey: ['investor-investments'] });
-    void qc.invalidateQueries({ queryKey: ['investor-payments'] });
-  };
-
-  const approveR = useMutation({
+  const approve = useMutation({
     mutationFn: (id: string) => {
       setActionId(id);
       return investorsApi.approveRedemption(id);
     },
     onSuccess: () => {
       setBanner({ type: 'ok', text: 'Redemption approved — amount deducted from investor wallet.' });
-      refresh();
+      void qc.invalidateQueries({ queryKey: ['investor-redemptions'] });
     },
     onError: (err) => {
       setBanner({ type: 'err', text: getApiErrorMessage(err, 'Failed to approve redemption') });
@@ -120,71 +78,25 @@ export function InvestorsPage() {
     onSettled: () => setActionId(null),
   });
 
-  const approveI = useMutation({
-    mutationFn: (id: string) => {
-      setActionId(id);
-      return investorsApi.approveInvestment(id);
-    },
-    onSuccess: () => {
-      setBanner({ type: 'ok', text: 'Investment approved — amount credited to investor wallet.' });
-      refresh();
-    },
-    onError: (err) => {
-      setBanner({ type: 'err', text: getApiErrorMessage(err, 'Failed to approve investment') });
-    },
-    onSettled: () => setActionId(null),
-  });
-
-  const rejectR = useMutation({
+  const reject = useMutation({
     mutationFn: (reason: string) => investorsApi.rejectRedemption(rejectId!, reason),
     onSuccess: () => {
       setBanner({ type: 'ok', text: 'Redemption rejected — locked amount released.' });
       setRejectId(null);
       setRejectReason('');
-      refresh();
+      void qc.invalidateQueries({ queryKey: ['investor-redemptions'] });
     },
     onError: (err) => {
       setBanner({ type: 'err', text: getApiErrorMessage(err, 'Failed to reject redemption') });
     },
   });
 
-  const rejectI = useMutation({
-    mutationFn: (reason: string) => investorsApi.rejectInvestment(rejectId!, reason),
-    onSuccess: () => {
-      setBanner({ type: 'ok', text: 'Investment rejected.' });
-      setRejectId(null);
-      setRejectReason('');
-      refresh();
-    },
-    onError: (err) => {
-      setBanner({ type: 'err', text: getApiErrorMessage(err, 'Failed to reject investment') });
-    },
-  });
-
-  const isLoading =
-    tab === 'redemptions' ? loadingR : tab === 'investments' ? loadingI : loadingP;
-  const isFetching =
-    tab === 'redemptions' ? fetchingR : tab === 'investments' ? fetchingI : fetchingP;
-  const listError = tab === 'redemptions' ? errorR : tab === 'investments' ? errorI : errorP;
-  const listErrObj = tab === 'redemptions' ? errR : tab === 'investments' ? errI : errP;
-  const data =
-    tab === 'redemptions' ? redemptions : tab === 'investments' ? investments : payments;
   const items = data?.items ?? [];
   const total = data?.total ?? 0;
   const totalPages = data?.totalPages ?? 1;
-  const rejecting = rejectR.isPending || rejectI.isPending;
 
   return (
-    <div className="mx-auto max-w-7xl space-y-4 sm:space-y-6">
-      <div>
-        <h1 className="font-[family-name:var(--font-headline)] text-xl font-bold sm:text-2xl">
-          Investors
-        </h1>
-        <p className="mt-0.5 text-sm text-on-surface-variant">
-          Approve pending redemptions, review all investments, and monitor investor Platform Payments.
-        </p>
-      </div>
-
+    <>
       {banner && (
         <div
           className={`rounded-lg px-4 py-3 text-sm ${
@@ -212,39 +124,17 @@ export function InvestorsPage() {
         </div>
         <div className="rounded-xl border border-outline-variant bg-surface-container-lowest p-2.5 sm:rounded-2xl sm:p-4">
           <p className="text-[10px] font-bold uppercase tracking-wide text-on-surface-variant sm:text-[11px]">
-            Queue
+            Pending on page
           </p>
-          <p className="mt-1 text-lg font-bold capitalize sm:text-2xl">{tab}</p>
+          <p className="mt-1 text-lg font-bold sm:text-2xl">
+            {items.filter((i) => i.status === 'pending').length}
+          </p>
         </div>
       </div>
 
-      <div className="chip-scroll">
-        {(
-          [
-            { id: 'redemptions', label: 'Redemptions' },
-            { id: 'investments', label: 'Investments' },
-            { id: 'payments', label: 'Platform Payments' },
-          ] as const
-        ).map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            onClick={() => {
-              setTab(t.id);
-              setPage(1);
-              setBanner(null);
-            }}
-            className={`rounded-full px-2.5 py-1 text-[11px] font-semibold sm:px-4 sm:py-2 sm:text-sm ${
-              tab === t.id ? 'bg-primary text-on-primary' : 'border border-outline-variant'
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
-
       <Card>
-        <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+        <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between">
+          <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:flex-wrap">
           <Input
             className="min-w-0 flex-1 sm:min-w-[220px]"
             placeholder="Search reference, email, phone…"
@@ -279,50 +169,53 @@ export function InvestorsPage() {
               </option>
             ))}
           </select>
-          {(tab === 'investments' || tab === 'payments') && (
-            <select
-              className="rounded-lg border border-outline-variant bg-surface-container-lowest px-2.5 py-2 text-sm"
-              value={invStatus}
-              onChange={(e) => {
-                setInvStatus(e.target.value);
-                setPage(1);
-              }}
-            >
-              <option value="all">All statuses</option>
-              <option value="pending">Pending</option>
-              <option value="completed">Completed</option>
-              <option value="rejected">Rejected</option>
-            </select>
-          )}
+          <select
+            className="rounded-lg border border-outline-variant bg-surface-container-lowest px-2.5 py-2 text-sm"
+            value={status}
+            onChange={(e) => {
+              setStatus(e.target.value);
+              setPage(1);
+            }}
+          >
+            <option value="all">All statuses</option>
+            <option value="pending">Pending</option>
+            <option value="completed">Completed</option>
+            <option value="rejected">Rejected</option>
+          </select>
+          </div>
+          <CsvDownloadButton<Redemption>
+            title="Redemptions"
+            filename={`redemptions-${status}`}
+            filters={{ Status: status, Search: search, Sort: sort }}
+            disabled={!total}
+            columns={[
+              { header: 'Reference', value: (r) => r.referenceId },
+              { header: 'Status', value: (r) => r.status },
+              { header: 'Amount', value: (r) => r.amount },
+              { header: 'Method', value: (r) => r.method || '' },
+              { header: 'Investor name', value: (r) => personCsvCells(r.investorId)[0] },
+              { header: 'Investor email', value: (r) => personCsvCells(r.investorId)[1] },
+              { header: 'Investor phone', value: (r) => personCsvCells(r.investorId)[2] },
+              { header: 'Created', value: (r) => r.createdAt },
+            ]}
+            fetchRows={() =>
+              fetchAllPages((p, l) =>
+                investorsApi.getPendingRedemptions({ ...listQuery, page: p, limit: l }),
+              )
+            }
+          />
         </div>
 
         {isLoading ? (
           <LoadingScreen />
-        ) : listError ? (
-          <EmptyState
-            message={getApiErrorMessage(listErrObj, `Failed to load ${tab}`)}
-            icon="error"
-          />
+        ) : isError ? (
+          <EmptyState message={getApiErrorMessage(error, 'Failed to load redemptions')} icon="error" />
         ) : !items.length ? (
-          <EmptyState message={`No ${tab} found`} icon="savings" />
+          <EmptyState message="No redemption requests found" icon="payments" />
         ) : (
           <div className={`space-y-2 sm:space-y-3 ${isFetching ? 'opacity-70' : ''}`}>
             {items.map((item) => {
-              const rdm = tab === 'redemptions' ? (item as Redemption) : null;
-              const inv = tab === 'investments' ? (item as Investment) : null;
-              const pay = tab === 'payments' ? (item as InvestorPayRecord) : null;
               const busy = actionId === item._id;
-              const canModerate =
-                (tab === 'redemptions' || tab === 'investments') && item.status === 'pending';
-              const person =
-                pay != null
-                  ? investorLabel(pay.payerUserId)
-                  : investorLabel((item as Redemption | Investment).investorId);
-              const wdRef =
-                pay?.withdrawalId && typeof pay.withdrawalId === 'object'
-                  ? pay.withdrawalId.referenceId
-                  : undefined;
-
               return (
                 <div
                   key={item._id}
@@ -333,56 +226,45 @@ export function InvestorsPage() {
                     <p className="text-xs text-on-surface-variant sm:text-sm">
                       {formatDate(item.createdAt)}
                     </p>
-                    <p className="mt-1 truncate text-xs text-on-surface-variant">{person}</p>
-                    {rdm?.method ? (
-                      <p className="mt-1 text-xs font-semibold uppercase text-secondary">
-                        {rdm.method}
-                      </p>
+                    <p className="mt-1 truncate text-xs text-on-surface-variant">
+                      {personLabel(item.investorId)}
+                    </p>
+                    {item.method ? (
+                      <p className="mt-1 text-xs font-semibold uppercase text-secondary">{item.method}</p>
                     ) : null}
-                    {inv?.method ? (
-                      <p className="mt-1 text-xs font-semibold uppercase text-secondary">
-                        {inv.method}
-                      </p>
+                    {item.method === 'upi' && item.upiDetails?.upiId ? (
+                      <p className="text-xs">UPI: {item.upiDetails.upiId}</p>
                     ) : null}
-                    {pay?.utr ? <p className="text-xs">UTR: {pay.utr}</p> : null}
-                    {wdRef ? (
-                      <p className="text-xs text-on-surface-variant">Withdrawal {wdRef}</p>
-                    ) : null}
-                    {rdm?.method === 'upi' && rdm.upiDetails?.upiId ? (
-                      <p className="text-xs">UPI: {rdm.upiDetails.upiId}</p>
-                    ) : null}
-                    {rdm?.method === 'bank' && rdm.bankDetails?.accountNumber ? (
+                    {item.method === 'bank' && item.bankDetails?.accountNumber ? (
                       <p className="text-xs">
-                        Bank ****{rdm.bankDetails.accountNumber.slice(-4)} ·{' '}
-                        {rdm.bankDetails.ifscCode}
-                        {rdm.bankDetails.accountHolderName
-                          ? ` · ${rdm.bankDetails.accountHolderName}`
+                        Bank ****{item.bankDetails.accountNumber.slice(-4)} · {item.bankDetails.ifscCode}
+                        {item.bankDetails.accountHolderName
+                          ? ` · ${item.bankDetails.accountHolderName}`
                           : ''}
                       </p>
                     ) : null}
-                    {rdm?.method === 'usdt' && rdm.usdtDetails?.walletAddress ? (
+                    {item.method === 'usdt' && item.usdtDetails?.walletAddress ? (
                       <p className="break-all text-xs">
-                        {rdm.usdtDetails.network || 'TRC20'}: {rdm.usdtDetails.walletAddress}
+                        {item.usdtDetails.network || 'TRC20'}: {item.usdtDetails.walletAddress}
                       </p>
                     ) : null}
-                    {(rdm?.note || inv?.note) && (
-                      <p className="text-xs text-on-surface-variant">{rdm?.note || inv?.note}</p>
-                    )}
+                    {item.note ? (
+                      <p className="text-xs text-on-surface-variant">{item.note}</p>
+                    ) : null}
                   </div>
                   <div className="flex flex-wrap items-center gap-2 sm:gap-4">
                     <p className="font-bold text-secondary">{formatCurrency(item.amount)}</p>
                     <StatusBadge status={item.status} />
-                    {canModerate ? (
+                    {item.status === 'pending' ? (
                       <>
                         <Button
                           size="sm"
                           variant="secondary"
-                          loading={busy && (approveR.isPending || approveI.isPending)}
+                          loading={busy && approve.isPending}
                           disabled={!!actionId && !busy}
                           onClick={() => {
                             setBanner(null);
-                            if (tab === 'redemptions') approveR.mutate(item._id);
-                            else approveI.mutate(item._id);
+                            approve.mutate(item._id);
                           }}
                         >
                           Approve
@@ -413,16 +295,15 @@ export function InvestorsPage() {
       <Modal
         open={!!rejectId}
         onClose={() => {
-          if (!rejecting) setRejectId(null);
+          if (!reject.isPending) setRejectId(null);
         }}
-        title="Reject Request"
+        title="Reject Redemption"
       >
         <form
           className="space-y-4"
           onSubmit={(e) => {
             e.preventDefault();
-            if (tab === 'redemptions') rejectR.mutate(rejectReason);
-            else rejectI.mutate(rejectReason);
+            reject.mutate(rejectReason);
           }}
         >
           <Input
@@ -430,21 +311,18 @@ export function InvestorsPage() {
             value={rejectReason}
             onChange={(e) => setRejectReason(e.target.value)}
             required
-            disabled={rejecting}
+            disabled={reject.isPending}
           />
-          {(rejectR.isError || rejectI.isError) && (
+          {reject.isError && (
             <p className="text-sm text-on-error-container">
-              {getApiErrorMessage(
-                rejectR.error || rejectI.error,
-                'Reject failed',
-              )}
+              {getApiErrorMessage(reject.error, 'Reject failed')}
             </p>
           )}
-          <Button type="submit" variant="danger" className="w-full" loading={rejecting}>
+          <Button type="submit" variant="danger" className="w-full" loading={reject.isPending}>
             Confirm Reject
           </Button>
         </form>
       </Modal>
-    </div>
+    </>
   );
 }

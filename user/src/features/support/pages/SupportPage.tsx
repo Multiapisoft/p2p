@@ -4,6 +4,11 @@ import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supportApi } from '../api/support.api';
 import { TicketMessageBody } from '../components/TicketMessageBody';
+import {
+  TicketAttachmentList,
+  TicketAttachmentPicker,
+  type TicketFile,
+} from '../components/TicketAttachments';
 import { Card } from '@/shared/components/ui/Card';
 import { Button } from '@/shared/components/ui/Button';
 import { Input } from '@/shared/components/ui/Input';
@@ -69,6 +74,8 @@ export function SupportPage() {
   const [subject, setSubject] = useState('');
   const [message, setMessage] = useState('');
   const [reply, setReply] = useState('');
+  const [createFiles, setCreateFiles] = useState<TicketFile[]>([]);
+  const [replyFiles, setReplyFiles] = useState<TicketFile[]>([]);
   const qc = useQueryClient();
 
   useEffect(() => {
@@ -96,23 +103,35 @@ export function SupportPage() {
   });
 
   const create = useMutation({
-    mutationFn: () => supportApi.create({ subject, message }),
+    mutationFn: () =>
+      supportApi.create({
+        subject,
+        message: message.trim() || (createFiles.length ? '(See attachments)' : ''),
+        attachments: createFiles,
+      }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['support-tickets'] });
       setShowCreate(false);
       setSubject('');
       setMessage('');
+      setCreateFiles([]);
       toast.success('Ticket created');
     },
     onError: () => toast.error('Could not create ticket'),
   });
 
   const sendReply = useMutation({
-    mutationFn: () => supportApi.reply(selected!.ticketId, reply),
+    mutationFn: () =>
+      supportApi.reply(
+        selected!.ticketId,
+        reply.trim() || (replyFiles.length ? '(See attachments)' : ''),
+        replyFiles,
+      ),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['support-ticket', selected?.ticketId] });
       qc.invalidateQueries({ queryKey: ['support-tickets'] });
       setReply('');
+      setReplyFiles([]);
       toast.success('Reply sent');
     },
     onError: () => toast.error('Could not send reply'),
@@ -300,12 +319,24 @@ export function SupportPage() {
           className="space-y-4"
           onSubmit={(e) => {
             e.preventDefault();
+            if (!subject.trim()) return;
+            if (!message.trim() && !createFiles.length) return;
             create.mutate();
           }}
         >
           <Input label="Subject" value={subject} onChange={(e) => setSubject(e.target.value)} required />
-          <Textarea label="Message" value={message} onChange={(e) => setMessage(e.target.value)} required />
-          <Button type="submit" loading={create.isPending} className="w-full">
+          <Textarea label="Message" value={message} onChange={(e) => setMessage(e.target.value)} />
+          <TicketAttachmentPicker
+            files={createFiles}
+            onChange={setCreateFiles}
+            upload={supportApi.uploadAttachment}
+          />
+          <Button
+            type="submit"
+            loading={create.isPending}
+            className="w-full"
+            disabled={!subject.trim() || (!message.trim() && !createFiles.length)}
+          >
             Submit Ticket
           </Button>
         </form>
@@ -316,6 +347,7 @@ export function SupportPage() {
         onClose={() => {
           setSelected(null);
           setReply('');
+          setReplyFiles([]);
         }}
         title={selected ? `#${selected.ticketId}` : 'Ticket'}
         className={disputeDetail ? 'sm:max-w-2xl' : 'sm:max-w-xl'}
@@ -336,6 +368,7 @@ export function SupportPage() {
             </div>
 
             <TicketMessageBody message={ticketDetail.message} />
+            <TicketAttachmentList attachments={ticketDetail.attachments} />
 
             {!!ticketDetail.replies?.length && (
               <div className="space-y-2">
@@ -348,6 +381,9 @@ export function SupportPage() {
                     className="rounded-xl border border-outline-variant bg-surface-container-lowest px-3.5 py-3 text-sm"
                   >
                     <p className="leading-relaxed">{r.message}</p>
+                    <div className="mt-2">
+                      <TicketAttachmentList attachments={r.attachments} />
+                    </div>
                     <p className="mt-1.5 text-xs text-outline">{formatDate(r.createdAt)}</p>
                   </div>
                 ))}
@@ -358,7 +394,7 @@ export function SupportPage() {
               className="space-y-3 border-t border-outline-variant pt-4"
               onSubmit={(e) => {
                 e.preventDefault();
-                if (reply.trim()) sendReply.mutate();
+                if (reply.trim() || replyFiles.length) sendReply.mutate();
               }}
             >
               <Textarea
@@ -367,11 +403,16 @@ export function SupportPage() {
                 onChange={(e) => setReply(e.target.value)}
                 placeholder="Type your message..."
               />
+              <TicketAttachmentPicker
+                files={replyFiles}
+                onChange={setReplyFiles}
+                upload={supportApi.uploadAttachment}
+              />
               <Button
                 type="submit"
                 className="w-full"
                 loading={sendReply.isPending}
-                disabled={!reply.trim()}
+                disabled={!reply.trim() && !replyFiles.length}
               >
                 Send Reply
               </Button>

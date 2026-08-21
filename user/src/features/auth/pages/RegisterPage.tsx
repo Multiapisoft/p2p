@@ -47,7 +47,7 @@ function RegisterForm() {
         name: name.trim(),
         email: normalizeEmail(email),
         password,
-        phone: phone.trim() ? normalizePhone(phone) : undefined,
+        phone: normalizePhone(phone),
         referralCode: referralCode.trim(),
       }),
     onSuccess: (data) => {
@@ -114,7 +114,7 @@ function RegisterForm() {
                 setError(eMsg);
                 return;
               }
-              const pMsg = phoneError(phone, false);
+              const pMsg = phoneError(phone, true);
               if (pMsg) {
                 setError(pMsg);
                 return;
@@ -137,7 +137,7 @@ function RegisterForm() {
               required
             />
             <Input
-              label="Phone (optional)"
+              label="Phone *"
               icon="phone"
               type="tel"
               value={phone}
@@ -145,6 +145,7 @@ function RegisterForm() {
               placeholder="10-digit mobile"
               inputMode="numeric"
               maxLength={13}
+              required
             />
             <Input
               label="Business code"

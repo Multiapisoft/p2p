@@ -12,6 +12,7 @@ import { StatusBadge } from '@/shared/components/ui/Badge';
 import { LoadingScreen, EmptyState } from '@/shared/components/ui/Icon';
 import { usePermissions } from '@/shared/hooks/usePermissions';
 import { useMemo, useState } from 'react';
+import { CsvDownloadButton } from '@/shared/components/CsvDownloadButton';
 import type { Commission } from '@/shared/types/api.types';
 
 const SELECT_CLASS =
@@ -126,9 +127,11 @@ export function CommissionsPage() {
   };
 
   const directionHint = (type: string) => {
-    if (type === 'business') return 'Collected from business on deposit/withdrawal';
+    if (type === 'business') {
+      return 'Collected to admin wallet on deposit/withdrawal, with the related transaction';
+    }
     if (type === 'investor') return 'Applied to investor on redemption';
-    return 'Platform default fee';
+    return 'Platform fee collected to admin wallet on deposit/withdrawal';
   };
 
   return (
@@ -138,17 +141,35 @@ export function CommissionsPage() {
           <h1 className="font-[family-name:var(--font-headline)] text-xl font-bold sm:text-2xl">Commissions</h1>
           <p className="mt-0.5 text-sm text-on-surface-variant">Platform, business & investor fee configuration</p>
         </div>
-        {isAdmin && (
-          <Button
-            className="w-full sm:w-auto"
-            onClick={() => {
-              resetCreateForm();
-              setShowCreate(true);
-            }}
-          >
-            Add Commission
-          </Button>
-        )}
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <CsvDownloadButton<Commission>
+            title="Commissions"
+            filename="commissions"
+            filters={{ Type: typeFilter, Search: searchInput }}
+            disabled={!filtered.length}
+            columns={[
+              { header: 'Target type', value: (c) => c.targetType },
+              { header: 'Target', value: (c) => targetLabel(c) },
+              { header: 'Fee mode', value: (c) => c.feeMode || '' },
+              { header: 'Percentage', value: (c) => c.percentage },
+              { header: 'Fixed fee', value: (c) => c.fixedFee },
+              { header: 'Active', value: (c) => (c.isActive ? 'yes' : 'no') },
+              { header: 'Description', value: (c) => c.description || '' },
+            ]}
+            fetchRows={async () => filtered}
+          />
+          {isAdmin && (
+            <Button
+              className="w-full sm:w-auto"
+              onClick={() => {
+                resetCreateForm();
+                setShowCreate(true);
+              }}
+            >
+              Add Commission
+            </Button>
+          )}
+        </div>
       </div>
 
       <div className="grid grid-cols-3 gap-2 sm:gap-3">

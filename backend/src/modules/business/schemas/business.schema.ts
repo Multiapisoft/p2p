@@ -48,11 +48,18 @@ export class Business {
   @Prop({ default: 0 })
   commissionRate!: number;
 
-  /** Max INR investors can pay toward this business's withdrawals (0 = unlimited). */
+  /**
+   * Admin seed INR for Platform Payment quota.
+   * Cap = seed + earned deposits. Remaining = cap − used. Never unlimited.
+   */
   @Prop({ default: 0 })
   p2pPayLimit!: number;
 
-  /** Cumulative investor pay amount reserved/completed against p2pPayLimit. */
+  /** INR earned when this business's users complete deposits / pay any user. */
+  @Prop({ default: 0 })
+  p2pPayEarned!: number;
+
+  /** Cumulative pay/withdrawal amount reserved/completed against the quota. */
   @Prop({ default: 0 })
   p2pPayUsed!: number;
 
@@ -74,6 +81,18 @@ export class Business {
 
   @Prop({ type: [String], enum: PaymentMethod, default: Object.values(PaymentMethod) })
   allowedPaymentMethods!: PaymentMethod[];
+
+  /** Super-admin: allow this business to create deposits / match pays (Noida #49). */
+  @Prop({ default: true })
+  depositsEnabled!: boolean;
+
+  /** Super-admin: allow this business (and its users) to create withdrawals (Noida #49). */
+  @Prop({ default: true })
+  withdrawalsEnabled!: boolean;
+
+  /** When true with platform preferB2bSettlement, prioritize this biz for B2B match. */
+  @Prop({ default: true })
+  b2bMatchingEnabled!: boolean;
 
   @Prop({ type: String, enum: UserStatus, default: UserStatus.PENDING })
   status!: UserStatus;

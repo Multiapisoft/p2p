@@ -10,8 +10,9 @@ import { Button } from '@/shared/components/ui/Button';
 import { Input } from '@/shared/components/ui/Input';
 import { LoadingScreen } from '@/shared/components/ui/Icon';
 import { formatDate } from '@/shared/lib/utils';
-import { toast } from '@/shared/ui/toast/toast.store';
 import { normalizePhone, phoneError } from '@/shared/lib/validation';
+import { toast } from '@/shared/ui/toast/toast.store';
+import { TwoFactorPanel } from '../components/TwoFactorPanel';
 
 export function ProfilePage() {
   const authUser = useAuthStore((s) => s.user);
@@ -38,7 +39,7 @@ export function ProfilePage() {
     mutationFn: () =>
       profileApi.updateMe({
         name,
-        phone: phone.trim() ? normalizePhone(phone) : undefined,
+        phone: normalizePhone(phone),
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['profile'] });
@@ -129,7 +130,7 @@ export function ProfilePage() {
           className="space-y-4 border-t border-outline-variant pt-4 sm:pt-6"
           onSubmit={(e) => {
             e.preventDefault();
-            const pMsg = phoneError(phone, false);
+            const pMsg = phoneError(phone, true);
             if (pMsg) {
               setFormError(pMsg);
               return;
@@ -140,7 +141,7 @@ export function ProfilePage() {
         >
           <Input label="Full Name" icon="person" value={name} onChange={(e) => setName(e.target.value)} />
           <Input
-            label="Phone"
+            label="Phone *"
             icon="phone"
             type="tel"
             value={phone}
@@ -148,6 +149,7 @@ export function ProfilePage() {
             placeholder="10-digit mobile"
             inputMode="numeric"
             maxLength={13}
+            required
           />
           {formError && (
             <div className="rounded-lg bg-error-container px-4 py-3 text-sm text-on-error-container">
@@ -162,6 +164,8 @@ export function ProfilePage() {
           )}
         </form>
       </Card>
+
+      <TwoFactorPanel />
 
       {!linked && (
         <Card title="Join a business">

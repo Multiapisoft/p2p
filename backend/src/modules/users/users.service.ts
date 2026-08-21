@@ -6,14 +6,21 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import * as bcrypt from 'bcryptjs';
+import { v4 as uuidv4 } from 'uuid';
 import { UsersRepository } from './users.repository';
-import { CreateUserDto, UpdateUserDto } from './dto/create-user.dto';
+import {
+  CreateUserDto,
+  UpdateUserDto,
+  CreateBusinessStaffDto,
+  UpdateBusinessStaffDto,
+  UpsertSavedWithdrawalMethodDto,
+} from './dto/create-user.dto';
 import { UserRole } from '../../common/enums/role.enum';
 import { UserStatus } from '../../common/enums/currency.enum';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Business, BusinessDocument } from '../business/schemas/business.schema';
-import { UserDocument, User } from './schemas/user.schema';
+import { SavedWithdrawalMethod, UserDocument, User } from './schemas/user.schema';
 import { IntegrationRegisterUserDto } from '../business/dto/integration.dto';
 import { partnerUserIdFromExternalRef } from '../integration/utils/partner-user-id.util';
 import {
@@ -21,11 +28,29 @@ import {
   normalizeListOpts,
   type ListQueryOpts,
 } from '../../common/dto/list-query.dto';
+import { isValidPhone } from '../../common/validators/contact.validators';
+import {
+  addInvestorLimitLot,
+  consumeInvestorLimitLifo,
+  investorLimitAdded,
+  investorLimitLotsLifo,
+  investorLimitRemaining,
+  restoreInvestorLimitLifo,
+  type InvestorLimitLot,
+} from './utils/investor-limit-lifo.util';
+import { sanitizeBusinessStaffPermissions } from '../../common/utils/business-staff.util';
+import { assertValidWithdrawalDestination } from '../withdrawal/utils/withdrawal-destination.validation';
 import { PlatformSettingsService } from '../platform-settings/platform-settings.service';
+import {
+  buildSavedWithdrawalMethodLabel,
+  deleteSavedWithdrawalMethod as deleteSavedMethodUtil,
+  ensureSavedMethodDefault,
+  MAX_SAVED_WITHDRAWAL_METHODS,
+  type SavedWithdrawalMethodView,
+  upsertSavedWithdrawalMethod,
+} from './utils/saved-withdrawal-methods.util';
 
 export type UserListOpts = ListQueryOpts & { role?: string };
-
-const DEFAULT_INVESTOR_PLAN_AMOUNTS = [25000, 50000, 100000, 200000];
 
 @Injectable()
 export class UsersService {
@@ -39,8 +64,14 @@ export class UsersService {
     const existing = await this.usersRepo.findByEmail(dto.email);
     if (existing) throw new ConflictException('Email already registered');
 
+    const role = dto.role || UserRole.USER;
+    if ((role === UserRole.USER || role === UserRole.INVESTOR) && !dto.phone) {
+      throw new BadRequestException('Mobile number is required');
+    }
+
     const hashedPassword = await bcrypt.hash(dto.password, 12);
     let referredByBusiness: string | undefined;
+    let referredByInvestor: string | undefined;
 
     if (dto.referralCode) {
       const code = dto.referralCode.trim();
@@ -50,8 +81,15 @@ export class UsersService {
           status: { $in: [UserStatus.ACTIVE, UserStatus.PENDING] },
         })
         .exec();
-      if (!business) throw new BadRequestException('Invalid business code');
-      referredByBusiness = business._id.toString();
+      if (business) {
+        referredByBusiness = business._id.toString();
+      } else {
+        const investor = await this.usersRepo.findByReferralCode(code);
+        if (!investor || investor.role !== UserRole.INVESTOR) {
+          throw new BadRequestException('Invalid referral / business code');
+        }
+        referredByInvestor = investor._id.toString();
+      }
     } else if (dto.businessId) {
       const business = await this.businessModel.findById(dto.businessId).exec();
       if (!business) throw new BadRequestException('Invalid business');
@@ -63,11 +101,17 @@ export class UsersService {
       password: hashedPassword,
       name: dto.name,
       phone: dto.phone,
-      role: dto.role || UserRole.USER,
+      role,
       permissions: dto.permissions || [],
     };
+    if (role === UserRole.INVESTOR) {
+      createData.referralCode = `inv_${uuidv4().replace(/-/g, '').slice(0, 10)}`;
+    }
     if (referredByBusiness) {
       createData.referredByBusiness = new Types.ObjectId(referredByBusiness);
+    }
+    if (referredByInvestor) {
+      createData.referredByInvestor = new Types.ObjectId(referredByInvestor);
     }
     if (createdBy) {
       createData.createdBy = new Types.ObjectId(createdBy);
@@ -204,7 +248,6 @@ export class UsersService {
         $or: [
           { email: { $regex: search, $options: 'i' } },
           { name: { $regex: search, $options: 'i' } },
-          { phone: { $regex: search, $options: 'i' } },
           { externalRef: { $regex: search, $options: 'i' } },
           { businessUserCode: { $regex: search, $options: 'i' } },
         ],
@@ -229,8 +272,13 @@ export class UsersService {
   }
 
   async findById(id: string) {
-    const user = await this.usersRepo.findById(id);
+    let user = await this.usersRepo.findById(id);
     if (!user) throw new NotFoundException('User not found');
+    if (user.role === UserRole.INVESTOR && !user.referralCode) {
+      user = await this.usersRepo.update(id, {
+        referralCode: `inv_${uuidv4().replace(/-/g, '').slice(0, 10)}`,
+      });
+    }
     return this.sanitizeWithBusiness(user);
   }
 
@@ -319,11 +367,101 @@ export class UsersService {
   }
 
   async update(id: string, dto: UpdateUserDto) {
+    const existing = await this.usersRepo.findById(id);
+    if (!existing) throw new NotFoundException('User not found');
+
+    if (existing.role === UserRole.USER || existing.role === UserRole.INVESTOR) {
+      const nextPhone = dto.phone !== undefined ? dto.phone : existing.phone;
+      if (!nextPhone || !isValidPhone(String(nextPhone))) {
+        throw new BadRequestException('Mobile number is required');
+      }
+    }
+
     const user = await this.usersRepo.update(id, dto);
     return this.sanitize(user);
   }
 
-  /** Attach business via referral code after register (only if not already linked). */
+  async getSavedWithdrawalMethods(userId: string) {
+    const user = await this.usersRepo.findById(userId);
+    if (!user) throw new NotFoundException('User not found');
+    return {
+      items: this.normalizeSavedMethods(user.savedWithdrawalMethods),
+    };
+  }
+
+  async saveWithdrawalMethod(
+    userId: string,
+    dto: UpsertSavedWithdrawalMethodDto,
+    methodId?: string,
+  ) {
+    const user = await this.usersRepo.findById(userId);
+    if (!user) throw new NotFoundException('User not found');
+
+    const settings = await this.platformSettingsService.get();
+    assertValidWithdrawalDestination(
+      {
+        method: dto.method,
+        upiDetails: dto.upiDetails,
+        bankDetails: dto.bankDetails,
+        usdtDetails: dto.usdtDetails,
+      },
+      { allowMobileNumber: !!settings.allowMobileNumberUpi },
+    );
+
+    const items = this.normalizeSavedMethods(user.savedWithdrawalMethods);
+    if (!methodId && items.length >= MAX_SAVED_WITHDRAWAL_METHODS) {
+      throw new BadRequestException(
+        `You can save up to ${MAX_SAVED_WITHDRAWAL_METHODS} withdrawal methods`,
+      );
+    }
+    const label = buildSavedWithdrawalMethodLabel(dto, dto.label);
+    const next = {
+      label,
+      method: dto.method,
+      isDefault: dto.isDefault === true,
+      upiDetails: dto.method === 'upi' ? dto.upiDetails : undefined,
+      bankDetails: dto.method === 'bank' ? dto.bankDetails : undefined,
+      usdtDetails: dto.method === 'usdt' ? dto.usdtDetails : undefined,
+      updatedAt: new Date().toISOString(),
+    };
+
+    const out = upsertSavedWithdrawalMethod(items, next, new Date().toISOString(), methodId);
+    if (!out) throw new NotFoundException('Saved withdrawal method not found');
+
+    const updated = await this.usersRepo.update(userId, {
+      savedWithdrawalMethods: this.serializeSavedMethods(out),
+    } as Partial<User>);
+    return { items: this.normalizeSavedMethods(updated.savedWithdrawalMethods) };
+  }
+
+  async setDefaultWithdrawalMethod(userId: string, methodId: string) {
+    const user = await this.usersRepo.findById(userId);
+    if (!user) throw new NotFoundException('User not found');
+    const items = this.normalizeSavedMethods(user.savedWithdrawalMethods);
+    if (!items.some((m) => m._id === methodId)) {
+      throw new NotFoundException('Saved withdrawal method not found');
+    }
+    const updated = await this.usersRepo.update(userId, {
+      savedWithdrawalMethods: this.serializeSavedMethods(
+        ensureSavedMethodDefault(items.map((m) => ({ ...m, isDefault: m._id === methodId }))),
+      ),
+    } as Partial<User>);
+    return { items: this.normalizeSavedMethods(updated.savedWithdrawalMethods) };
+  }
+
+  async deleteSavedWithdrawalMethod(userId: string, methodId: string) {
+    const user = await this.usersRepo.findById(userId);
+    if (!user) throw new NotFoundException('User not found');
+    const items = this.normalizeSavedMethods(user.savedWithdrawalMethods);
+    const next = deleteSavedMethodUtil(items, methodId);
+    if (!next) throw new NotFoundException('Saved withdrawal method not found');
+    const updated = await this.usersRepo.update(userId, {
+      savedWithdrawalMethods: this.serializeSavedMethods(next),
+    } as Partial<User>);
+    return { items: this.normalizeSavedMethods(updated.savedWithdrawalMethods) };
+  }
+
+  /** Attach business or investor via referral code after register. */
   async attachReferral(userId: string, referralCode: string) {
     const code = referralCode?.trim();
     if (!code) throw new BadRequestException('Referral code is required');
@@ -333,8 +471,8 @@ export class UsersService {
     if (user.role !== UserRole.USER && user.role !== UserRole.INVESTOR) {
       throw new BadRequestException('Only end users can join via referral code');
     }
-    if (user.referredByBusiness) {
-      throw new BadRequestException('You are already linked to a business');
+    if (user.referredByBusiness || user.referredByInvestor) {
+      throw new BadRequestException('You are already linked via a referral');
     }
 
     const business = await this.businessModel
@@ -343,13 +481,20 @@ export class UsersService {
         status: { $in: [UserStatus.ACTIVE, UserStatus.PENDING] },
       })
       .exec();
-    if (!business) throw new BadRequestException('Invalid business code');
+    if (business) {
+      const updated = await this.usersRepo.update(userId, {
+        referredByBusiness: business._id as unknown as Types.ObjectId,
+      });
+      await this.businessModel.findByIdAndUpdate(business._id, {
+        $inc: { totalUsers: 1 },
+      });
+      return this.sanitize(updated);
+    }
 
+    const investor = await this.usersRepo.findByReferralCode(code);
+    if (!investor) throw new BadRequestException('Invalid referral / business code');
     const updated = await this.usersRepo.update(userId, {
-      referredByBusiness: business._id as unknown as Types.ObjectId,
-    });
-    await this.businessModel.findByIdAndUpdate(business._id, {
-      $inc: { totalUsers: 1 },
+      referredByInvestor: investor._id as unknown as Types.ObjectId,
     });
     return this.sanitize(updated);
   }
@@ -407,7 +552,7 @@ export class UsersService {
       password: hashedPassword,
       mustSetPassword: false,
     });
-    return this.sanitize(updated);
+    return this.formatIntegrationUser(updated, businessId);
   }
 
   /** Business assigns a human-readable code to a referred user. */
@@ -428,7 +573,7 @@ export class UsersService {
 
     try {
       const updated = await this.usersRepo.update(userId, { businessUserCode });
-      return this.sanitize(updated);
+      return this.formatIntegrationUser(updated, businessId);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes('duplicate') || msg.includes('E11000')) {
@@ -438,35 +583,212 @@ export class UsersService {
     }
   }
 
-  /** Investor selects a plan amount (once or update). */
-  async setInvestorPlan(userId: string, planAmount: number) {
+  /** Investor adds a custom pay-limit lot (no preset plans). */
+  async addInvestorLimit(userId: string, amount: number) {
+    await this.usersRepo.invalidateCache(userId);
     const user = await this.usersRepo.findById(userId);
     if (!user) throw new NotFoundException('User not found');
     if (user.role !== UserRole.INVESTOR) {
-      throw new ForbiddenException('Only investors can select a plan');
+      throw new ForbiddenException('Only investors can add a pay limit');
     }
+    const rounded = Math.round(amount * 100) / 100;
+    if (rounded < 1) throw new BadRequestException('Amount must be at least 1');
 
-    const settings = await this.platformSettingsService.get();
-    const allowed =
-      settings.investorPlanAmounts?.length > 0
-        ? settings.investorPlanAmounts
-        : DEFAULT_INVESTOR_PLAN_AMOUNTS;
-    if (!allowed.includes(planAmount)) {
+    const lots = addInvestorLimitLot(this.readLots(user), rounded);
+    const updated = await this.usersRepo.update(userId, {
+      investorLimitLots: lots,
+    } as Partial<User>);
+    return this.investorLimitSnapshotFromUser(updated);
+  }
+
+  /** Legacy plan picker — stored as a single LIFO lot. */
+  async setInvestorPlan(userId: string, planAmount: number) {
+    return this.addInvestorLimit(userId, planAmount);
+  }
+
+  getInvestorLimitSnapshot(user: UserDocument) {
+    return this.investorLimitSnapshotFromUser(user);
+  }
+
+  async getInvestorLimit(userId: string) {
+    await this.usersRepo.invalidateCache(userId);
+    const user = await this.usersRepo.findById(userId);
+    if (!user) throw new NotFoundException('User not found');
+    const stored = (user.investorLimitLots || []) as InvestorLimitLot[];
+    if (!stored.length && (user.investorPlanAmount || 0) > 0) {
+      const lots = this.readLots(user);
+      const updated = await this.usersRepo.update(userId, {
+        investorLimitLots: lots,
+      } as Partial<User>);
+      return this.investorLimitSnapshotFromUser(updated);
+    }
+    return this.investorLimitSnapshotFromUser(user);
+  }
+
+  async consumeInvestorLimit(userId: string, amount: number) {
+    await this.usersRepo.invalidateCache(userId);
+    const user = await this.usersRepo.findById(userId);
+    if (!user) throw new NotFoundException('User not found');
+    const { lots, consumed, shortfall } = consumeInvestorLimitLifo(
+      this.readLots(user),
+      amount,
+    );
+    if (shortfall > 0) {
       throw new BadRequestException(
-        `Invalid plan amount. Allowed: ${allowed.join(', ')}`,
+        `Investor limit exhausted. Remaining ₹${investorLimitRemaining(this.readLots(user))}. Add amount first.`,
       );
     }
+    await this.usersRepo.update(userId, { investorLimitLots: lots } as Partial<User>);
+    return consumed;
+  }
 
-    const updated = await this.usersRepo.update(userId, {
-      investorPlanAmount: planAmount,
-      investorPlanSelectedAt: new Date(),
+  async restoreInvestorLimit(userId: string, amount: number) {
+    await this.usersRepo.invalidateCache(userId);
+    const user = await this.usersRepo.findById(userId);
+    if (!user) throw new NotFoundException('User not found');
+    const lots = restoreInvestorLimitLifo(this.readLots(user), amount);
+    await this.usersRepo.update(userId, { investorLimitLots: lots } as Partial<User>);
+  }
+
+  private readLots(user: UserDocument): InvestorLimitLot[] {
+    const stored = (user.investorLimitLots || []) as InvestorLimitLot[];
+    if (stored.length) return stored;
+    const legacy = user.investorPlanAmount || 0;
+    if (legacy <= 0) return [];
+    return [
+      {
+        amount: legacy,
+        remaining: legacy,
+        createdAt: user.investorPlanSelectedAt || new Date(),
+      },
+    ];
+  }
+
+  private investorLimitSnapshotFromUser(user: UserDocument) {
+    const lots = this.readLots(user);
+    const remaining = investorLimitRemaining(lots);
+    const added = investorLimitAdded(lots);
+    return {
+      lots: investorLimitLotsLifo(lots).map((lot) => ({
+        amount: lot.amount,
+        remaining: lot.remaining,
+        createdAt:
+          lot.createdAt instanceof Date
+            ? lot.createdAt.toISOString()
+            : new Date(lot.createdAt).toISOString(),
+      })),
+      remaining,
+      added,
+      needsLimit: remaining <= 0,
+    };
+  }
+
+  async createBusinessStaff(ownerUserId: string, dto: CreateBusinessStaffDto) {
+    const owner = await this.usersRepo.findById(ownerUserId);
+    if (!owner || owner.role !== UserRole.BUSINESS || owner.staffBusinessId) {
+      throw new ForbiddenException('Only the business owner can add staff');
+    }
+    const oid = Types.ObjectId.isValid(ownerUserId) ? new Types.ObjectId(ownerUserId) : null;
+    const business = await this.businessModel
+      .findOne({ $or: [{ ownerId: ownerUserId }, ...(oid ? [{ ownerId: oid }] : [])] })
+      .exec();
+    if (!business) throw new NotFoundException('Business not found');
+
+    const existing = await this.usersRepo.findByEmail(dto.email);
+    if (existing) throw new ConflictException('Email already registered');
+
+    const hashedPassword = await bcrypt.hash(dto.password, 12);
+    const user = await this.usersRepo.create({
+      email: dto.email.trim().toLowerCase(),
+      password: hashedPassword,
+      name: dto.name.trim(),
+      phone: dto.phone,
+      role: UserRole.BUSINESS,
+      permissions: sanitizeBusinessStaffPermissions(dto.permissions),
+      staffBusinessId: business._id,
+      createdBy: new Types.ObjectId(ownerUserId),
     });
-    return this.sanitizeWithBusiness(updated);
+    return this.sanitize(user);
+  }
+
+  async listBusinessStaff(ownerUserId: string) {
+    const owner = await this.usersRepo.findById(ownerUserId);
+    if (!owner || owner.role !== UserRole.BUSINESS || owner.staffBusinessId) {
+      throw new ForbiddenException('Only the business owner can list staff');
+    }
+    const oid = Types.ObjectId.isValid(ownerUserId) ? new Types.ObjectId(ownerUserId) : null;
+    const business = await this.businessModel
+      .findOne({ $or: [{ ownerId: ownerUserId }, ...(oid ? [{ ownerId: oid }] : [])] })
+      .exec();
+    if (!business) throw new NotFoundException('Business not found');
+    const { items } = await this.usersRepo.findAll(
+      { staffBusinessId: business._id, role: UserRole.BUSINESS },
+      0,
+      100,
+    );
+    return { items: items.map((u) => this.sanitize(u)), total: items.length };
+  }
+
+  async updateBusinessStaff(ownerUserId: string, staffId: string, dto: UpdateBusinessStaffDto) {
+    const owner = await this.usersRepo.findById(ownerUserId);
+    if (!owner || owner.role !== UserRole.BUSINESS || owner.staffBusinessId) {
+      throw new ForbiddenException('Only the business owner can update staff');
+    }
+    const staff = await this.usersRepo.findById(staffId);
+    if (!staff?.staffBusinessId) throw new NotFoundException('Staff not found');
+    const oid = Types.ObjectId.isValid(ownerUserId) ? new Types.ObjectId(ownerUserId) : null;
+    const business = await this.businessModel
+      .findOne({ $or: [{ ownerId: ownerUserId }, ...(oid ? [{ ownerId: oid }] : [])] })
+      .exec();
+    if (!business || staff.staffBusinessId.toString() !== business._id.toString()) {
+      throw new ForbiddenException('Staff does not belong to this business');
+    }
+    const patch: Partial<User> = {};
+    if (dto.permissions) patch.permissions = sanitizeBusinessStaffPermissions(dto.permissions);
+    if (dto.status) patch.status = dto.status;
+    const updated = await this.usersRepo.update(staffId, patch);
+    return this.sanitize(updated);
+  }
+
+  private normalizeSavedMethods(methods?: SavedWithdrawalMethod[]): SavedWithdrawalMethodView[] {
+    return (methods || []).map((m) => ({
+      _id:
+        typeof m._id === 'string'
+          ? m._id
+          : m._id && 'toString' in m._id
+            ? m._id.toString()
+            : new Types.ObjectId().toString(),
+      label: m.label,
+      method: m.method,
+      isDefault: !!m.isDefault,
+      upiDetails: m.upiDetails,
+      bankDetails: m.bankDetails,
+      usdtDetails: m.usdtDetails,
+      createdAt:
+        m.createdAt instanceof Date ? m.createdAt.toISOString() : new Date(m.createdAt || Date.now()).toISOString(),
+      updatedAt:
+        m.updatedAt instanceof Date ? m.updatedAt.toISOString() : new Date(m.updatedAt || Date.now()).toISOString(),
+    }));
+  }
+
+  private serializeSavedMethods(methods: SavedWithdrawalMethodView[]): SavedWithdrawalMethod[] {
+    return methods.map((m) => ({
+      _id: new Types.ObjectId(m._id),
+      label: m.label,
+      method: m.method,
+      isDefault: !!m.isDefault,
+      upiDetails: m.upiDetails,
+      bankDetails: m.bankDetails,
+      usdtDetails: m.usdtDetails,
+      createdAt: new Date(m.createdAt),
+      updatedAt: new Date(m.updatedAt),
+    }));
   }
 
   private sanitize(user: UserDocument) {
     const obj = user.toObject() as unknown as Record<string, unknown>;
     delete obj.password;
+    delete obj.twoFactorSecret;
 
     const ref = obj.referredByBusiness;
     if (ref && typeof ref === 'object' && ref !== null && '_id' in (ref as object)) {
@@ -478,6 +800,10 @@ export class UsersService {
       };
       obj.referredByBusiness = b._id;
     }
+
+    obj.savedWithdrawalMethods = this.normalizeSavedMethods(
+      (user.savedWithdrawalMethods || []) as SavedWithdrawalMethod[],
+    );
 
     return obj;
   }
@@ -543,6 +869,7 @@ export class UsersService {
 
   private formatIntegrationUser(user: UserDocument, businessId: string) {
     const base = this.sanitize(user) as Record<string, unknown>;
+    delete base.phone;
     const userId = user._id.toString();
     const externalRef = base.externalRef as string | undefined;
     return {

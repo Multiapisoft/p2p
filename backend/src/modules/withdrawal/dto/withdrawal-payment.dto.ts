@@ -1,4 +1,4 @@
-import { IsNumber, IsOptional, IsString, Min, MinLength } from 'class-validator';
+import { IsNumber, IsOptional, IsString, Min, MinLength, ValidateIf } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ListQueryDto } from '../../../common/dto/list-query.dto';
 import { IsAppPaymentRef } from '../../../common/validators/contact.validators';
@@ -7,6 +7,13 @@ export class WithdrawalPaymentListQueryDto extends ListQueryDto {
   @IsOptional()
   @IsString()
   method?: string;
+
+  /** Payer budget — full close if remaining <= this, or valid ₹5k+ partial on larger WDs. */
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(1)
+  amount?: number;
 }
 
 export class CreditPreviewQueryDto {
@@ -25,14 +32,17 @@ export class SubmitWithdrawalPaymentDto {
   @Min(1)
   amount!: number;
 
+  @ValidateIf((o: SubmitWithdrawalPaymentDto) => !!o.utr?.trim())
   @IsAppPaymentRef()
-  utr!: string;
+  utr?: string;
 
+  @IsOptional()
   @IsString()
-  proofImageKey!: string;
+  proofImageKey?: string;
 
+  @IsOptional()
   @IsString()
-  proofImageUrl!: string;
+  proofImageUrl?: string;
 }
 
 export class RejectWithdrawalPaymentDto {

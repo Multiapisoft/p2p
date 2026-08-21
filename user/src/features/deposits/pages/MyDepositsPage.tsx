@@ -12,6 +12,8 @@ import { Input } from '@/shared/components/ui/Input';
 import { StatusBadge } from '@/shared/components/ui/Badge';
 import { Pagination } from '@/shared/components/ui/Pagination';
 import { LoadingScreen, EmptyState } from '@/shared/components/ui/Icon';
+import { CsvDownloadButton } from '@/shared/components/CsvDownloadButton';
+import { fetchAllPages } from '@/shared/lib/csv';
 import { formatCurrency, formatDate } from '@/shared/lib/utils';
 
 const STATUS_FILTERS = [
@@ -84,6 +86,7 @@ function MyDepositsPageInner() {
   const { data, isLoading, isFetching, isError, error, refetch } = useQuery({
     queryKey: ['my-deposits-platform', listQuery],
     queryFn: () => p2pPayApi.getMyPayments(listQuery),
+    refetchInterval: 10_000,
   });
 
   const items = data?.items ?? [];
@@ -105,9 +108,29 @@ function MyDepositsPageInner() {
             Platform Payments you have submitted to complete deposits
           </p>
         </div>
-        <Link href="/deposits">
-          <Button size="sm">Make a deposit</Button>
-        </Link>
+        <div className="flex flex-wrap items-center gap-2">
+          <CsvDownloadButton<P2pPayment>
+            title="My deposits"
+            filename="my-deposits"
+            filters={{ Status: status, Search: search, Sort: sort }}
+            disabled={!total}
+            columns={[
+              { header: 'Reference', value: (p) => p.referenceId },
+              { header: 'Status', value: (p) => p.status },
+              { header: 'Amount', value: (p) => p.amount },
+              { header: 'Currency', value: (p) => p.currency },
+              { header: 'Created', value: (p) => p.createdAt },
+            ]}
+            fetchRows={() =>
+              fetchAllPages((page, limit) =>
+                p2pPayApi.getMyPayments({ ...listQuery, page, limit }),
+              )
+            }
+          />
+          <Link href="/deposits">
+            <Button size="sm">Make a deposit</Button>
+          </Link>
+        </div>
       </div>
 
       <div className="grid grid-cols-3 gap-2 sm:gap-3">

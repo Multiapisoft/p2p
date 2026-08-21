@@ -146,7 +146,7 @@ export class UpsertBusinessCommissionsDto {
   @Type(() => CommissionRuleInputDto)
   investorBonus?: CommissionRuleInputDto[];
 
-  /** Max INR investors can pay on this business flow (0 = unlimited). */
+  /** Admin seed INR. User / business-funded deposits add earned quota. Remaining is never unlimited. */
   @IsOptional()
   @IsNumber()
   @Min(0)

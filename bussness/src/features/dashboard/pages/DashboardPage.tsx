@@ -16,6 +16,8 @@ import { StatusBadge } from '@/shared/components/ui/Badge';
 import { formatCurrency, formatDate } from '@/shared/lib/utils';
 import { getApiErrorMessage, isNotFoundError } from '@/shared/api/client';
 import { resolveUser } from '@/shared/lib/entity-user';
+import { useAuthStore } from '@/features/auth/store/auth.store';
+import { canRequestBusinessWithdrawal } from '@/features/withdrawals/components/BusinessWithdrawalForm';
 
 const USER_APP_URL = (process.env.NEXT_PUBLIC_USER_APP_URL || 'http://localhost:4761').replace(
   /\/$/,
@@ -25,13 +27,15 @@ const USER_APP_URL = (process.env.NEXT_PUBLIC_USER_APP_URL || 'http://localhost:
 const QUICK_LINKS = [
   { href: '/users', icon: 'group', title: 'Users', desc: 'Linked accounts' },
   { href: '/deposits', icon: 'south_west', title: 'Deposits', desc: 'Incoming' },
-  { href: '/withdrawals', icon: 'north_east', title: 'Withdrawals', desc: 'Approvals' },
+  { href: '/withdrawals?new=1', icon: 'north_east', title: 'Withdrawals', desc: 'Request & approvals' },
   { href: '/transactions', icon: 'receipt_long', title: 'Ledger', desc: 'Wallet activity' },
   { href: '/integration', icon: 'api', title: 'Integration', desc: 'API & partner' },
   { href: '/support', icon: 'support_agent', title: 'Support', desc: 'Tickets' },
 ] as const;
 
 export function DashboardPage() {
+  const user = useAuthStore((s) => s.user);
+  const canWithdrawLimit = canRequestBusinessWithdrawal(user);
   const {
     data: business,
     isLoading: loadingBusiness,
@@ -152,8 +156,10 @@ export function DashboardPage() {
   const awaitingList = overview?.awaitingListCount ?? 0;
   const needsAttention = pendingDeposits + pendingWithdrawals + pendingPayments;
   const payLimit = overview?.p2pPayLimit ?? 0;
+  const payEarned = overview?.p2pPayEarned ?? 0;
   const payUsed = overview?.p2pPayUsed ?? 0;
-  const payRemaining = overview?.p2pPayRemaining;
+  const payRemaining = overview?.p2pPayRemaining ?? 0;
+  const payCap = payLimit + payEarned;
 
   return (
     <div className="mx-auto max-w-7xl space-y-4 sm:space-y-6">
@@ -177,6 +183,30 @@ export function DashboardPage() {
           </div>
         }
       />
+
+      {canWithdrawLimit ? (
+        <Card>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-wide text-on-surface-variant">
+                Remaining pay limit
+              </p>
+              <p className="mt-1 text-2xl font-bold text-secondary">
+                {formatCurrency(payRemaining)}
+              </p>
+              <p className="mt-1 text-xs text-on-surface-variant">
+                Withdraw from this limit. User deposits and deposits you give users increase it;
+                withdrawals deduct it.
+              </p>
+            </div>
+            <Link href="/withdrawals?new=1">
+              <Button disabled={payRemaining < 1}>
+                Request withdrawal
+              </Button>
+            </Link>
+          </div>
+        </Card>
+      ) : null}
 
       {business.status === 'pending' && (
         <div className="rounded-xl border border-amber-300/60 bg-amber-50 px-3 py-2.5 text-xs text-amber-900 sm:px-4 sm:py-3 sm:text-sm">
@@ -360,14 +390,10 @@ export function DashboardPage() {
             />
             <StatCard
               label="Pay limit"
-              value={payLimit > 0 ? formatCurrency(payLimit) : 'Unlimited'}
+              value={formatCurrency(payCap)}
               icon="tune"
-              trend={
-                payRemaining == null
-                  ? `Used ${formatCurrency(payUsed)}`
-                  : `Left ${formatCurrency(payRemaining)} · used ${formatCurrency(payUsed)}`
-              }
-              variant={payRemaining != null && payRemaining <= 0 ? 'warning' : 'default'}
+              trend={`Left ${formatCurrency(payRemaining)} · deposits +${formatCurrency(payEarned)} · used ${formatCurrency(payUsed)}`}
+              variant={payRemaining <= 0 ? 'warning' : 'default'}
             />
           </div>
         )}

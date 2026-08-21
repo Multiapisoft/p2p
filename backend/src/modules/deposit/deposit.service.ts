@@ -10,6 +10,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { Deposit, DepositDocument } from './schemas/deposit.schema';
 import { CreateDepositDto, ApproveDepositDto, RejectDepositDto } from './dto/deposit.dto';
 import { WalletService } from '../wallet/wallet.service';
+import { PlatformCommissionService } from '../wallet/platform-commission.service';
 import { CommissionService } from '../commission/commission.service';
 import { TransactionService } from '../transaction/transaction.service';
 import { BusinessService } from '../business/business.service';
@@ -25,6 +26,7 @@ import { NotificationService } from '../notification/notification.service';
 import { PaymentConfigService } from '../payment-config/payment-config.service';
 import { IntegrationRedirectService } from '../integration/integration-redirect.service';
 import { BusinessFloatService } from '../integration/business-float.service';
+import { ExchangeRateService } from '../wallet/exchange-rate.service';
 import { Withdrawal, WithdrawalDocument } from '../withdrawal/schemas/withdrawal.schema';
 import {
   WithdrawalPayment,
@@ -37,6 +39,7 @@ import {
 } from '../../common/dto/list-query.dto';
 import { withOptionalTransaction } from '../../common/utils/mongo-transaction';
 import { PlatformSettingsService } from '../platform-settings/platform-settings.service';
+import { feeCutNote } from '../wallet/utils/platform-commission-ledger.util';
 import {
   businessWithdrawalVisibilityFilter,
   tatCutoffDate,
@@ -98,6 +101,8 @@ export class DepositService {
     private integrationRedirectService: IntegrationRedirectService,
     private businessFloatService: BusinessFloatService,
     private platformSettingsService: PlatformSettingsService,
+    private platformCommissionService: PlatformCommissionService,
+    private exchangeRateService: ExchangeRateService,
   ) {}
 
   async create(userId: string, dto: CreateDepositDto, businessFromApi?: BusinessDocument) {
@@ -108,6 +113,12 @@ export class DepositService {
       dto.method === PaymentMethod.USDT ? Currency.USDT : dto.currency || Currency.INR,
     );
     this.paymentConfigService.validateAmount(paymentConfig, dto.amount);
+    if (dto.method !== PaymentMethod.USDT) {
+      const minAmt = await this.platformSettingsService.getMinTransactionAmount();
+      if (dto.amount < minAmt) {
+        throw new BadRequestException(`Minimum deposit is ₹${minAmt}`);
+      }
+    }
 
     let businessId: string | undefined;
     if (dto.integrationToken) {
@@ -136,9 +147,11 @@ export class DepositService {
       if (business) businessId = business._id.toString();
     } else {
       const user = await this.userModel.findById(userId).exec();
-      if (user?.referredByBusiness) {
-        businessId = user.referredByBusiness.toString();
-      }
+      businessId = await this.businessService.findBusinessIdForUser(user);
+    }
+
+    if (businessId) {
+      await this.businessService.assertDepositsEnabled(businessId);
     }
 
     const currency =
@@ -228,11 +241,20 @@ export class DepositService {
       let businessCommission = 0;
       let platformCommission = 0;
 
-      if (doc.businessId) {
+      let bizId = doc.businessId?.toString();
+      if (!bizId) {
+        const depositor = await this.userModel.findById(doc.userId).exec();
+        bizId = await this.businessService.findBusinessIdForUser(depositor);
+        if (bizId) {
+          doc.businessId = new Types.ObjectId(bizId);
+        }
+      }
+
+      if (bizId) {
         const commission = await this.commissionService.calculate(
           doc.amount,
           CommissionTarget.BUSINESS,
-          doc.businessId.toString(),
+          bizId,
           doc.method,
         );
         businessCommission = commission.amount;
@@ -240,13 +262,18 @@ export class DepositService {
         doc.commissionPaidTo = doc.businessId;
 
         await this.businessService.incrementStats(
-          doc.businessId.toString(),
+          bizId,
           'totalDeposits',
           doc.amount,
         );
+        await this.businessService.creditP2pPayQuota(
+          bizId,
+          this.quotaAmountInr(doc.amount, doc.currency),
+          { referenceType: 'deposit', referenceId: doc._id.toString() },
+        );
         if (businessCommission > 0) {
           await this.businessService.incrementStats(
-            doc.businessId.toString(),
+            bizId,
             'totalCommissionEarned',
             businessCommission,
           );
@@ -256,13 +283,13 @@ export class DepositService {
       const platformFee = await this.commissionService.calculate(
         doc.amount,
         CommissionTarget.PLATFORM,
-        undefined,
+        doc.businessId?.toString(),
         doc.method,
       );
       platformCommission = platformFee.amount;
 
       const totalCommission = businessCommission + platformCommission;
-      // End-user gets full deposit; commission is charged to business (stats), not user wallet.
+      // End-user gets full deposit; fees are collected to admin wallet, not user wallet.
       const netAmount = doc.amount;
 
       const updatedWallet = await this.walletService.credit(
@@ -301,11 +328,30 @@ export class DepositService {
         balanceAfter: updatedWallet.balance,
         referenceType: 'deposit',
         referenceId: doc._id.toString(),
-        description: `Deposit approved by ${approvedBy}`,
+        description: `Deposit approved by ${approvedBy}${feeCutNote(
+          platformCommission,
+          businessCommission,
+          doc.currency,
+        )}`,
         businessId: doc.businessId?.toString(),
       });
 
-      // Commission is charged to business (stats), not written to user ledger.
+      if (platformCommission > 0 || businessCommission > 0) {
+        const depositor = await this.userModel.findById(doc.userId).exec();
+        await this.platformCommissionService.creditCollectedFees({
+          platformAmount: platformCommission,
+          businessAmount: businessCommission,
+          currency: doc.currency,
+          fromUserId: doc.userId.toString(),
+          fromName: depositor?.name || 'Depositor',
+          fromRole: depositor?.role,
+          referenceType: 'deposit',
+          referenceId: doc._id.toString(),
+          referenceLabel: doc.referenceId,
+          businessId: doc.businessId?.toString(),
+          session: session || undefined,
+        });
+      }
 
       return { deposit: doc, netAmount, totalCommission };
     });
@@ -432,7 +478,11 @@ export class DepositService {
   }
 
   async findById(id: string, userId?: string) {
-    const deposit = await this.depositModel.findById(id).exec();
+    const q = this.depositModel.findById(id);
+    if (!userId) {
+      q.populate('userId', 'name email phone role status businessUserCode externalRef');
+    }
+    const deposit = await q.exec();
     if (!deposit) throw new NotFoundException('Deposit not found');
     if (userId && deposit.userId.toString() !== userId) {
       throw new ForbiddenException('Not your deposit');
@@ -443,7 +493,7 @@ export class DepositService {
   async findByIdForBusiness(id: string, businessId: string) {
     const deposit = await this.depositModel
       .findById(id)
-      .populate('userId', 'name email phone externalRef')
+      .populate('userId', 'name email externalRef')
       .exec();
     if (!deposit) throw new NotFoundException('Deposit not found');
     if (deposit.businessId?.toString() !== businessId) {
@@ -500,15 +550,17 @@ export class DepositService {
   private async queryDeposits(
     base: Record<string, unknown>,
     opts: DepositListOpts = {},
-    populateUser = false,
+    populateUser: false | 'public' | 'admin' = false,
   ) {
     const { page, limit, skip, sort } = normalizeListOpts(opts);
     const filter = this.buildDepositFilter(base, opts);
     const sortSpec = this.depositSort(sort);
 
     let q = this.depositModel.find(filter).skip(skip).limit(limit).sort(sortSpec);
-    if (populateUser) {
-      q = q.populate('userId', 'name email phone externalRef');
+    if (populateUser === 'admin') {
+      q = q.populate('userId', 'name email phone role status businessUserCode externalRef');
+    } else if (populateUser === 'public') {
+      q = q.populate('userId', 'name email externalRef');
     }
 
     const [items, total] = await Promise.all([
@@ -540,7 +592,7 @@ export class DepositService {
         ],
       },
       opts,
-      true,
+      'public',
     );
   }
 
@@ -548,12 +600,12 @@ export class DepositService {
     return this.queryDeposits(
       {},
       { ...opts, status: opts.status || TransactionStatus.PENDING },
-      true,
+      'admin',
     );
   }
 
   async findAll(opts: DepositListOpts = {}) {
-    return this.queryDeposits({}, opts, true);
+    return this.queryDeposits({}, opts, 'admin');
   }
 
   async getMethodSummary(status?: TransactionStatus) {
@@ -770,6 +822,7 @@ export class DepositService {
     const outbound = outboundPayCompleted[0];
 
     const limit = business.p2pPayLimit || 0;
+    const earned = business.p2pPayEarned || 0;
     const used = business.p2pPayUsed || 0;
 
     return {
@@ -812,11 +865,19 @@ export class DepositService {
       totalCommissionEarned: business.totalCommissionEarned ?? 0,
       commissionRate: business.commissionRate ?? 0,
       p2pPayLimit: limit,
+      p2pPayEarned: earned,
       p2pPayUsed: used,
-      p2pPayRemaining: limit > 0 ? Math.max(0, limit - used) : null,
+      p2pPayRemaining: await this.businessService.getP2pPayRemaining(businessId),
       businessName: business.name,
       businessStatus: business.status,
     };
+  }
+
+  private quotaAmountInr(amount: number, currency?: string) {
+    if ((currency || '').toUpperCase() === 'USDT') {
+      return this.exchangeRateService.usdtToInr(amount);
+    }
+    return amount;
   }
 
   private async releaseDepositFloatLock(deposit: DepositDocument) {

@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { v4 as uuidv4 } from 'uuid';
@@ -6,8 +6,12 @@ import { SupportTicket, SupportTicketDocument } from './schemas/support.schema';
 import { CreateTicketDto, ReplyTicketDto, UpdateTicketStatusDto } from './dto/support.dto';
 import { SupportStatus } from '../../common/enums/support-status.enum';
 import { UserRole } from '../../common/enums/role.enum';
+import { UserStatus } from '../../common/enums/currency.enum';
 import { Business, BusinessDocument } from '../business/schemas/business.schema';
 import { User, UserDocument } from '../users/schemas/user.schema';
+import { sanitizeTicketAttachments } from './utils/ticket-attachment.util';
+import { mongoRefEquals, mongoRefId } from './utils/mongo-ref-id.util';
+import { NotificationService } from '../notification/notification.service';
 
 export type CreateTicketMeta = {
   participantIds?: string[];
@@ -24,6 +28,8 @@ export type SupportListOpts = {
   sort?: string;
   category?: string;
   priority?: string;
+  /** When true, omit phone from populated user (sub-admin). */
+  hideContact?: boolean;
 };
 
 @Injectable()
@@ -32,6 +38,7 @@ export class SupportService {
     @InjectModel(SupportTicket.name) private ticketModel: Model<SupportTicketDocument>,
     @InjectModel(Business.name) private businessModel: Model<BusinessDocument>,
     @InjectModel(User.name) private userModel: Model<UserDocument>,
+    private notificationService: NotificationService,
   ) {}
 
   async create(userId: string, dto: CreateTicketDto, meta?: CreateTicketMeta) {
@@ -48,7 +55,14 @@ export class SupportService {
       }
     }
 
-    return this.ticketModel.create({
+    const attachments = sanitizeTicketAttachments(dto.attachments, userId);
+    const message =
+      dto.message?.trim() || (attachments.length ? '(See attachments)' : '');
+    if (!message) {
+      throw new BadRequestException('Message or attachment is required');
+    }
+
+    const ticket = await this.ticketModel.create({
       ticketId,
       userId: new Types.ObjectId(userId),
       participantIds,
@@ -60,10 +74,36 @@ export class SupportService {
         ? new Types.ObjectId(meta.relatedWithdrawalId)
         : undefined,
       subject: dto.subject,
-      message: dto.message,
+      message,
+      attachments,
       priority: dto.priority,
       category: dto.category,
     });
+
+    const requester = await this.userModel.findById(userId).select('name email').exec();
+    const title = 'New support ticket';
+    const body = `${requester?.name || 'User'}: ${dto.subject} (${ticketId})`;
+
+    const notifyIds = new Set<string>();
+    if (businessId) {
+      const biz = await this.businessModel.findById(businessId).select('ownerId').exec();
+      if (biz?.ownerId) notifyIds.add(biz.ownerId.toString());
+    }
+    const admins = await this.userModel
+      .find({ role: { $in: [UserRole.ADMIN, UserRole.SUB_ADMIN] }, status: UserStatus.ACTIVE })
+      .select('_id')
+      .limit(50)
+      .exec();
+    for (const a of admins) notifyIds.add(a._id.toString());
+    notifyIds.delete(userId);
+
+    await Promise.all(
+      [...notifyIds].map((id) =>
+        this.notificationService.send(id, title, body, 'support', 'support_ticket', ticketId),
+      ),
+    );
+
+    return ticket;
   }
 
   private async accessFilter(userId: string, role: UserRole) {
@@ -76,9 +116,16 @@ export class SupportService {
     ];
 
     if (role === UserRole.BUSINESS) {
+      const actor = await this.userModel.findById(userId).select('staffBusinessId').exec();
       const biz = await this.businessModel
         .findOne({
-          $or: [{ ownerId: oid }, { ownerId: userId }],
+          $or: [
+            { ownerId: oid },
+            { ownerId: userId },
+            ...(actor?.staffBusinessId
+              ? [{ _id: actor.staffBusinessId }, { _id: actor.staffBusinessId.toString() }]
+              : []),
+          ],
         })
         .select('_id')
         .exec();
@@ -154,13 +201,21 @@ export class SupportService {
     const isStaff = [UserRole.ADMIN, UserRole.SUB_ADMIN].includes(role);
     if (isStaff) return;
 
-    if (ticket.userId?.toString() === userId) return;
-    if (ticket.participantIds?.some((id) => id.toString() === userId)) return;
+    if (mongoRefEquals(ticket.userId, userId)) return;
+    if (ticket.participantIds?.some((id) => mongoRefEquals(id, userId))) return;
 
     if (role === UserRole.BUSINESS) {
+      const actor = await this.userModel.findById(userId).select('staffBusinessId').exec();
+      const oid = Types.ObjectId.isValid(userId) ? new Types.ObjectId(userId) : null;
       const biz = await this.businessModel
         .findOne({
-          $or: [{ ownerId: new Types.ObjectId(userId) }, { ownerId: userId }],
+          $or: [
+            { ownerId: oid },
+            { ownerId: userId },
+            ...(actor?.staffBusinessId
+              ? [{ _id: actor.staffBusinessId }, { _id: actor.staffBusinessId.toString() }]
+              : []),
+          ],
         })
         .select('_id')
         .exec();
@@ -169,7 +224,7 @@ export class SupportService {
           return;
         }
         const opener = await this.userModel
-          .findById(ticket.userId)
+          .findById(mongoRefId(ticket.userId) || ticket.userId)
           .select('referredByBusiness')
           .exec();
         if (opener?.referredByBusiness?.toString() === biz._id.toString()) {
@@ -192,7 +247,7 @@ export class SupportService {
     const [items, total] = await Promise.all([
       this.ticketModel
         .find(filter)
-        .populate('userId', 'name email phone businessUserCode')
+        .populate('userId', 'name email businessUserCode')
         .skip(skip)
         .limit(limit)
         .sort(sort)
@@ -219,9 +274,18 @@ export class SupportService {
     const skip = (page - 1) * limit;
     const filter = this.buildListFilter({}, opts);
     const sort = this.sortSpec(opts.sort);
+    const userFields = opts.hideContact
+      ? 'name email role status businessUserCode'
+      : 'name email phone role status businessUserCode';
 
     const [items, total] = await Promise.all([
-      this.ticketModel.find(filter).skip(skip).limit(limit).sort(sort).exec(),
+      this.ticketModel
+        .find(filter)
+        .populate('userId', userFields)
+        .skip(skip)
+        .limit(limit)
+        .sort(sort)
+        .exec(),
       this.ticketModel.countDocuments(filter).exec(),
     ]);
     return {
@@ -236,7 +300,12 @@ export class SupportService {
   async findByTicketId(ticketId: string, userId?: string, role?: UserRole) {
     const ticket = await this.ticketModel
       .findOne({ ticketId })
-      .populate('userId', 'name email phone businessUserCode')
+        .populate(
+          'userId',
+          userId
+            ? 'name email businessUserCode'
+            : 'name email phone role status businessUserCode',
+        )
       .exec();
     if (!ticket) throw new NotFoundException('Ticket not found');
     if (userId && role) {
@@ -258,9 +327,17 @@ export class SupportService {
 
     await this.assertCanAccess(ticket, authorId, role);
 
+    const attachments = sanitizeTicketAttachments(dto.attachments, authorId);
+    const message =
+      dto.message?.trim() || (attachments.length ? '(See attachments)' : '');
+    if (!message) {
+      throw new BadRequestException('Message or attachment is required');
+    }
+
     ticket.replies.push({
       authorId: new Types.ObjectId(authorId),
-      message: dto.message,
+      message,
+      attachments,
       createdAt: new Date(),
     });
 

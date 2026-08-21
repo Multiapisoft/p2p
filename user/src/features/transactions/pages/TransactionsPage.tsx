@@ -10,6 +10,9 @@ import { Input } from '@/shared/components/ui/Input';
 import { Pagination } from '@/shared/components/ui/Pagination';
 import { LoadingScreen, EmptyState } from '@/shared/components/ui/Icon';
 import { formatCurrency, formatDate } from '@/shared/lib/utils';
+import { CsvDownloadButton } from '@/shared/components/CsvDownloadButton';
+import { fetchAllPages } from '@/shared/lib/csv';
+import type { LedgerEntry } from '@/shared/types/api.types';
 
 const TYPE_FILTERS: { value: string; label: string }[] = [
   { value: 'all', label: 'All' },
@@ -63,6 +66,7 @@ export function TransactionsPage() {
   const { data, isLoading, isFetching, isError, error, refetch } = useQuery({
     queryKey: ['transactions', listQuery],
     queryFn: () => transactionsApi.getMy(listQuery),
+    refetchInterval: 10_000,
   });
 
   const items = data?.items ?? [];
@@ -71,11 +75,30 @@ export function TransactionsPage() {
 
   return (
     <div className="mx-auto max-w-5xl space-y-4 sm:space-y-6">
-      <div>
-        <h1 className="font-[family-name:var(--font-headline)] text-xl font-bold tracking-tight sm:text-2xl">
-          Transactions
-        </h1>
-        <p className="mt-0.5 text-sm text-on-surface-variant">Your wallet ledger history</p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="font-[family-name:var(--font-headline)] text-xl font-bold tracking-tight sm:text-2xl">
+            Transactions
+          </h1>
+          <p className="mt-0.5 text-sm text-on-surface-variant">Your wallet ledger history</p>
+        </div>
+        <CsvDownloadButton<LedgerEntry>
+          title="My ledger"
+          filename="ledger"
+          filters={{ Type: type, Search: search, Sort: sort }}
+          disabled={!total}
+          columns={[
+            { header: 'Type', value: (t) => t.type },
+            { header: 'Direction', value: (t) => t.direction },
+            { header: 'Amount', value: (t) => t.amount },
+            { header: 'Currency', value: (t) => t.currency },
+            { header: 'Description', value: (t) => t.description },
+            { header: 'Created', value: (t) => t.createdAt },
+          ]}
+          fetchRows={() =>
+            fetchAllPages((page, limit) => transactionsApi.getMy({ ...listQuery, page, limit }))
+          }
+        />
       </div>
 
       <div className="grid grid-cols-3 gap-2 sm:gap-3">
@@ -206,18 +229,23 @@ export function TransactionsPage() {
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-semibold capitalize sm:text-base">{tx.type}</p>
                     <p className="mt-0.5 line-clamp-2 text-[11px] text-on-surface-variant sm:text-xs">
-                      {tx.description || tx.referenceType} · {formatDate(tx.createdAt)}
+                      {tx.fromParty || tx.toParty
+                        ? `${tx.fromParty || '—'} → ${tx.toParty || '—'}`
+                        : tx.description || tx.referenceType}{' '}
+                      · {formatDate(tx.createdAt)}
                     </p>
                   </div>
                   <div className="shrink-0 text-right">
                     <p
                       className={`text-sm font-bold sm:text-base ${
-                        tx.type === 'credit' || tx.type === 'deposit'
+                        tx.direction === 'credit' || tx.type === 'deposit' || tx.type === 'investment'
                           ? 'text-on-secondary-container'
                           : 'text-error'
                       }`}
                     >
-                      {tx.type === 'credit' || tx.type === 'deposit' ? '+' : '-'}
+                      {tx.direction === 'debit' || tx.type === 'withdrawal' || tx.type === 'redemption'
+                        ? '-'
+                        : '+'}
                       {formatCurrency(tx.amount, tx.currency)}
                     </p>
                     <p className="text-[11px] text-on-surface-variant sm:text-xs">

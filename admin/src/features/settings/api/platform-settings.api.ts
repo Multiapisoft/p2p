@@ -6,6 +6,12 @@ export interface PlatformSettings {
   withdrawalUserEditTatMinutes: number;
   investorPlanAmounts: number[];
   investorPlanTargetMultiplier: number;
+  allowMobileNumberUpi: boolean;
+  showCommissionToInvestor: boolean;
+  minTransactionAmount: number;
+  allowPartialPay: boolean;
+  preferB2bSettlement: boolean;
+  cdmHoldMinutes: number;
 }
 
 export type UpdatePlatformSettingsPayload = Partial<PlatformSettings>;

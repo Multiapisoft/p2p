@@ -20,7 +20,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
 
   return (
     <div className="flex h-dvh overflow-hidden bg-background">
-      <Sidebar userEmail={user?.email} onLogout={handleLogout} />
+      <Sidebar userName={user?.name} userEmail={user?.email} onLogout={handleLogout} />
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden md:pl-64">
         <header className="z-40 flex h-14 shrink-0 items-center justify-between border-b border-outline-variant bg-surface/95 px-4 backdrop-blur-md md:px-8">

@@ -1,1 +1,5 @@
-export { InvestorsPage as default } from '@/features/investors/pages/InvestorsPage';
+import { redirect } from 'next/navigation';
+
+export default function InvestorsRedirect() {
+  redirect('/withdrawals');
+}

@@ -5,12 +5,33 @@ import { SupportStatus, SupportPriority } from '../../../common/enums/support-st
 export type SupportTicketDocument = HydratedDocument<SupportTicket>;
 
 @Schema({ _id: false })
+export class TicketAttachment {
+  @Prop({ required: true })
+  key!: string;
+
+  @Prop({ required: true })
+  publicUrl!: string;
+
+  @Prop({ required: true })
+  filename!: string;
+
+  @Prop()
+  contentType?: string;
+
+  @Prop({ default: 0 })
+  size?: number;
+}
+
+@Schema({ _id: false })
 export class TicketReply {
   @Prop({ type: Types.ObjectId, ref: 'User', required: true })
   authorId!: Types.ObjectId;
 
   @Prop({ required: true })
   message!: string;
+
+  @Prop({ type: [TicketAttachment], default: [] })
+  attachments!: TicketAttachment[];
 
   @Prop({ default: Date.now })
   createdAt!: Date;
@@ -58,6 +79,9 @@ export class SupportTicket {
 
   @Prop({ type: [TicketReply], default: [] })
   replies!: TicketReply[];
+
+  @Prop({ type: [TicketAttachment], default: [] })
+  attachments!: TicketAttachment[];
 
   @Prop()
   category?: string;

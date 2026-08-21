@@ -1,5 +1,5 @@
 import {
-  availableForPaymentBaseFilter,
+  isInvestorToInvestorPay,
   isWithinUserEditTat,
   userCanCancelWithdrawal,
 } from './withdrawal-visibility.util';
@@ -27,10 +27,13 @@ describe('Withdrawal feature matrix — visibility & actions', () => {
     businessId?: string | null;
     createdAt: Date;
     listed: boolean;
+    origin?: 'user' | 'business';
   }, expectations: RoleView[]) {
     it(label, () => {
       const withinTat = isWithinUserEditTat(wd.createdAt, now, tatMs);
       const listed = wd.p2pListStatus === 'listed' || wd.listed;
+      const businessOrigin = wd.origin === 'business';
+      const terminal = ['completed', 'rejected', 'cancelled'].includes(wd.status);
 
       for (const exp of expectations) {
         const canCancel =
@@ -46,21 +49,16 @@ describe('Withdrawal feature matrix — visibility & actions', () => {
             : false;
 
         // Pay list: investors/users only see listed + not own
-        const payFilter = availableForPaymentBaseFilter('owner-id');
         const canSeeInPayList =
           (exp.role === 'investor' ||
             exp.role === 'same-biz-user' ||
             exp.role === 'other-biz-user') &&
-          payFilter.p2pListStatus === 'listed' &&
           listed &&
           (wd.status === 'pending' || wd.status === 'processing');
 
-        // Business sees only after TAT
-        const businessSees = exp.role === 'business' && !withinTat;
-        // Admin sees after listed (or terminal) — here we model listed case
-        const adminSees =
-          exp.role === 'admin' && (listed || ['completed', 'rejected', 'cancelled'].includes(wd.status));
-        // Owner always sees own list
+        // Business sees after TAT, or immediately for their own origin WDs
+        const businessSees = exp.role === 'business' && (!withinTat || businessOrigin);
+        const adminSees = exp.role === 'admin' && (listed || businessOrigin || terminal);
         const ownerSees = exp.role === 'owner-user';
 
         const canSeeInOwnList =
@@ -69,7 +67,11 @@ describe('Withdrawal feature matrix — visibility & actions', () => {
           (exp.role === 'admin' && adminSees);
 
         const canListForPlatformPayment =
-          exp.role === 'business' && !withinTat && !listed && wd.status === 'pending';
+          exp.role === 'business' &&
+          !businessOrigin &&
+          !withinTat &&
+          !listed &&
+          wd.status === 'pending';
 
         expect({
           role: exp.role,
@@ -270,4 +272,52 @@ describe('Withdrawal feature matrix — visibility & actions', () => {
       },
     ],
   );
+
+  scenario(
+    'E) Business-origin WD awaiting admin verify — not on pay list',
+    {
+      status: 'pending',
+      p2pListStatus: 'awaiting',
+      paidAmount: 0,
+      businessId: 'biz-1',
+      createdAt: new Date(now - 10_000),
+      listed: false,
+      origin: 'business',
+    },
+    [
+      {
+        role: 'business',
+        canSeeInOwnList: true,
+        canSeeInPayList: false,
+        canCancel: false,
+        canListForPlatformPayment: false,
+      },
+      {
+        role: 'admin',
+        canSeeInOwnList: true,
+        canSeeInPayList: false,
+        canCancel: false,
+        canListForPlatformPayment: false,
+      },
+      {
+        role: 'investor',
+        canSeeInOwnList: false,
+        canSeeInPayList: false,
+        canCancel: false,
+        canListForPlatformPayment: false,
+      },
+      {
+        role: 'same-biz-user',
+        canSeeInOwnList: false,
+        canSeeInPayList: false,
+        canCancel: false,
+        canListForPlatformPayment: false,
+      },
+    ],
+  );
+
+  it('investor cannot pay another investor withdrawal', () => {
+    expect(isInvestorToInvestorPay('investor', 'investor')).toBe(true);
+    expect(isInvestorToInvestorPay('investor', 'user')).toBe(false);
+  });
 });

@@ -4,6 +4,11 @@ import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supportApi } from '../api/support.api';
 import { TicketMessageBody } from '../components/TicketMessageBody';
+import {
+  TicketAttachmentList,
+  TicketAttachmentPicker,
+  type TicketFile,
+} from '../components/TicketAttachments';
 import { Card } from '@/shared/components/ui/Card';
 import { Button } from '@/shared/components/ui/Button';
 import { Modal } from '@/shared/components/ui/Modal';
@@ -14,6 +19,10 @@ import { Pagination } from '@/shared/components/ui/Pagination';
 import { LoadingScreen, EmptyState } from '@/shared/components/ui/Icon';
 import { formatDate } from '@/shared/lib/utils';
 import { getApiErrorMessage } from '@/shared/lib/api-error';
+import { fetchAllPages, personCsvCells } from '@/shared/lib/csv';
+import { CsvDownloadButton } from '@/shared/components/CsvDownloadButton';
+import { PersonDetails } from '@/shared/components/PersonDetails';
+import { useAuthStore } from '@/features/auth/store/auth.store';
 import type { SupportTicket } from '@/shared/types/api.types';
 
 const STATUS_FILTERS = [
@@ -56,6 +65,7 @@ function ticketPreview(t: SupportTicket) {
 }
 
 export function SupportPage() {
+  const user = useAuthStore((s) => s.user);
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
   const [status, setStatus] = useState('all');
@@ -65,6 +75,7 @@ export function SupportPage() {
   const [search, setSearch] = useState('');
   const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
   const [reply, setReply] = useState('');
+  const [replyFiles, setReplyFiles] = useState<TicketFile[]>([]);
   const [statusError, setStatusError] = useState('');
   const qc = useQueryClient();
 
@@ -93,11 +104,17 @@ export function SupportPage() {
   });
 
   const sendReply = useMutation({
-    mutationFn: () => supportApi.reply(selectedTicketId!, reply),
+    mutationFn: () =>
+      supportApi.reply(
+        selectedTicketId!,
+        reply.trim() || (replyFiles.length ? '(See attachments)' : ''),
+        replyFiles,
+      ),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['support-ticket'] });
       qc.invalidateQueries({ queryKey: ['support'] });
       setReply('');
+      setReplyFiles([]);
     },
   });
 
@@ -120,9 +137,32 @@ export function SupportPage() {
 
   return (
     <div className="mx-auto max-w-7xl space-y-4 sm:space-y-6">
-      <div>
-        <h1 className="font-[family-name:var(--font-headline)] text-xl font-bold sm:text-2xl">Support</h1>
-        <p className="mt-0.5 text-sm text-on-surface-variant">All user tickets and withdrawal disputes</p>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h1 className="font-[family-name:var(--font-headline)] text-xl font-bold sm:text-2xl">Support</h1>
+          <p className="mt-0.5 text-sm text-on-surface-variant">All user tickets and withdrawal disputes</p>
+        </div>
+        <CsvDownloadButton<SupportTicket>
+          title="Support tickets"
+          filename={`support-${status}`}
+          filters={{ Status: status, Category: category, Search: search, Sort: sort }}
+          disabled={!total}
+          columns={[
+            { header: 'Ticket', value: (t) => t.ticketId },
+            { header: 'Subject', value: (t) => t.subject },
+            { header: 'Status', value: (t) => t.status },
+            { header: 'Priority', value: (t) => t.priority },
+            { header: 'Category', value: (t) => t.category || '' },
+            { header: 'User name', value: (t) => personCsvCells(t.userId)[0] },
+            { header: 'User email', value: (t) => personCsvCells(t.userId)[1] },
+            { header: 'User phone', value: (t) => personCsvCells(t.userId)[2] },
+            { header: 'User role', value: (t) => personCsvCells(t.userId)[3] },
+            { header: 'Created', value: (t) => t.createdAt },
+          ]}
+          fetchRows={() =>
+            fetchAllPages((p, l) => supportApi.getAll({ ...listQuery, page: p, limit: l }))
+          }
+        />
       </div>
 
       <div className="grid grid-cols-3 gap-2 sm:gap-3">
@@ -289,6 +329,7 @@ export function SupportPage() {
         onClose={() => {
           setSelectedTicketId(null);
           setReply('');
+          setReplyFiles([]);
           setStatusError('');
         }}
         title={ticket ? `#${ticket.ticketId}` : 'Ticket'}
@@ -309,6 +350,12 @@ export function SupportPage() {
                 </span>
               </div>
             </div>
+
+            <PersonDetails
+              title="User"
+              person={ticket.userId}
+              hidePhone={user?.role === 'sub_admin'}
+            />
 
             <div className="chip-scroll">
               {ADMIN_STATUSES.map((s) => (
@@ -333,6 +380,7 @@ export function SupportPage() {
             )}
 
             <TicketMessageBody message={ticket.message} />
+            <TicketAttachmentList attachments={ticket.attachments} />
 
             {!!ticket.replies?.length && (
               <div className="space-y-2">
@@ -345,6 +393,9 @@ export function SupportPage() {
                     className="rounded-xl border border-outline-variant bg-surface-container-lowest px-3.5 py-3 text-sm"
                   >
                     <p className="leading-relaxed">{r.message}</p>
+                    <div className="mt-2">
+                      <TicketAttachmentList attachments={r.attachments} />
+                    </div>
                     <p className="mt-1.5 text-xs text-outline">{formatDate(r.createdAt)}</p>
                   </div>
                 ))}
@@ -355,7 +406,7 @@ export function SupportPage() {
               className="space-y-3 border-t border-outline-variant pt-4"
               onSubmit={(e) => {
                 e.preventDefault();
-                if (reply.trim()) sendReply.mutate();
+                if (reply.trim() || replyFiles.length) sendReply.mutate();
               }}
             >
               <Textarea
@@ -363,9 +414,18 @@ export function SupportPage() {
                 value={reply}
                 onChange={(e) => setReply(e.target.value)}
                 placeholder="Type your message..."
-                required
               />
-              <Button type="submit" className="w-full" loading={sendReply.isPending}>
+              <TicketAttachmentPicker
+                files={replyFiles}
+                onChange={setReplyFiles}
+                upload={supportApi.uploadAttachment}
+              />
+              <Button
+                type="submit"
+                className="w-full"
+                loading={sendReply.isPending}
+                disabled={!reply.trim() && !replyFiles.length}
+              >
                 Send Reply
               </Button>
             </form>

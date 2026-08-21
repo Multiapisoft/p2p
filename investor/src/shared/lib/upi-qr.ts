@@ -15,6 +15,19 @@ export function buildUpiPayUri(opts: {
   return `upi://pay?${params.toString()}`;
 }
 
+export function buildUpiAppLinks(opts: {
+  upiId: string;
+  name?: string;
+  amount?: number;
+}): { id: string; label: string; href: string }[] {
+  const qs = buildUpiPayUri(opts).replace(/^upi:\/\/pay\?/, '');
+  return [
+    { id: 'phonepe', label: 'PhonePe', href: `phonepe://pay?${qs}` },
+    { id: 'gpay', label: 'GPay', href: `tez://upi/pay?${qs}` },
+    { id: 'paytm', label: 'Paytm', href: `paytmmp://pay?${qs}` },
+  ];
+}
+
 export function planAmountLabel(amount: number): string {
   if (amount === 25000) return '₹25k';
   if (amount === 50000) return '₹50k';

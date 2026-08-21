@@ -24,7 +24,9 @@ import { PlatformSettingsModule } from './modules/platform-settings/platform-set
 import { NotificationModule } from './modules/notification/notification.module';
 import { HealthModule } from './modules/health/health.module';
 import { StorageModule } from './modules/storage/storage.module';
+import { RealtimeModule } from './modules/realtime/realtime.module'; // P2P live pay-list sockets
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
+
 import { RolesGuard } from './common/guards/roles.guard';
 import { PermissionsGuard } from './common/guards/permissions.guard';
 import { GlobalExceptionFilter } from './common/filters/http-exception.filter';
@@ -37,6 +39,7 @@ import { TransformInterceptor } from './common/interceptors/transform.intercepto
     ThrottlerModule.forRoot([{ ttl: 60000, limit: 100 }]),
     DatabaseModule,
     RedisModule,
+    RealtimeModule,
     WebhookModule,
     AuditModule,
     NotificationModule,

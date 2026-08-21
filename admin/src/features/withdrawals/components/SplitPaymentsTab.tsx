@@ -13,6 +13,9 @@ import { Pagination } from '@/shared/components/ui/Pagination';
 import { LoadingScreen, EmptyState } from '@/shared/components/ui/Icon';
 import { formatCurrency, formatDate } from '@/shared/lib/utils';
 import { getApiErrorMessage } from '@/shared/lib/api-error';
+import { fetchAllPages, personCsvCells } from '@/shared/lib/csv';
+import { CsvDownloadButton } from '@/shared/components/CsvDownloadButton';
+import { PersonDetails } from '@/shared/components/PersonDetails';
 
 const STATUS_FILTERS = [
   { value: 'all', label: 'All' },
@@ -152,6 +155,36 @@ export function SplitPaymentsTab() {
 
       <Card>
         <div className="mb-4 space-y-3">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <p className="text-sm text-on-surface-variant">
+              Matching filters: {total} payment{total === 1 ? '' : 's'}
+            </p>
+            <CsvDownloadButton<WithdrawalPaymentAdmin>
+              title="Split payments"
+              filename={`split-payments-${listMode}`}
+              filters={{ View: listMode, Status: status, Method: method, Search: search, Sort: sort }}
+              disabled={!total}
+              columns={[
+                { header: 'Payment ref', value: (p) => p.referenceId },
+                { header: 'Status', value: (p) => p.status },
+                { header: 'Amount', value: (p) => p.amount },
+                { header: 'UTR', value: (p) => p.utr },
+                { header: 'Payer name', value: (p) => personCsvCells(p.payerUserId)[0] },
+                { header: 'Payer email', value: (p) => personCsvCells(p.payerUserId)[1] },
+                { header: 'Payer phone', value: (p) => personCsvCells(p.payerUserId)[2] },
+                { header: 'Payer role', value: (p) => personCsvCells(p.payerUserId)[3] },
+                { header: 'Withdrawal', value: (p) => p.withdrawalId?.referenceId || '' },
+                { header: 'Created', value: (p) => p.createdAt },
+              ]}
+              fetchRows={() =>
+                fetchAllPages((p, l) =>
+                  listMode === 'pending'
+                    ? withdrawalPaymentsApi.getPending({ ...listQuery, page: p, limit: l })
+                    : withdrawalPaymentsApi.getAll({ ...listQuery, page: p, limit: l }),
+                )
+              }
+            />
+          </div>
           <div className="chip-scroll">
             {(['pending', 'all'] as const).map((t) => (
               <button
@@ -275,7 +308,9 @@ export function SplitPaymentsTab() {
                     <div className="min-w-0">
                       <p className="truncate font-semibold">{p.referenceId}</p>
                       <p className="text-xs text-on-surface-variant sm:text-sm">
-                        Payer: {p.payerUserId?.name} ({p.payerUserId?.email})
+                        Payer: {p.payerUserId?.name || '—'}
+                        {p.payerUserId?.role ? ` · ${p.payerUserId.role}` : ''}
+                        {p.payerUserId?.email ? ` (${p.payerUserId.email})` : ''}
                       </p>
                       <p className="text-xs text-on-surface-variant sm:text-sm">
                         Withdrawal: {w?.referenceId} · UTR:{' '}
@@ -350,6 +385,9 @@ export function SplitPaymentsTab() {
         {detail && (
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-3 text-sm">
+              <div className="col-span-2">
+                <PersonDetails title="Payer" person={detail.payerUserId} />
+              </div>
               <div>
                 <p className="text-on-surface-variant">Pay amount</p>
                 <p className="font-bold">{formatCurrency(detail.amount)}</p>

@@ -185,11 +185,25 @@ export function TransactionsPage() {
                 >
                   <div>
                     <p className="font-semibold capitalize">{tx.type.replace('_', ' ')}</p>
-                    <p className="mt-1 text-sm text-on-surface-variant">{tx.description ?? tx.referenceType}</p>
+                    <p className="mt-1 text-sm text-on-surface-variant">
+                      {tx.fromParty || tx.toParty
+                        ? `${tx.fromParty || '—'} → ${tx.toParty || '—'}`
+                        : tx.description ?? tx.referenceType}
+                    </p>
+                    {tx.fromParty && tx.description ? (
+                      <p className="mt-0.5 text-xs text-on-surface-variant">{tx.description}</p>
+                    ) : null}
                     <p className="mt-1 text-xs text-outline">{formatDate(tx.createdAt)}</p>
                   </div>
                   <div className="text-right">
-                    <p className="font-semibold">{formatCurrency(tx.amount, tx.currency)}</p>
+                    <p
+                      className={`font-semibold ${
+                        tx.direction === 'debit' ? 'text-error' : 'text-on-secondary-container'
+                      }`}
+                    >
+                      {tx.direction === 'debit' ? '−' : '+'}
+                      {formatCurrency(tx.amount, tx.currency)}
+                    </p>
                     <p className="text-xs text-outline">
                       Bal: {formatCurrency(tx.balanceAfter, tx.currency)}
                     </p>

@@ -29,8 +29,19 @@ describe('withdrawal-destination.validation (#15)', () => {
     it('accepts normal UPI', () => {
       expect(validateUpiId('user@okaxis')).toBeNull();
     });
-    it('rejects 10+ consecutive digits', () => {
+    it('rejects 10+ consecutive digits when mobile UPI is off', () => {
       expect(validateUpiId('9876543210@paytm')).toMatch(/9 consecutive/);
+      expect(validateUpiId('9876543210@paytm', { allowMobileNumber: false })).toMatch(
+        /9 consecutive/,
+      );
+    });
+    it('allows 10-digit mobile UPI when toggle is on', () => {
+      expect(validateUpiId('9876543210@paytm', { allowMobileNumber: true })).toBeNull();
+    });
+    it('still rejects 11+ digits even when mobile UPI is on', () => {
+      expect(validateUpiId('98765432101@paytm', { allowMobileNumber: true })).toMatch(
+        /9 consecutive/,
+      );
     });
     it('allows up to 9 consecutive digits', () => {
       expect(validateUpiId('987654321@ybl')).toBeNull();
@@ -51,12 +62,13 @@ describe('withdrawal-destination.validation (#15)', () => {
     it('IFSC pattern AAAA0XXXXXX', () => {
       expect(validateIfsc('SBIN0001234')).toBeNull();
       expect(validateIfsc('sbin0001234')).toBeNull();
-      expect(validateIfsc('SBIN1001234')).toMatch(/11 characters/);
-      expect(validateIfsc('SBIN001')).toMatch(/11 characters/);
+      expect(validateIfsc('SBIN1001234')).toMatch(/5th character must be zero/);
+      expect(validateIfsc('SBIN001')).toMatch(/exactly 11/);
     });
-    it('bank name required', () => {
+    it('bank name required and non-numeric', () => {
       expect(validateBankName('SBI')).toBeNull();
       expect(validateBankName('  ')).toBe('Bank name is required');
+      expect(validateBankName('HDFC2')).toMatch(/numeric/);
     });
   });
 
@@ -97,12 +109,39 @@ describe('withdrawal-destination.validation (#15)', () => {
       ).toThrow(/Name is required/);
     });
 
+    it('requires UPI account name', () => {
+      expect(() =>
+        assertValidWithdrawalDestination({
+          method: PaymentMethod.UPI,
+          upiDetails: { upiId: 'abc@okaxis', payerName: '' },
+        }),
+      ).toThrow(/name/i);
+    });
+
     it('accepts valid UPI', () => {
       expect(() =>
         assertValidWithdrawalDestination({
           method: PaymentMethod.UPI,
           upiDetails: { upiId: 'abc@okaxis', payerName: 'Demo User' },
         }),
+      ).not.toThrow();
+    });
+
+    it('rejects mobile UPI destination unless allowMobileNumber', () => {
+      expect(() =>
+        assertValidWithdrawalDestination({
+          method: PaymentMethod.UPI,
+          upiDetails: { upiId: '9876543210@paytm', payerName: 'Demo User' },
+        }),
+      ).toThrow(/9 consecutive/);
+      expect(() =>
+        assertValidWithdrawalDestination(
+          {
+            method: PaymentMethod.UPI,
+            upiDetails: { upiId: '9876543210@paytm', payerName: 'Demo User' },
+          },
+          { allowMobileNumber: true },
+        ),
       ).not.toThrow();
     });
 

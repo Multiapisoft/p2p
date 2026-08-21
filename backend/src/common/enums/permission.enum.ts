@@ -10,4 +10,7 @@ export enum Permission {
   PLATFORM_SETTINGS_MANAGE = 'platform_settings.manage',
   AUDIT_VIEW = 'audit.view',
   WALLET_ADJUST = 'wallet.adjust',
+  BUSINESS_DEPOSIT_VERIFY = 'business.deposit_verify',
+  BUSINESS_WITHDRAWALS = 'business.withdrawals',
+  BUSINESS_MANUAL_WITHDRAWAL = 'business.manual_withdrawal',
 }

@@ -50,6 +50,7 @@ export class WithdrawalPaymentController {
 
   @Get('business')
   @Roles(UserRole.BUSINESS)
+  @Permissions(Permission.BUSINESS_DEPOSIT_VERIFY)
   getBusinessPayments(
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: WithdrawalPaymentListQueryDto,
@@ -83,7 +84,7 @@ export class WithdrawalPaymentController {
   }
 
   @Post('withdrawal/:withdrawalId/claim')
-  @Roles(UserRole.USER, UserRole.INVESTOR)
+  @Roles(UserRole.USER, UserRole.INVESTOR, UserRole.ADMIN, UserRole.SUB_ADMIN)
   claimWithdrawal(
     @CurrentUser() user: AuthenticatedUser,
     @Param('withdrawalId') withdrawalId: string,

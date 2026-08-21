@@ -2,8 +2,12 @@ import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { LedgerEntry, LedgerEntryDocument } from './schemas/ledger.schema';
-import { LedgerType } from '../../common/enums/currency.enum';
-import { Currency } from '../../common/enums/currency.enum';
+import {
+  Currency,
+  LedgerDirection,
+  LedgerFlow,
+  LedgerType,
+} from '../../common/enums/currency.enum';
 import {
   listSortMap,
   normalizeListOpts,
@@ -14,6 +18,8 @@ export interface CreateLedgerParams {
   userId: string;
   walletId?: string;
   type: LedgerType;
+  direction?: LedgerDirection;
+  flow?: LedgerFlow;
   amount: number;
   currency?: Currency;
   balanceBefore: number;
@@ -22,11 +28,16 @@ export interface CreateLedgerParams {
   referenceId: string;
   description?: string;
   businessId?: string;
+  counterpartyUserId?: string;
+  fromParty?: string;
+  toParty?: string;
 }
 
 export type TransactionListOpts = ListQueryOpts & {
   type?: string;
   userId?: string;
+  direction?: string;
+  businessId?: string;
 };
 
 @Injectable()
@@ -36,7 +47,20 @@ export class TransactionService {
   ) {}
 
   async record(params: CreateLedgerParams) {
-    return this.ledgerModel.create(params);
+    const direction =
+      params.direction ??
+      (params.balanceAfter >= params.balanceBefore
+        ? LedgerDirection.CREDIT
+        : LedgerDirection.DEBIT);
+
+    return this.ledgerModel.create({
+      ...params,
+      direction,
+      userId: params.userId,
+      walletId: params.walletId,
+      counterpartyUserId: params.counterpartyUserId,
+      businessId: params.businessId,
+    });
   }
 
   async findByUser(userId: string, opts: TransactionListOpts = {}) {
@@ -55,8 +79,23 @@ export class TransactionService {
           : { userId: uid },
       );
     }
+    if (opts.businessId) {
+      const bid = opts.businessId;
+      and.push(
+        Types.ObjectId.isValid(bid)
+          ? { $or: [{ businessId: new Types.ObjectId(bid) }, { businessId: bid }] }
+          : { businessId: bid },
+      );
+    }
+    if (opts.direction && opts.direction !== 'all') {
+      and.push({ direction: opts.direction });
+    }
     if (opts.type && opts.type !== 'all') {
-      and.push({ type: opts.type });
+      if (opts.type === LedgerDirection.CREDIT || opts.type === LedgerDirection.DEBIT) {
+        and.push({ direction: opts.type });
+      } else {
+        and.push({ type: opts.type });
+      }
     }
     if (search) {
       and.push({
@@ -64,6 +103,8 @@ export class TransactionService {
           { referenceId: { $regex: search, $options: 'i' } },
           { description: { $regex: search, $options: 'i' } },
           { referenceType: { $regex: search, $options: 'i' } },
+          { fromParty: { $regex: search, $options: 'i' } },
+          { toParty: { $regex: search, $options: 'i' } },
         ],
       });
     }
@@ -78,7 +119,14 @@ export class TransactionService {
     });
 
     const [items, total] = await Promise.all([
-      this.ledgerModel.find(filter).skip(skip).limit(limit).sort(sortSpec).exec(),
+      this.ledgerModel
+        .find(filter)
+        .populate('userId', 'name email role')
+        .populate('counterpartyUserId', 'name email role')
+        .skip(skip)
+        .limit(limit)
+        .sort(sortSpec)
+        .exec(),
       this.ledgerModel.countDocuments(filter).exec(),
     ]);
 

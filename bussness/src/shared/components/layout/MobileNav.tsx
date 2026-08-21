@@ -8,14 +8,20 @@ import {
   MOBILE_PRIMARY_NAV,
   NAV_ITEMS,
   isNavActive,
+  navItemsForUser,
 } from '@/shared/constants/navigation';
 import { cn } from '@/shared/lib/utils';
+import { useAuthStore } from '@/features/auth/store/auth.store';
 
 export function MobileNav() {
   const pathname = usePathname();
   const [moreOpen, setMoreOpen] = useState(false);
+  const user = useAuthStore((s) => s.user);
+  const allowed = new Set(navItemsForUser(user).map((n) => n.to));
+  const primary = MOBILE_PRIMARY_NAV.filter((n) => allowed.has(n.to));
+  const more = MOBILE_MORE_NAV.filter((n) => allowed.has(n.to));
 
-  const moreActive = MOBILE_MORE_NAV.some((item) => isNavActive(pathname, item.to));
+  const moreActive = more.some((item) => isNavActive(pathname, item.to));
 
   return (
     <>
@@ -24,7 +30,7 @@ export function MobileNav() {
         style={{ paddingBottom: 'max(0.375rem, env(safe-area-inset-bottom))' }}
       >
         <div className="flex items-stretch justify-around">
-          {MOBILE_PRIMARY_NAV.map((item) => {
+          {primary.map((item) => {
             const active = isNavActive(pathname, item.to);
             return (
               <Link
@@ -81,7 +87,7 @@ export function MobileNav() {
               </button>
             </div>
             <div className="grid grid-cols-2 gap-2">
-              {MOBILE_MORE_NAV.map((item) => {
+              {more.map((item) => {
                 const active = isNavActive(pathname, item.to);
                 return (
                   <Link

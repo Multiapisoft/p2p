@@ -2,6 +2,8 @@ import {
   adminWithdrawalVisibilityFilter,
   availableForPaymentBaseFilter,
   businessWithdrawalVisibilityFilter,
+  isInvestorToInvestorPay,
+  isOpenOnPayList,
   isWithinUserEditTat,
   remainingTatSeconds,
   tatCutoffDate,
@@ -32,7 +34,7 @@ describe('withdrawal-visibility.util (#8 #24)', () => {
     it('business filter hides rows created after cutoff (still in TAT)', () => {
       const cutoff = tatCutoffDate(now, tatMs);
       expect(businessWithdrawalVisibilityFilter(cutoff)).toEqual({
-        createdAt: { $lte: cutoff },
+        $or: [{ createdAt: { $lte: cutoff } }, { origin: 'business' }],
       });
     });
 
@@ -49,11 +51,24 @@ describe('withdrawal-visibility.util (#8 #24)', () => {
       );
     });
 
-    it('available-for-payment requires p2pListStatus listed and excludes owner', () => {
+    it('available-for-payment is listed-only (business WD needs admin verify)', () => {
       const f = availableForPaymentBaseFilter('user-1');
-      expect(f.p2pListStatus).toBe('listed');
       expect(f.userId).toEqual({ $ne: 'user-1' });
       expect(f.status).toEqual({ $in: ['pending', 'processing'] });
+      expect(f.p2pListStatus).toBe('listed');
+      expect(f).not.toHaveProperty('$or');
+    });
+
+    it('isOpenOnPayList true only when listed and still open', () => {
+      expect(isOpenOnPayList({ p2pListStatus: 'listed', status: 'pending' })).toBe(true);
+      expect(isOpenOnPayList({ p2pListStatus: 'awaiting', status: 'pending' })).toBe(false);
+      expect(isOpenOnPayList({ p2pListStatus: 'listed', origin: 'business' } as { p2pListStatus: string })).toBe(
+        true,
+      );
+      expect(isOpenOnPayList({ p2pListStatus: 'awaiting', origin: 'business', status: 'pending' })).toBe(
+        false,
+      );
+      expect(isOpenOnPayList({ p2pListStatus: 'listed', status: 'completed' })).toBe(false);
     });
   });
 
@@ -141,5 +156,12 @@ describe('withdrawal-visibility.util (#8 #24)', () => {
         }),
       ).toBe(false);
     });
+  });
+
+  it('blocks investor-to-investor pay matching', () => {
+    expect(isInvestorToInvestorPay('investor', 'investor')).toBe(true);
+    expect(isInvestorToInvestorPay('investor', 'user')).toBe(false);
+    expect(isInvestorToInvestorPay('user', 'investor')).toBe(false);
+    expect(isInvestorToInvestorPay('user', 'user')).toBe(false);
   });
 });

@@ -13,6 +13,25 @@ export interface ReferredBusiness {
   referralCode?: string;
 }
 
+export type PaymentMethod = 'upi' | 'bank' | 'usdt' | 'cdm';
+
+export interface SavedWithdrawalMethod {
+  _id: string;
+  label: string;
+  method: PaymentMethod;
+  isDefault?: boolean;
+  upiDetails?: { upiId: string; payerName: string };
+  bankDetails?: {
+    accountNumber: string;
+    ifscCode: string;
+    accountHolderName: string;
+    bankName: string;
+  };
+  usdtDetails?: { walletAddress: string; network?: string };
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 export interface User {
   _id: string;
   email: string;
@@ -24,14 +43,17 @@ export interface User {
   referredByBusiness?: string;
   referredBusiness?: ReferredBusiness;
   businessUserCode?: string;
+  savedWithdrawalMethods?: SavedWithdrawalMethod[];
   createdAt: string;
 }
 
 export interface AuthUser {
   id: string;
   email: string;
+  name?: string;
   role: UserRole;
   permissions?: string[];
+  twoFactorEnabled?: boolean;
 }
 
 export interface DashboardStats {
@@ -45,7 +67,7 @@ export interface DashboardStats {
 export interface Deposit {
   _id: string;
   referenceId: string;
-  userId: string;
+  userId: string | UserSummary;
   businessId?: string;
   amount: number;
   currency: string;
@@ -55,21 +77,54 @@ export interface Deposit {
   createdAt: string;
 }
 
+export interface UserSummary {
+  _id: string;
+  name?: string;
+  email?: string;
+  phone?: string;
+  role?: string;
+  status?: string;
+  businessUserCode?: string;
+  externalRef?: string;
+}
+
+export interface WithdrawalPaymentBrief {
+  _id: string;
+  referenceId?: string;
+  amount: number;
+  currency?: string;
+  status: string;
+  utr?: string;
+  proofImageUrl?: string;
+  commissionAmount?: number;
+  bonusAmount?: number;
+  netCreditedAmount?: number;
+  payerUserId?: string | UserSummary;
+  createdAt?: string;
+}
+
 export interface Withdrawal {
   _id: string;
   referenceId: string;
-  userId: string;
+  userId: string | UserSummary;
   amount: number;
   currency: string;
   method: string;
   status: TransactionStatus;
-  businessId?: string;
+  businessId?: string | { _id: string; name?: string; referralCode?: string };
   paidAmount?: number;
+  remainingAmount?: number;
+  paymentCount?: number;
+  payments?: WithdrawalPaymentBrief[];
   commissionAmount?: number;
   p2pListStatus?: 'awaiting' | 'listed' | 'rejected';
+  origin?: 'user' | 'investor' | 'business';
   p2pListedAt?: string;
   p2pListedBy?: string;
   p2pListRejectReason?: string;
+  assignedTo?: string | UserSummary;
+  assignedBy?: string;
+  assignedAt?: string;
   createdAt: string;
   upiDetails?: { upiId?: string; payerName?: string; utr?: string };
   bankDetails?: {
@@ -91,8 +146,14 @@ export interface Business {
   totalUsers: number;
   commissionRate: number;
   p2pPayLimit?: number;
+  p2pPayEarned?: number;
   p2pPayUsed?: number;
+  p2pPayCap?: number;
+  p2pPayRemaining?: number | null;
   totalCommissionEarned?: number;
+  depositsEnabled?: boolean;
+  withdrawalsEnabled?: boolean;
+  b2bMatchingEnabled?: boolean;
   createdAt: string;
 }
 
@@ -142,15 +203,31 @@ export interface SupportTicket {
   status: string;
   priority: string;
   category?: string;
-  userId?: string;
-  replies?: { authorId: string; message: string; createdAt: string }[];
+  userId?: string | UserSummary;
+  attachments?: TicketAttachment[];
+  replies?: {
+    authorId: string;
+    message: string;
+    createdAt: string;
+    attachments?: TicketAttachment[];
+  }[];
   createdAt: string;
+}
+
+export interface TicketAttachment {
+  key: string;
+  publicUrl: string;
+  filename: string;
+  contentType?: string;
+  size?: number;
 }
 
 export interface LedgerEntry {
   _id: string;
-  userId: string;
+  userId: string | { _id: string; name?: string; email?: string; role?: string };
   type: string;
+  direction?: string;
+  flow?: string;
   amount: number;
   currency: string;
   balanceBefore: number;
@@ -158,6 +235,9 @@ export interface LedgerEntry {
   referenceType: string;
   referenceId: string;
   description?: string;
+  fromParty?: string;
+  toParty?: string;
+  counterpartyUserId?: string | { _id: string; name?: string; email?: string; role?: string };
   createdAt: string;
 }
 
@@ -177,7 +257,9 @@ export interface BusinessStats {
   totalCommissionEarned: number;
   commissionRate: number;
   p2pPayLimit?: number;
+  p2pPayEarned?: number;
   p2pPayUsed?: number;
+  p2pPayCap?: number;
   p2pPayRemaining?: number | null;
 }
 

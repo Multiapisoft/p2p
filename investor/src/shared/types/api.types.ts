@@ -7,7 +7,7 @@ export type TransactionStatus =
   | 'cancelled'
   | 'rejected';
 
-export type PaymentMethod = 'upi' | 'bank' | 'usdt';
+export type PaymentMethod = 'upi' | 'bank' | 'usdt' | 'cdm';
 
 export interface User {
   _id: string;
@@ -16,14 +16,35 @@ export interface User {
   phone?: string;
   role: UserRole;
   status: string;
+  referralCode?: string;
+  savedWithdrawalMethods?: SavedWithdrawalMethod[];
   createdAt: string;
+}
+
+export interface SavedWithdrawalMethod {
+  _id: string;
+  label: string;
+  method: PaymentMethod;
+  isDefault?: boolean;
+  upiDetails?: { upiId: string; payerName: string };
+  bankDetails?: {
+    accountNumber: string;
+    ifscCode: string;
+    accountHolderName: string;
+    bankName: string;
+  };
+  usdtDetails?: { walletAddress: string; network?: string };
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface AuthUser {
   id: string;
   email: string;
+  name?: string;
   role: UserRole;
   permissions?: string[];
+  twoFactorEnabled?: boolean;
 }
 
 export interface Portfolio {
@@ -170,14 +191,30 @@ export interface SupportTicket {
   status: string;
   priority: string;
   category?: string;
-  replies?: { authorId: string; message: string; createdAt: string }[];
+  attachments?: TicketAttachment[];
+  replies?: {
+    authorId: string;
+    message: string;
+    createdAt: string;
+    attachments?: TicketAttachment[];
+  }[];
   createdAt: string;
+}
+
+export interface TicketAttachment {
+  key: string;
+  publicUrl: string;
+  filename: string;
+  contentType?: string;
+  size?: number;
 }
 
 export interface LedgerEntry {
   _id: string;
   userId: string;
   type: string;
+  direction?: string;
+  flow?: string;
   amount: number;
   currency: string;
   balanceBefore: number;
@@ -185,6 +222,8 @@ export interface LedgerEntry {
   referenceType: string;
   referenceId: string;
   description?: string;
+  fromParty?: string;
+  toParty?: string;
   createdAt: string;
 }
 

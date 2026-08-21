@@ -35,7 +35,10 @@ export class SupportController {
 
   @Get('tickets/all')
   @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN)
-  getAllTickets(@Query() query: SupportListQueryDto) {
+  getAllTickets(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: SupportListQueryDto,
+  ) {
     return this.supportService.findAll({
       page: query.page,
       limit: query.limit,
@@ -44,6 +47,7 @@ export class SupportController {
       sort: query.sort,
       category: query.category,
       priority: query.priority,
+      hideContact: user.role === UserRole.SUB_ADMIN,
     });
   }
 

@@ -15,6 +15,8 @@ import { LoadingScreen, SecretBanner, CopyField } from '@/shared/components/ui/I
 import { PageHeader } from '@/shared/components/layout/PageHeader';
 import { getApiErrorMessage, isNotFoundError } from '@/shared/api/client';
 import { normalizePhone, phoneError } from '@/shared/lib/validation';
+import { TwoFactorPanel } from '../components/TwoFactorPanel';
+import { StaffPanel } from '../components/StaffPanel';
 import type { PaymentMethod } from '@/shared/types/api.types';
 
 const PAYMENT_METHODS: PaymentMethod[] = ['upi', 'bank', 'usdt'];
@@ -28,6 +30,7 @@ export function ProfilePage() {
   const pendingApiSecret = useAuthStore((s) => s.pendingApiSecret);
   const pendingInternalSecret = useAuthStore((s) => s.pendingInternalSecret);
   const setPendingApiCredentials = useAuthStore((s) => s.setPendingApiCredentials);
+  const authIsOwner = !useAuthStore((s) => s.user)?.staffBusinessId;
 
   const { data: business, isLoading: loadingBusiness, error: businessError } = useQuery({
     queryKey: ['business-me'],
@@ -321,6 +324,9 @@ export function ProfilePage() {
           </Button>
         </form>
       </Card>
+
+      <TwoFactorPanel />
+      {authIsOwner && <StaffPanel />}
     </div>
   );
 }

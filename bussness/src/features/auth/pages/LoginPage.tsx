@@ -21,11 +21,12 @@ export function LoginPage() {
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [showPass, setShowPass] = useState(false);
+  const [totpCode, setTotpCode] = useState('');
+  const [needs2fa, setNeeds2fa] = useState(false);
   const [error, setError] = useState('');
 
   const login = useMutation({
-    mutationFn: () => loginApi(normalizeEmail(email), password),
+    mutationFn: () => loginApi(normalizeEmail(email), password, totpCode || undefined),
     onSuccess: (data) => {
       if (data.user.role !== 'business') {
         setError('Business account required');
@@ -34,7 +35,15 @@ export function LoginPage() {
       setAuth(data.accessToken, data.user);
       router.replace('/home');
     },
-    onError: () => setError('Invalid credentials'),
+    onError: (err: unknown) => {
+      const code = (err as { response?: { data?: { code?: string } } }).response?.data?.code;
+      if (code === 'REQUIRES_2FA') {
+        setNeeds2fa(true);
+        setError('Enter your authenticator code');
+        return;
+      }
+      setError('Invalid credentials');
+    },
   });
 
   return (
@@ -88,24 +97,27 @@ export function LoginPage() {
               placeholder="you@company.com"
               required
             />
-            <div>
+            <Input
+              label="Password"
+              icon="lock"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="••••••••"
+              required
+            />
+
+            {needs2fa && (
               <Input
-                label="Password"
-                icon="lock"
-                type={showPass ? 'text' : 'password'}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
+                label="Authenticator code"
+                value={totpCode}
+                onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                inputMode="numeric"
+                maxLength={6}
+                placeholder="6-digit code"
                 required
               />
-              <button
-                type="button"
-                className="mt-1 text-xs text-secondary hover:underline"
-                onClick={() => setShowPass(!showPass)}
-              >
-                {showPass ? 'Hide' : 'Show'} password
-              </button>
-            </div>
+            )}
 
             {error && (
               <div className="rounded-lg bg-error-container px-4 py-3 text-sm text-on-error-container">{error}</div>

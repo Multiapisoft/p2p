@@ -504,7 +504,7 @@ export class InvestorService {
     });
     const and: Record<string, unknown>[] = [];
 
-    if (status) and.push({ status });
+    if (status && status !== 'all') and.push({ status });
     if (search) {
       const investorIds = await this.connection
         .collection('users')

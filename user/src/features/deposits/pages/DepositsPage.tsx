@@ -26,7 +26,7 @@ function DepositsPageInner() {
             Deposits
           </h1>
           <p className="mt-0.5 text-sm text-on-surface-variant">
-            Open withdrawal requests — pay one to complete your deposit
+            Enter an amount first — matching withdrawal requests will show after that
           </p>
         </div>
         <Link href="/my-deposits">

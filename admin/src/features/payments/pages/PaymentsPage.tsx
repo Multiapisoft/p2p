@@ -11,6 +11,8 @@ import { LoadingScreen, EmptyState } from '@/shared/components/ui/Icon';
 import { formatCurrency } from '@/shared/lib/utils';
 import { usePermissions } from '@/shared/hooks/usePermissions';
 import { useMemo, useState } from 'react';
+import { CsvDownloadButton } from '@/shared/components/CsvDownloadButton';
+import type { PaymentConfig } from '@/shared/types/api.types';
 
 export function PaymentsPage() {
   const { isAdmin } = usePermissions();
@@ -73,11 +75,35 @@ export function PaymentsPage() {
           <h1 className="font-[family-name:var(--font-headline)] text-xl font-bold sm:text-2xl">Payment Methods</h1>
           <p className="mt-0.5 text-sm text-on-surface-variant">Platform UPI, Bank & USDT receiving accounts</p>
         </div>
-        {isAdmin && (
-          <Button className="w-full sm:w-auto" onClick={() => setShowCreate(true)}>
-            Add Method
-          </Button>
-        )}
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <CsvDownloadButton<PaymentConfig>
+            title="Payment methods"
+            filename="payment-methods"
+            filters={{ Method: methodFilter, Status: statusFilter, Search: searchInput }}
+            disabled={!filtered.length}
+            columns={[
+              { header: 'Label', value: (p) => p.label },
+              { header: 'Method', value: (p) => p.method },
+              { header: 'Currency', value: (p) => p.currency },
+              { header: 'Active', value: (p) => (p.isActive ? 'yes' : 'no') },
+              { header: 'Min', value: (p) => p.minAmount },
+              { header: 'Max', value: (p) => p.maxAmount },
+              {
+                header: 'Details',
+                value: (p) =>
+                  Object.entries(p.details || {})
+                    .map(([k, v]) => `${k}: ${v}`)
+                    .join('; '),
+              },
+            ]}
+            fetchRows={async () => filtered}
+          />
+          {isAdmin && (
+            <Button className="w-full sm:w-auto" onClick={() => setShowCreate(true)}>
+              Add Method
+            </Button>
+          )}
+        </div>
       </div>
 
       <div className="grid grid-cols-3 gap-2 sm:gap-3">

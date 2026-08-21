@@ -48,7 +48,7 @@ export class InvestorController {
 
   @Get('investments/pending')
   @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN)
-  @Permissions(Permission.INVESTORS_MANAGE)
+  @Permissions(Permission.DEPOSITS_MANAGE)
   getPendingInvestments(@Query() query: InvestorListQueryDto) {
     return this.investorService.findPendingInvestments({
       ...query,
@@ -58,21 +58,21 @@ export class InvestorController {
 
   @Get('investments/all')
   @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN)
-  @Permissions(Permission.INVESTORS_MANAGE)
+  @Permissions(Permission.DEPOSITS_MANAGE)
   getAllInvestments(@Query() query: InvestorListQueryDto) {
     return this.investorService.findInvestments(query);
   }
 
   @Get('payments')
   @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN)
-  @Permissions(Permission.INVESTORS_MANAGE)
+  @Permissions(Permission.WITHDRAWALS_MANAGE)
   getInvestorPayments(@Query() query: InvestorListQueryDto) {
     return this.investorService.findInvestorPayments(query);
   }
 
   @Patch('investments/:id/approve')
   @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN)
-  @Permissions(Permission.INVESTORS_MANAGE)
+  @Permissions(Permission.DEPOSITS_MANAGE)
   approveInvestment(
     @Param('id') id: string,
     @CurrentUser() user: AuthenticatedUser,
@@ -82,7 +82,7 @@ export class InvestorController {
 
   @Patch('investments/:id/reject')
   @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN)
-  @Permissions(Permission.INVESTORS_MANAGE)
+  @Permissions(Permission.DEPOSITS_MANAGE)
   rejectInvestment(@Param('id') id: string, @Body() dto: RejectRedemptionDto) {
     return this.investorService.rejectInvestment(id, dto);
   }
@@ -104,7 +104,7 @@ export class InvestorController {
 
   @Get('redemptions/pending')
   @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN)
-  @Permissions(Permission.INVESTORS_MANAGE)
+  @Permissions(Permission.WITHDRAWALS_MANAGE)
   getPending(@Query() query: InvestorListQueryDto) {
     return this.investorService.findPending({
       ...query,
@@ -114,7 +114,7 @@ export class InvestorController {
 
   @Patch('redemptions/:id/approve')
   @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN)
-  @Permissions(Permission.INVESTORS_MANAGE)
+  @Permissions(Permission.WITHDRAWALS_MANAGE)
   approve(
     @Param('id') id: string,
     @Body() dto: ProcessRedemptionDto = {},
@@ -125,7 +125,7 @@ export class InvestorController {
 
   @Patch('redemptions/:id/reject')
   @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN)
-  @Permissions(Permission.INVESTORS_MANAGE)
+  @Permissions(Permission.WITHDRAWALS_MANAGE)
   reject(@Param('id') id: string, @Body() dto: RejectRedemptionDto) {
     return this.investorService.reject(id, dto);
   }

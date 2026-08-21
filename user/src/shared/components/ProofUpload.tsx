@@ -13,6 +13,7 @@ interface ProofUploadProps {
   proofPreview?: string | null;
   disabled?: boolean;
   referenceKind?: 'utr' | 'txid';
+  utrRequired?: boolean;
 }
 
 export function ProofUpload({
@@ -22,8 +23,10 @@ export function ProofUpload({
   proofPreview,
   disabled,
   referenceKind = 'utr',
+  utrRequired = true,
 }: ProofUploadProps) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const cameraRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [preview, setPreview] = useState<string | null>(proofPreview ?? null);
   const [error, setError] = useState('');
@@ -66,6 +69,17 @@ export function ProofUpload({
           ref={inputRef}
           type="file"
           accept="image/jpeg,image/png,image/webp,image/*"
+          className="hidden"
+          disabled={disabled || uploading}
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) void handleFile(file);
+          }}
+        />
+        <input
+          ref={cameraRef}
+          type="file"
+          accept="image/*"
           capture="environment"
           className="hidden"
           disabled={disabled || uploading}
@@ -74,16 +88,28 @@ export function ProofUpload({
             if (file) void handleFile(file);
           }}
         />
-        <Button
-          type="button"
-          variant="secondary"
-          loading={uploading}
-          disabled={disabled}
-          onClick={() => inputRef.current?.click()}
-        >
-          <span className="material-symbols-outlined mr-1 text-lg">photo_camera</span>
-          Upload Screenshot
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            type="button"
+            variant="secondary"
+            loading={uploading}
+            disabled={disabled}
+            onClick={() => inputRef.current?.click()}
+          >
+            <span className="material-symbols-outlined mr-1 text-lg">attach_file</span>
+            From files
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            loading={uploading}
+            disabled={disabled}
+            onClick={() => cameraRef.current?.click()}
+          >
+            <span className="material-symbols-outlined mr-1 text-lg">photo_camera</span>
+            Camera
+          </Button>
+        </div>
       </div>
 
       {preview && (
@@ -94,7 +120,15 @@ export function ProofUpload({
       )}
 
       <Input
-        label={isTxid ? 'USDT / TRX TxID *' : 'UTR / Reference *'}
+        label={
+          isTxid
+            ? utrRequired
+              ? 'USDT / TRX TxID *'
+              : 'USDT / TRX TxID (or upload slip)'
+            : utrRequired
+              ? 'UTR / Reference *'
+              : 'UTR / Reference (or upload slip)'
+        }
         value={utr}
         onChange={(e) =>
           onUtrChange(isTxid ? e.target.value.trim() : e.target.value.toUpperCase())
@@ -104,7 +138,7 @@ export function ProofUpload({
             ? '64-character hex TxID (TRC20 / optional 0x)'
             : '12-digit UTR / RRN'
         }
-        required
+        required={utrRequired}
         disabled={disabled}
         maxLength={isTxid ? 66 : 22}
         spellCheck={false}

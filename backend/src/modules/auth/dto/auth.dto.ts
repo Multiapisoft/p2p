@@ -1,6 +1,6 @@
-import { IsString, MinLength, IsOptional, IsEnum } from 'class-validator';
+import { IsString, MinLength, IsOptional, IsEnum, ValidateIf, Matches } from 'class-validator';
 import { UserRole } from '../../../common/enums/role.enum';
-import { IsAppEmail, IsOptionalAppPhone } from '../../../common/validators/contact.validators';
+import { IsAppEmail, IsAppPhone } from '../../../common/validators/contact.validators';
 
 export class LoginDto {
   @IsAppEmail()
@@ -8,6 +8,11 @@ export class LoginDto {
 
   @IsString()
   password!: string;
+
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{6}$/)
+  totpCode?: string;
 }
 
 export class RegisterDto {
@@ -21,7 +26,9 @@ export class RegisterDto {
   @IsString()
   name!: string;
 
-  @IsOptionalAppPhone()
+  /** Required for user / investor. Optional for business self-register. */
+  @ValidateIf((o: RegisterDto) => o.role !== UserRole.BUSINESS || !!o.phone)
+  @IsAppPhone()
   phone?: string;
 
   @IsOptional()
@@ -46,4 +53,19 @@ export class SetPasswordDto {
   @IsOptional()
   @IsString()
   currentPassword?: string;
+}
+
+export class EnableTwoFactorDto {
+  @IsString()
+  @Matches(/^\d{6}$/)
+  code!: string;
+}
+
+export class DisableTwoFactorDto {
+  @IsString()
+  @Matches(/^\d{6}$/)
+  code!: string;
+
+  @IsString()
+  password!: string;
 }

@@ -11,6 +11,8 @@ import { StatusBadge } from '@/shared/components/ui/Badge';
 import { Pagination } from '@/shared/components/ui/Pagination';
 import { LoadingScreen, EmptyState } from '@/shared/components/ui/Icon';
 import { formatDate } from '@/shared/lib/utils';
+import { fetchAllPages } from '@/shared/lib/csv';
+import { CsvDownloadButton } from '@/shared/components/CsvDownloadButton';
 import type { User } from '@/shared/types/api.types';
 
 const ROLES = [
@@ -87,9 +89,27 @@ export function UsersPage() {
 
   return (
     <div className="mx-auto max-w-7xl space-y-4 sm:space-y-6">
-      <div>
-        <h1 className="font-[family-name:var(--font-headline)] text-xl font-bold sm:text-2xl">Users</h1>
-        <p className="mt-0.5 text-sm text-on-surface-variant">Manage platform participants</p>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h1 className="font-[family-name:var(--font-headline)] text-xl font-bold sm:text-2xl">Users</h1>
+          <p className="mt-0.5 text-sm text-on-surface-variant">Manage platform participants</p>
+        </div>
+        <CsvDownloadButton<User>
+          title="Users"
+          filename={`users-${role}-${status}`}
+          filters={{ Role: role, Status: status, Search: search, Sort: sort }}
+          disabled={!total}
+          columns={[
+            { header: 'Name', value: (u) => u.name },
+            { header: 'Email', value: (u) => u.email },
+            { header: 'Phone', value: (u) => u.phone || '' },
+            { header: 'Role', value: (u) => u.role },
+            { header: 'Status', value: (u) => u.status },
+            { header: 'User code', value: (u) => u.businessUserCode || '' },
+            { header: 'Created', value: (u) => u.createdAt },
+          ]}
+          fetchRows={() => fetchAllPages((p, l) => usersApi.list({ ...listQuery, page: p, limit: l }))}
+        />
       </div>
 
       <div className="grid grid-cols-3 gap-2 sm:gap-3">
@@ -203,6 +223,9 @@ export function UsersPage() {
                       <div className="min-w-0">
                         <p className="truncate font-semibold">{u.name}</p>
                         <p className="truncate text-xs text-on-surface-variant">{u.email}</p>
+                        {u.phone ? (
+                          <p className="truncate text-xs text-on-surface-variant">{u.phone}</p>
+                        ) : null}
                       </div>
                       <StatusBadge status={u.status} />
                     </div>
@@ -244,6 +267,7 @@ export function UsersPage() {
                 <thead className="border-b border-outline-variant bg-surface-container-low">
                   <tr>
                     <th className="px-3 py-2.5 font-semibold text-on-surface-variant sm:px-4 sm:py-3">User</th>
+                    <th className="px-3 py-2.5 font-semibold text-on-surface-variant sm:px-4 sm:py-3">Phone</th>
                     <th className="px-3 py-2.5 font-semibold text-on-surface-variant sm:px-4 sm:py-3">Business</th>
                     <th className="px-3 py-2.5 font-semibold text-on-surface-variant sm:px-4 sm:py-3">Role</th>
                     <th className="px-3 py-2.5 font-semibold text-on-surface-variant sm:px-4 sm:py-3">Status</th>
@@ -266,6 +290,7 @@ export function UsersPage() {
                           <p className="text-on-surface-variant">{u.email}</p>
                         </button>
                       </td>
+                      <td className="px-3 py-2.5 sm:px-4 sm:py-3">{u.phone || '—'}</td>
                       <td className="px-3 py-2.5 sm:px-4 sm:py-3">
                         {u.referredBusiness?.name ? (
                           <div className="space-y-0.5">
@@ -329,11 +354,9 @@ export function UsersPage() {
             <p>
               <span className="text-on-surface-variant">Email:</span> {userDetail.email}
             </p>
-            {userDetail.phone && (
-              <p>
-                <span className="text-on-surface-variant">Phone:</span> {userDetail.phone}
-              </p>
-            )}
+            <p>
+              <span className="text-on-surface-variant">Phone:</span> {userDetail.phone || '—'}
+            </p>
             <p>
               <span className="text-on-surface-variant">Role:</span>{' '}
               <span className="capitalize">{userDetail.role.replace('_', ' ')}</span>

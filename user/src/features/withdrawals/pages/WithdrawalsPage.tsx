@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -6,6 +6,7 @@ import axios from 'axios';
 import { withdrawalsApi } from '../api/withdrawals.api';
 import { walletApi } from '@/features/wallet/api/wallet.api';
 import { profileApi } from '@/features/profile/api/profile.api';
+import { apiGet } from '@/shared/api/client';
 import { Card } from '@/shared/components/ui/Card';
 import { Button } from '@/shared/components/ui/Button';
 import { Input } from '@/shared/components/ui/Input';
@@ -24,10 +25,14 @@ import {
 import { formatSecondsMmSs } from '@/shared/lib/upi-qr';
 import { Modal } from '@/shared/components/ui/Modal';
 import { toast } from '@/shared/ui/toast/toast.store';
+import { CsvDownloadButton } from '@/shared/components/CsvDownloadButton';
+import { fetchAllPages } from '@/shared/lib/csv';
 import { confirmDialog } from '@/shared/ui/confirm/confirm.store';
+import { SavedWithdrawalMethodsPanel } from '../components/SavedWithdrawalMethodsPanel';
 import type {
   CreateWithdrawalPayload,
   PaymentMethod,
+  SavedWithdrawalMethod,
   TransactionStatus,
   Withdrawal,
   WithdrawalSplitPayment,
@@ -37,6 +42,7 @@ const METHODS: { value: PaymentMethod; label: string }[] = [
   { value: 'upi', label: 'UPI' },
   { value: 'bank', label: 'Bank' },
   { value: 'usdt', label: 'USDT' },
+  { value: 'cdm', label: 'CDM' },
 ];
 
 const STATUS_FILTERS: { value: string; label: string }[] = [
@@ -155,6 +161,9 @@ export function WithdrawalsPage() {
   const [formError, setFormError] = useState('');
   const [pendingPayload, setPendingPayload] = useState<CreateWithdrawalPayload | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [selectedSavedMethodId, setSelectedSavedMethodId] = useState('');
+  const [saveCurrentMethod, setSaveCurrentMethod] = useState(false);
+  const [saveAsDefault, setSaveAsDefault] = useState(false);
   const [actionError, setActionError] = useState('');
   const [disputeFor, setDisputeFor] = useState<WithdrawalSplitPayment | null>(null);
   const [disputeReason, setDisputeReason] = useState('');
@@ -183,8 +192,17 @@ export function WithdrawalsPage() {
     queryKey: ['profile-me'],
     queryFn: () => profileApi.getMe(),
   });
-  /** Business-code users can request any Platform Payment withdrawal amount (no wallet balance gate). */
+  const { data: platformSettings } = useQuery({
+    queryKey: ['platform-settings'],
+    queryFn: () =>
+      apiGet<{ allowMobileNumberUpi?: boolean; minTransactionAmount?: number }>('/platform-settings'),
+  });
+  /** Business-code users are capped by remaining pay limit (deposits increase it). */
   const isBusinessLinked = Boolean(profile?.referredByBusiness);
+  const { data: savedMethodsData } = useQuery({
+    queryKey: ['saved-withdrawal-methods'],
+    queryFn: () => profileApi.getWithdrawalMethods(),
+  });
 
   const listQuery = useMemo(
     () => ({ page, limit, status, search, sort, method: methodFilter }),
@@ -194,6 +212,7 @@ export function WithdrawalsPage() {
   const { data, isLoading, isFetching, isError, error, refetch } = useQuery({
     queryKey: ['withdrawals', listQuery],
     queryFn: () => withdrawalsApi.getMy(listQuery),
+    refetchInterval: 10_000,
   });
 
   useEffect(() => {
@@ -268,6 +287,40 @@ export function WithdrawalsPage() {
     },
   });
 
+  const saveMethod = useMutation({
+    mutationFn: (payload: Parameters<typeof profileApi.saveWithdrawalMethod>[0]) =>
+      profileApi.saveWithdrawalMethod(payload),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['saved-withdrawal-methods'] });
+      qc.invalidateQueries({ queryKey: ['profile-me'] });
+      toast.success('Withdrawal method saved');
+    },
+    onError: (err) => {
+      toast.error('Save method failed', withdrawalErrorMessage(err));
+    },
+  });
+
+  const setDefaultMethod = useMutation({
+    mutationFn: (methodId: string) => profileApi.setDefaultWithdrawalMethod(methodId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['saved-withdrawal-methods'] });
+      qc.invalidateQueries({ queryKey: ['profile-me'] });
+      toast.success('Default method updated');
+    },
+    onError: (err) => toast.error('Default update failed', withdrawalErrorMessage(err)),
+  });
+
+  const deleteMethod = useMutation({
+    mutationFn: (methodId: string) => profileApi.deleteWithdrawalMethod(methodId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['saved-withdrawal-methods'] });
+      qc.invalidateQueries({ queryKey: ['profile-me'] });
+      setSelectedSavedMethodId('');
+      toast.success('Saved method deleted');
+    },
+    onError: (err) => toast.error('Delete failed', withdrawalErrorMessage(err)),
+  });
+
   const confirmReceived = useMutation({
     mutationFn: (paymentId: string) => withdrawalsApi.confirmPaymentReceived(paymentId),
     onSuccess: async () => {
@@ -314,6 +367,9 @@ export function WithdrawalsPage() {
     setFormError('');
     setPendingPayload(null);
     setEditingId(null);
+    setSelectedSavedMethodId('');
+    setSaveCurrentMethod(false);
+    setSaveAsDefault(false);
   };
 
   const startEdit = (w: Withdrawal) => {
@@ -331,18 +387,49 @@ export function WithdrawalsPage() {
     setNetwork(w.usdtDetails?.network || 'TRC20');
     setFormError('');
     setPendingPayload(null);
+    setSelectedSavedMethodId('');
   };
+
+  const savedMethods = savedMethodsData?.items ?? profile?.savedWithdrawalMethods ?? [];
+  const applySavedMethod = (saved: SavedWithdrawalMethod) => {
+    setSelectedSavedMethodId(saved._id);
+    setMethod(saved.method);
+    setUpiId(saved.upiDetails?.upiId || '');
+    setPayerName(saved.upiDetails?.payerName || '');
+    setAccountNumber(saved.bankDetails?.accountNumber || '');
+    setIfscCode(saved.bankDetails?.ifscCode || '');
+    setAccountHolderName(saved.bankDetails?.accountHolderName || '');
+    setBankName(saved.bankDetails?.bankName || '');
+    setWalletAddress(saved.usdtDetails?.walletAddress || '');
+    setNetwork(saved.usdtDetails?.network || 'TRC20');
+    setSaveCurrentMethod(false);
+    setSaveAsDefault(!!saved.isDefault);
+  };
+
+  useEffect(() => {
+    if (!showForm || editingId || !savedMethods.length) return;
+    if (selectedSavedMethodId) return;
+    const preferred = savedMethods.find((m) => m.isDefault) || savedMethods[0];
+    if (preferred) applySavedMethod(preferred);
+  }, [showForm, editingId, savedMethods, selectedSavedMethodId]);
 
   const displayCurrency = balance?.currency || 'INR';
   const walletIsUsdt = (displayCurrency || '').toUpperCase() === 'USDT';
   const usdtInrRate = balance?.usdtInrRate ?? 90;
   /** UPI/Bank: enter INR to receive; USDT method or INR wallet: enter wallet currency */
   const amountIsInrPayout = walletIsUsdt && method !== 'usdt';
+  const payRemaining = balance?.p2pPayRemainingInr;
+  const remainingUsdtMax =
+    typeof payRemaining === 'number'
+      ? Math.floor((payRemaining / usdtInrRate) * 1e6) / 1e6
+      : undefined;
   const maxInr =
     balance?.approxInrAvailable ??
     (walletIsUsdt ? Math.floor((balance?.availableBalance ?? 0) * usdtInrRate * 100) / 100 : undefined);
   const amountMax = isBusinessLinked
-    ? undefined
+    ? method === 'usdt'
+      ? remainingUsdtMax
+      : payRemaining
     : amountIsInrPayout
       ? maxInr
       : balance?.availableBalance;
@@ -354,6 +441,8 @@ export function WithdrawalsPage() {
   const items = data?.items ?? [];
   const total = data?.total ?? 0;
   const totalPages = data?.totalPages ?? 1;
+  const minWithdrawal =
+    method === 'usdt' ? 1 : Math.max(300, Number(platformSettings?.minTransactionAmount) || 300);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -362,6 +451,21 @@ export function WithdrawalsPage() {
     if (!numAmount || numAmount < 1) {
       setFormError('Enter a valid amount');
       return;
+    }
+    if (method !== 'usdt' && numAmount < minWithdrawal) {
+      setFormError(`Minimum withdrawal is ₹${minWithdrawal}`);
+      return;
+    }
+    if (isBusinessLinked && typeof payRemaining === 'number') {
+      const needInr = method === 'usdt' ? Math.round(numAmount * usdtInrRate * 100) / 100 : numAmount;
+      if (needInr > payRemaining) {
+        setFormError(
+          payRemaining < 1
+            ? 'No remaining pay limit. Deposit first — deposits increase the limit. Withdrawal must stay within remaining.'
+            : `Amount exceeds remaining pay limit (₹${payRemaining})`,
+        );
+        return;
+      }
     }
     if (balance && !isBusinessLinked && !editingId) {
       if (amountIsInrPayout) {
@@ -381,7 +485,9 @@ export function WithdrawalsPage() {
     const payload: CreateWithdrawalPayload = { amount: numAmount, method };
 
     if (method === 'upi') {
-      const upiErr = upiIdError(upiId);
+      const upiErr = upiIdError(upiId, true, {
+        allowMobileNumber: !!platformSettings?.allowMobileNumberUpi,
+      });
       if (upiErr) {
         setFormError(upiErr);
         return;
@@ -422,6 +528,13 @@ export function WithdrawalsPage() {
         accountHolderName: accountHolderName.trim(),
         bankName: bankName.trim(),
       };
+    } else if (method === 'cdm') {
+      const nameErr = personNameError(payerName, true);
+      if (nameErr) {
+        setFormError(nameErr);
+        return;
+      }
+      payload.cdmDetails = { payerName: payerName.trim() };
     } else {
       if (!walletAddress) {
         setFormError('Wallet address is required');
@@ -444,7 +557,25 @@ export function WithdrawalsPage() {
             Request payouts and track split payments.
           </p>
         </div>
-        <Button
+        <div className="flex w-full flex-col gap-2 sm:w-auto">
+          <CsvDownloadButton<Withdrawal>
+            title="My withdrawals"
+            filename="withdrawals"
+            filters={{ Status: status, Method: methodFilter, Search: search, Sort: sort }}
+            disabled={!data?.total}
+            columns={[
+              { header: 'Reference', value: (w) => w.referenceId },
+              { header: 'Status', value: (w) => w.status },
+              { header: 'Method', value: (w) => w.method },
+              { header: 'Amount', value: (w) => w.amount },
+              { header: 'Paid', value: (w) => w.paidAmount ?? 0 },
+              { header: 'Created', value: (w) => w.createdAt },
+            ]}
+            fetchRows={() =>
+              fetchAllPages((page, limit) => withdrawalsApi.getMy({ ...listQuery, page, limit }))
+            }
+          />
+          <Button
           className="w-full sm:w-auto"
           onClick={() => {
             if (showForm) {
@@ -458,6 +589,7 @@ export function WithdrawalsPage() {
         >
           {showForm ? 'Close form' : 'New withdrawal'}
         </Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-3 gap-2 sm:gap-3">
@@ -496,6 +628,16 @@ export function WithdrawalsPage() {
         </div>
       </div>
 
+      <SavedWithdrawalMethodsPanel
+        onUse={(saved) => {
+          setEditingId(null);
+          setPendingPayload(null);
+          setFormError('');
+          applySavedMethod(saved);
+          setShowForm(true);
+        }}
+      />
+
       {showForm && (
         <Card title={editingId ? 'Edit withdrawal details' : 'Request withdrawal'}>
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -507,6 +649,7 @@ export function WithdrawalsPage() {
                   onClick={() => {
                     if (editingId) return;
                     setMethod(m.value);
+                    setSelectedSavedMethodId('');
                   }}
                   className={`rounded-full px-3 py-1.5 text-xs font-semibold transition sm:px-4 sm:py-2 sm:text-sm ${
                     method === m.value
@@ -518,6 +661,57 @@ export function WithdrawalsPage() {
                 </button>
               ))}
             </div>
+
+            {!editingId && (
+              <div className="space-y-3 rounded-xl border border-outline-variant bg-surface-container-low px-4 py-3">
+                <label className="flex flex-col gap-1 text-sm font-semibold">
+                  Saved withdrawal method
+                  <select
+                    value={selectedSavedMethodId}
+                    onChange={(e) => {
+                      const id = e.target.value;
+                      setSelectedSavedMethodId(id);
+                      const picked = savedMethods.find((m) => m._id === id);
+                      if (picked) applySavedMethod(picked);
+                    }}
+                    className="rounded-lg border border-outline-variant bg-surface-container-lowest px-3 py-2 text-sm font-normal"
+                  >
+                    <option value="">
+                      {savedMethods.length ? 'Choose saved method' : 'No saved methods yet'}
+                    </option>
+                    {savedMethods.map((m) => (
+                      <option key={m._id} value={m._id}>
+                        {m.label}
+                        {m.isDefault ? ' (Default)' : ''}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {savedMethods.length === 0 ? (
+                  <p className="text-xs text-on-surface-variant">
+                    Add Bank, UPI or USDT in Payout methods above, then select it here.
+                  </p>
+                ) : null}
+                {selectedSavedMethodId && (
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      onClick={() => setDefaultMethod.mutate(selectedSavedMethodId)}
+                    >
+                      Set default
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      onClick={() => deleteMethod.mutate(selectedSavedMethodId)}
+                    >
+                      Delete
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
 
             {walletIsUsdt && method !== 'usdt' && (
               <div className="rounded-xl border border-outline-variant bg-surface-container-low px-4 py-3 text-sm">
@@ -533,7 +727,7 @@ export function WithdrawalsPage() {
             <Input
               label={amountIsInrPayout ? 'Amount (INR to receive)' : `Amount (${displayCurrency})`}
               type="number"
-              min={1}
+              min={minWithdrawal}
               max={amountMax}
               step={amountIsInrPayout ? '1' : 'any'}
               value={amount}
@@ -544,8 +738,9 @@ export function WithdrawalsPage() {
 
             {isBusinessLinked ? (
               <p className="text-sm text-on-surface-variant">
-                Linked to a business — you can request any amount. It waits for business/admin
-                Platform Payment approval before others can pay.
+                Linked to a business — withdrawal cannot exceed remaining pay limit
+                {typeof payRemaining === 'number' ? ` (₹${payRemaining})` : ''}.
+                User deposits increase this limit even if it is currently ₹0.
               </p>
             ) : null}
 
@@ -564,7 +759,7 @@ export function WithdrawalsPage() {
               <div className="grid gap-4 sm:grid-cols-2">
                 <Input label="UPI ID" value={upiId} onChange={(e) => setUpiId(e.target.value)} required />
                 <Input
-                  label="Account name *"
+                  label="Name of Account Holder *"
                   value={payerName}
                   onChange={(e) => setPayerName(e.target.value)}
                   required
@@ -584,7 +779,7 @@ export function WithdrawalsPage() {
                 />
                 <Input label="IFSC" value={ifscCode} onChange={(e) => setIfscCode(e.target.value)} required />
                 <Input
-                  label="Account holder"
+                  label="Name of Account Holder"
                   value={accountHolderName}
                   onChange={(e) => setAccountHolderName(e.target.value)}
                   required
@@ -607,6 +802,38 @@ export function WithdrawalsPage() {
                   required
                 />
                 <Input label="Network" value={network} onChange={(e) => setNetwork(e.target.value)} />
+              </div>
+            )}
+
+            {method === 'cdm' && (
+              <Input
+                label="Name of Account Holder *"
+                value={payerName}
+                onChange={(e) => setPayerName(e.target.value)}
+                required
+              />
+            )}
+
+            {!editingId && !selectedSavedMethodId && method !== 'cdm' && (
+              <div className="space-y-2 rounded-xl border border-outline-variant bg-surface-container-low px-4 py-3 text-sm">
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={saveCurrentMethod}
+                    onChange={(e) => setSaveCurrentMethod(e.target.checked)}
+                  />
+                  <span>Save this withdrawal method</span>
+                </label>
+                {saveCurrentMethod && (
+                  <label className="flex items-center gap-2 text-on-surface-variant">
+                    <input
+                      type="checkbox"
+                      checked={saveAsDefault}
+                      onChange={(e) => setSaveAsDefault(e.target.checked)}
+                    />
+                    <span>Make it default</span>
+                  </label>
+                )}
               </div>
             )}
 
@@ -809,8 +1036,9 @@ export function WithdrawalsPage() {
                           )}
                         {(w.status === 'pending' || w.status === 'processing') && !canCancel && (
                           <p className="text-[11px] text-on-surface-variant sm:text-xs">
-                            Once approved (verified for payout), you cannot cancel. Contact
-                            business/admin.
+                            {w.p2pListStatus === 'listed'
+                              ? 'Once approved (verified for payout), you cannot cancel. Contact business/admin.'
+                              : 'Edit/cancel window is over. Business or admin can cancel if needed.'}
                           </p>
                         )}
                       </div>
@@ -824,7 +1052,7 @@ export function WithdrawalsPage() {
                         >
                           {expanded ? 'Hide' : 'Details'}
                         </Button>
-                        {canCancel && (
+                        {canCancel && tatLeft > 0 && (
                           <>
                             <Button
                               size="sm"
@@ -1162,8 +1390,14 @@ export function WithdrawalsPage() {
               </Button>
               <Button
                 type="button"
-                loading={create.isPending || updateDestination.isPending}
-                onClick={() => {
+                loading={
+                  create.isPending ||
+                  updateDestination.isPending ||
+                  saveMethod.isPending ||
+                  setDefaultMethod.isPending ||
+                  deleteMethod.isPending
+                }
+                onClick={async () => {
                   if (
                     pendingPayload.method === 'upi' &&
                     !pendingPayload.upiDetails?.payerName?.trim()
@@ -1173,7 +1407,7 @@ export function WithdrawalsPage() {
                   }
                   setFormError('');
                   if (editingId) {
-                    updateDestination.mutate({
+                    await updateDestination.mutateAsync({
                       id: editingId,
                       payload: {
                         upiDetails: pendingPayload.upiDetails,
@@ -1182,7 +1416,16 @@ export function WithdrawalsPage() {
                       },
                     });
                   } else {
-                    create.mutate(pendingPayload);
+                    if (saveCurrentMethod && pendingPayload.method !== 'cdm') {
+                      await saveMethod.mutateAsync({
+                        method: pendingPayload.method,
+                        isDefault: saveAsDefault,
+                        upiDetails: pendingPayload.upiDetails,
+                        bankDetails: pendingPayload.bankDetails,
+                        usdtDetails: pendingPayload.usdtDetails,
+                      });
+                    }
+                    await create.mutateAsync(pendingPayload);
                   }
                 }}
               >

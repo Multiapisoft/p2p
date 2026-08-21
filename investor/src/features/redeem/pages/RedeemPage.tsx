@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -200,7 +200,7 @@ export function RedeemPage() {
                 required
               />
               <Input
-                label="Account holder *"
+                label="Name of Account Holder *"
                 value={accountHolderName}
                 onChange={(e) => setAccountHolderName(e.target.value)}
                 required

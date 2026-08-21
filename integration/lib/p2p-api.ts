@@ -57,7 +57,7 @@ export const p2pApi = {
 
   registerUser: (
     creds: ApiCredentials,
-    body: { email: string; password: string; name: string; phone?: string; externalRef?: string },
+    body: { email: string; password: string; name: string; phone: string; externalRef?: string },
   ) =>
     request<{
       userId: string;

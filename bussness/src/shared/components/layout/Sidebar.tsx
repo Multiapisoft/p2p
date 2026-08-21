@@ -2,16 +2,20 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { NAV_ITEMS, isNavActive } from '@/shared/constants/navigation';
+import { navItemsForUser, isNavActive } from '@/shared/constants/navigation';
 import { cn } from '@/shared/lib/utils';
+import { useAuthStore } from '@/features/auth/store/auth.store';
 
 interface SidebarProps {
+  userName?: string;
   userEmail?: string;
   onLogout: () => void;
 }
 
-export function Sidebar({ userEmail, onLogout }: SidebarProps) {
+export function Sidebar({ userName, userEmail, onLogout }: SidebarProps) {
   const pathname = usePathname();
+  const user = useAuthStore((s) => s.user);
+  const items = navItemsForUser(user);
 
   return (
     <aside className="fixed inset-y-0 left-0 z-50 hidden w-64 flex-col border-r border-outline-variant bg-surface md:flex">
@@ -28,7 +32,7 @@ export function Sidebar({ userEmail, onLogout }: SidebarProps) {
       </div>
 
       <nav className="custom-scrollbar flex-1 space-y-0.5 overflow-y-auto p-3">
-        {NAV_ITEMS.map((item) => {
+        {items.map((item) => {
           const active = isNavActive(pathname, item.to);
           return (
             <Link
@@ -61,7 +65,10 @@ export function Sidebar({ userEmail, onLogout }: SidebarProps) {
       </nav>
 
       <div className="shrink-0 border-t border-outline-variant p-4">
-        <p className="truncate text-sm font-medium text-on-surface">{userEmail}</p>
+        <p className="truncate text-sm font-medium text-on-surface">{userName || userEmail}</p>
+        {userName && userEmail ? (
+          <p className="truncate text-xs text-on-surface-variant">{userEmail}</p>
+        ) : null}
         <p className="text-xs text-on-surface-variant">Business account</p>
         <button
           type="button"

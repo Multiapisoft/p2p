@@ -19,7 +19,7 @@ export class PaymentConfig {
   @Prop({ default: true })
   isActive!: boolean;
 
-  @Prop({ default: 100 })
+  @Prop({ default: 300 })
   minAmount!: number;
 
   @Prop({ default: 500000 })
