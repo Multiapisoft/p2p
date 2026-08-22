@@ -11,7 +11,7 @@ export function InvestAmountModal({
   initialValue,
   cap,
   title = 'Enter amount first',
-  description = 'Pehle amount batao — uske baad matching withdrawal requests dikhengi.',
+  description = 'Enter an amount first — matching withdrawal requests will appear after that.',
   submitLabel = 'Show matching list',
   onClose,
   onApply,

@@ -27,6 +27,7 @@ const USER_APP_URL = (process.env.NEXT_PUBLIC_USER_APP_URL || 'http://localhost:
 
 export function ProfilePage() {
   const qc = useQueryClient();
+  const pendingApiKey = useAuthStore((s) => s.pendingApiKey);
   const pendingApiSecret = useAuthStore((s) => s.pendingApiSecret);
   const pendingInternalSecret = useAuthStore((s) => s.pendingInternalSecret);
   const setPendingApiCredentials = useAuthStore((s) => s.setPendingApiCredentials);
@@ -163,6 +164,15 @@ export function ProfilePage() {
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       <PageHeader title="Profile" description="Business settings & account" />
+
+      {(pendingApiSecret || pendingInternalSecret) && (
+        <SecretBanner
+          apiKey={pendingApiKey || business?.apiKey}
+          secret={pendingApiSecret || ''}
+          internalSecret={pendingInternalSecret || undefined}
+          onDismiss={() => setPendingApiCredentials(null, null, null)}
+        />
+      )}
 
       <Card title="API Integration">
         <p className="mb-4 text-sm text-on-surface-variant">

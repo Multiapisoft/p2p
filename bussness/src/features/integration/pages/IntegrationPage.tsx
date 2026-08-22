@@ -14,7 +14,10 @@ import { isNotFoundError, getApiErrorMessage } from '@/shared/api/client';
 import type { PaymentMethod } from '@/shared/types/api.types';
 
 const PAYMENT_METHODS: PaymentMethod[] = ['upi', 'bank', 'usdt'];
-const DEMO_BASE = 'http://localhost:5177';
+const DEMO_BASE = (process.env.NEXT_PUBLIC_INTEGRATION_DEMO_URL || 'http://localhost:5181').replace(
+  /\/$/,
+  '',
+);
 
 export function IntegrationPage() {
   const qc = useQueryClient();

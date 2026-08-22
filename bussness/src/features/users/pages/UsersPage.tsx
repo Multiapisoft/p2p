@@ -85,7 +85,13 @@ export function UsersPage() {
     queryFn: () => usersApi.getBusinessUsers(listQuery),
   });
 
-  const { data: detail, isLoading: loadingDetail } = useQuery({
+  const {
+    data: detail,
+    isLoading: loadingDetail,
+    isError: detailError,
+    error: detailErr,
+    refetch: refetchDetail,
+  } = useQuery({
     queryKey: ['business-user-detail', selectedId],
     queryFn: () => integrationApi.getUserDetails(selectedId!),
     enabled: !!selectedId,
@@ -360,8 +366,17 @@ export function UsersPage() {
         title="User details"
         className="sm:max-w-xl"
       >
-        {loadingDetail || !detail ? (
+        {loadingDetail ? (
           <LoadingScreen />
+        ) : detailError || !detail ? (
+          <div className="space-y-3 py-6 text-center">
+            <p className="text-sm text-on-surface-variant">
+              {getApiErrorMessage(detailErr, 'Could not load user details')}
+            </p>
+            <Button type="button" size="sm" onClick={() => void refetchDetail()}>
+              Retry
+            </Button>
+          </div>
         ) : (
           <div className="space-y-4">
             <div className="space-y-1">

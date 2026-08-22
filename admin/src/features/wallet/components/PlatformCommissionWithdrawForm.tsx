@@ -18,6 +18,7 @@ import {
 } from '@/shared/lib/validation';
 import { usePermissions } from '@/shared/hooks/usePermissions';
 import { PERMISSIONS } from '@/shared/constants/permissions';
+import { formatCurrency } from '@/shared/lib/utils';
 import { SavedWithdrawalMethodsPanel } from './SavedWithdrawalMethodsPanel';
 import type { PaymentMethod, SavedWithdrawalMethod } from '@/shared/types/api.types';
 
@@ -217,36 +218,38 @@ export function PlatformCommissionWithdrawForm({
   };
 
   return (
-    <div className="border-t border-outline-variant pt-3">
-      <div className="mb-4">
-        <SavedWithdrawalMethodsPanel
-          onUse={(saved) => {
-            applySavedMethod(saved);
-            setOpen(true);
-          }}
-        />
-      </div>
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm font-semibold">Withdraw commission</p>
-        <Button
-          type="button"
-          size="sm"
-          variant={open ? 'outline' : 'secondary'}
-          onClick={() => setOpen((v) => !v)}
-        >
-          {open ? 'Close' : 'New request'}
-        </Button>
-      </div>
-      <p className="mt-1 text-xs text-on-surface-variant">
-        Listed immediately for users/investors to pay. You can also pay it from Withdrawals.
-      </p>
-      {success ? (
-        <p className="mt-2 rounded-lg bg-secondary-container px-3 py-2 text-sm text-on-secondary-container">
-          {success}
-        </p>
-      ) : null}
-      {open ? (
-        <form className="mt-3 space-y-3" onSubmit={submit}>
+    <div className="space-y-4">
+      <SavedWithdrawalMethodsPanel
+        onUse={(saved) => {
+          applySavedMethod(saved);
+          setOpen(true);
+        }}
+      />
+
+      <div className="rounded-xl border border-outline-variant bg-surface-container-low/50 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <p className="text-sm font-semibold">Withdraw commission</p>
+            <p className="mt-0.5 text-xs text-on-surface-variant">
+              Available {formatCurrency(available)} · listed for users/investors to pay
+            </p>
+          </div>
+          <Button
+            type="button"
+            size="sm"
+            variant={open ? 'outline' : 'secondary'}
+            onClick={() => setOpen((v) => !v)}
+          >
+            {open ? 'Close' : 'New request'}
+          </Button>
+        </div>
+        {success ? (
+          <p className="mt-3 rounded-lg bg-secondary-container px-3 py-2 text-sm text-on-secondary-container">
+            {success}
+          </p>
+        ) : null}
+        {open ? (
+          <form className="mt-4 space-y-3 border-t border-outline-variant pt-4" onSubmit={submit}>
           <Input
             label="Amount *"
             type="number"
@@ -407,7 +410,8 @@ export function PlatformCommissionWithdrawForm({
             Submit request
           </Button>
         </form>
-      ) : null}
+        ) : null}
+      </div>
     </div>
   );
 }

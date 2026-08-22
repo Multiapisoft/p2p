@@ -384,7 +384,7 @@ export function AvailableWithdrawalsPanel({
     const refErr = utr.trim() ? paymentRefErrorForMethod(utr, target.method) : null;
     if (target.assignedToMe) {
       if (!utr.trim() && !proofKey) {
-        setFormError('UTR ya payment slip upload karo');
+        setFormError('Upload a UTR or payment proof');
         return;
       }
       if (refErr) {
@@ -446,7 +446,7 @@ export function AvailableWithdrawalsPanel({
               </p>
             ) : (
               <p className="mt-0.5 text-xs text-on-surface-variant">
-                Amount confirm karo, phir matching list dikhegi
+                Confirm the amount to see the matching list
               </p>
             )}
           </div>
@@ -621,7 +621,7 @@ export function AvailableWithdrawalsPanel({
                 Assigned to you
               </p>
               <p className="mt-1 text-[11px] font-medium text-on-surface">
-                Sirf tumhe ye request dikh rahi hai. UTR ya payment slip upload karke pay karo.
+                This request is assigned to you. Upload a UTR or payment proof to pay.
               </p>
             </div>
             ) : (

@@ -50,14 +50,25 @@ export function DashboardPage() {
   const noBusiness = isNotFoundError(businessError);
   const businessLoadFailed = !!businessError && !noBusiness;
 
-  const { data: overview, isLoading: loadingOverview, refetch: refetchOverview } = useQuery({
+  const {
+    data: overview,
+    isLoading: loadingOverview,
+    isError: overviewError,
+    error: overviewErr,
+    refetch: refetchOverview,
+  } = useQuery({
     queryKey: ['business-overview'],
     queryFn: () => businessApi.getOverview(),
     enabled: !!business,
     refetchInterval: 30_000,
   });
 
-  const { data: walletBalance } = useQuery({
+  const {
+    data: walletBalance,
+    isError: walletError,
+    error: walletErr,
+    refetch: refetchWallet,
+  } = useQuery({
     queryKey: ['business-wallet'],
     queryFn: () => walletApi.getBalance(),
     enabled: !!business,
@@ -184,6 +195,17 @@ export function DashboardPage() {
         }
       />
 
+      {overviewError ? (
+        <div className="rounded-2xl border border-error/30 bg-error-container/40 px-4 py-4">
+          <p className="text-sm font-medium text-on-surface">
+            {getApiErrorMessage(overviewErr, 'Could not load business overview')}
+          </p>
+          <Button type="button" className="mt-3" size="sm" onClick={() => void refetchOverview()}>
+            Retry overview
+          </Button>
+        </div>
+      ) : null}
+
       {canWithdrawLimit ? (
         <Card>
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -253,11 +275,26 @@ export function DashboardPage() {
                   Float wallet
                 </p>
                 <p className="mt-1 font-[family-name:var(--font-headline)] text-3xl font-bold text-secondary sm:mt-2 sm:text-4xl md:text-5xl">
-                  {formatCurrency(walletBalance?.availableBalance ?? 0)}
+                  {walletError
+                    ? '—'
+                    : formatCurrency(walletBalance?.availableBalance ?? 0)}
                 </p>
                 <p className="mt-0.5 text-xs text-on-surface-variant sm:mt-1 sm:text-sm">
-                  Available balance
+                  {walletError
+                    ? getApiErrorMessage(walletErr, 'Could not load wallet balance')
+                    : 'Available balance'}
                 </p>
+                {walletError ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="mt-2 !h-7 !px-2 text-[11px]"
+                    onClick={() => void refetchWallet()}
+                  >
+                    Retry wallet
+                  </Button>
+                ) : null}
               </div>
               <Link href="/transactions">
                 <Button variant="secondary" size="sm">

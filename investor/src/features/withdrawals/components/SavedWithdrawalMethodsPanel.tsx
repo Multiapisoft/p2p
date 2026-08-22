@@ -60,7 +60,7 @@ export function SavedWithdrawalMethodsPanel({
     queryFn: () => apiGet<{ allowMobileNumberUpi?: boolean }>('/platform-settings'),
   });
 
-  const { data } = useQuery({
+  const { data, isLoading, isError, error } = useQuery({
     queryKey: ['saved-withdrawal-methods'],
     queryFn: () => profileApi.getWithdrawalMethods(),
   });
@@ -194,7 +194,15 @@ export function SavedWithdrawalMethodsPanel({
             {listError}
           </p>
         ) : null}
-        {items.length === 0 ? (
+        {isLoading ? (
+          <p className="rounded-lg border border-dashed border-outline-variant px-3 py-4 text-center text-sm text-on-surface-variant">
+            Loading saved methods…
+          </p>
+        ) : isError ? (
+          <p className="mb-2 rounded-lg bg-error-container px-3 py-2 text-sm text-on-error-container">
+            {apiErrorMessage(error, 'Could not load saved methods')}
+          </p>
+        ) : items.length === 0 ? (
           <p className="rounded-lg border border-dashed border-outline-variant px-3 py-4 text-center text-sm text-on-surface-variant">
             No saved methods yet. Add Bank, UPI or USDT above.
           </p>

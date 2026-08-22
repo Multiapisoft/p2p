@@ -1,6 +1,7 @@
 import {
   IsEmail,
   IsEnum,
+  IsIn,
   IsNumber,
   IsOptional,
   IsString,
@@ -42,11 +43,20 @@ export class WalletAdjustDto {
 }
 
 export class ResetTxnDataDto {
-  @IsString()
-  entityType!: string;
+  @IsIn(['user', 'investor', 'business'])
+  entityType!: 'user' | 'investor' | 'business';
 
+  @ValidateIf((o: ResetTxnDataDto) => !o.email && !o.phone)
   @IsString()
-  entityId!: string;
+  entityId?: string;
+
+  @ValidateIf((o: ResetTxnDataDto) => !o.entityId && !o.phone)
+  @IsEmail()
+  email?: string;
+
+  @ValidateIf((o: ResetTxnDataDto) => !o.entityId && !o.email)
+  @IsString()
+  phone?: string;
 
   /** Must be exactly RESET */
   @IsString()

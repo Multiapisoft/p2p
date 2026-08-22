@@ -312,7 +312,9 @@ export function IntegrationTester() {
     });
 
   const webhookUrl =
-    typeof window !== 'undefined' ? `${window.location.origin}/api/webhook` : 'http://localhost:5177/api/webhook';
+    typeof window !== 'undefined'
+      ? `${window.location.origin}/api/webhook`
+      : 'http://localhost:5181/api/webhook';
 
   return (
     <div className="mx-auto max-w-6xl space-y-8 px-4 py-8">
@@ -487,7 +489,7 @@ export function IntegrationTester() {
       <section className="rounded-xl border-2 border-emerald-200 bg-emerald-50/50 p-6 shadow-sm dark:border-emerald-900 dark:bg-emerald-950/20">
         <h2 className="mb-2 text-lg font-semibold">3. Redirect to FinGuard User Panel</h2>
         <p className="mb-4 text-sm text-zinc-600 dark:text-zinc-400">
-          User is sent to <strong>http://localhost:5174</strong> to complete deposit/withdrawal.
+          User is sent to <strong>http://localhost:4761</strong> to complete deposit/withdrawal.
           Amount is locked/deducted from your business wallet automatically.
         </p>
         <div className="mb-4 flex flex-wrap items-end gap-3">
@@ -778,12 +780,12 @@ export function IntegrationTester() {
           </li>
           <li>
             Partner simulator → login as B → <strong>Deposit (Pay requests)</strong> → opens{' '}
-            <code>http://localhost:5174/deposits</code>
+            <code>http://localhost:4761/deposits</code>
           </li>
           <li>User B pays User A’s open withdrawal → after verify, B gets deposit + partner credit</li>
         </ol>
         <p className="mt-3 text-xs">
-          Or login directly on 5174: logout from A, login as B (<code>dev2@gmail.com</code> /{' '}
+          Or login directly on port 4761: logout from A, login as B (<code>dev2@gmail.com</code> /{' '}
           <code>Test@123</code>), open Deposits → Pay requests.
         </p>
       </section>

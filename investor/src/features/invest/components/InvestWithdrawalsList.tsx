@@ -400,7 +400,7 @@ export function InvestWithdrawalsList() {
     const refErr = utr.trim() ? paymentRefErrorForMethod(utr, target.method) : null;
     if (target.assignedToMe) {
       if (!utr.trim() && !proofKey) {
-        setFormError('UTR ya payment slip upload karo');
+        setFormError('Upload a UTR or payment proof');
         return;
       }
       if (refErr) {
@@ -516,7 +516,7 @@ export function InvestWithdrawalsList() {
               <p className="mt-0.5 text-xs text-on-surface-variant">
                 {matchAmount != null
                   ? `Showing matches for ${formatCurrency(matchAmount)}`
-                  : 'Amount confirm karo, phir matching list dikhegi'}
+                  : 'Confirm the amount to see the matching list'}
               </p>
             </div>
             <Button
@@ -662,7 +662,7 @@ export function InvestWithdrawalsList() {
                   ? 'No requests match your filters'
                   : matchAmount
                     ? `No matching requests for ${formatCurrency(matchAmount)}`
-                    : 'No matching withdrawals right now. Waiting — this list refreshes every 10 seconds.'
+                    : 'No matching withdrawals right now. Waiting — this list refreshes every 30 seconds.'
               }
               icon="payments"
             />
@@ -826,7 +826,7 @@ export function InvestWithdrawalsList() {
                 Assigned to you
               </p>
               <p className="mt-1 text-[11px] font-medium text-on-surface">
-                Sirf tumhe ye request dikh rahi hai. UTR ya payment slip upload karke pay karo.
+                This request is assigned to you. Upload a UTR or payment proof to pay.
               </p>
             </div>
             ) : (

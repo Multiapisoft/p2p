@@ -28,7 +28,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }
 
   if (!isAuth || !isInvestor) {
-    return null;
+    return <LoadingScreen />;
   }
 
   return <AppLayout>{children}</AppLayout>;

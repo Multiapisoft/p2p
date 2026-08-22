@@ -63,8 +63,8 @@ export function AssignPayerModal({
     <Modal open={open} onClose={onClose} title="Assign to your user" className="sm:max-w-lg">
       <div className="space-y-3">
         <p className="text-sm text-on-surface-variant">
-          Apne users mein se kisi ko assign karo. Sirf wahi user ko ye request dikhegi, aur
-          usko UTR ya payment slip deni hogi.
+          Assign one of your users to this request. Only that user will see it and must submit a
+          UTR or payment proof.
         </p>
         {current.id ? (
           <p className="rounded-xl bg-secondary-container/40 px-3 py-2 text-sm">

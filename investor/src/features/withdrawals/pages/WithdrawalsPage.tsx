@@ -350,11 +350,11 @@ export function WithdrawalsPage() {
   }, [showForm]);
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6">
+    <div className="mx-auto max-w-7xl space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="font-[family-name:var(--font-headline)] text-2xl font-bold">
-            My Investment
+            My Withdrawals
           </h1>
           <p className="text-sm text-on-surface-variant">
             Open a payout request (UPI / Bank / USDT). Others can fulfill it on Invest.

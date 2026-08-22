@@ -216,25 +216,27 @@ export class WalletController {
     if (dto.confirm !== 'RESET') {
       throw new BadRequestException('Type RESET to confirm');
     }
-    if (!Types.ObjectId.isValid(dto.entityId)) {
-      throw new BadRequestException('Invalid entity id');
-    }
+
+    const { entityId, entityLabel } = await this.resolveResetEntity(dto);
 
     const userIds: string[] = [];
     if (dto.entityType === 'business') {
-      const biz = await this.businessService.findDocumentById(dto.entityId);
+      const biz = await this.businessService.findDocumentById(entityId);
       userIds.push(biz.ownerId.toString());
       const linked = await this.usersRepo.findAll(
-        { referredByBusiness: new Types.ObjectId(dto.entityId) },
+        { referredByBusiness: new Types.ObjectId(entityId) },
         0,
         5000,
       );
       for (const u of linked.items) userIds.push(u._id.toString());
     } else {
-      const doc = await this.usersRepo.findById(dto.entityId);
+      const doc = await this.usersRepo.findById(entityId);
       if (!doc) throw new NotFoundException('User not found');
       if (dto.entityType === 'investor' && doc.role !== UserRole.INVESTOR) {
         throw new BadRequestException('Entity is not an investor');
+      }
+      if (dto.entityType === 'user' && doc.role !== UserRole.USER) {
+        throw new BadRequestException('Entity is not an end user');
       }
       userIds.push(doc._id.toString());
     }
@@ -267,7 +269,7 @@ export class WalletController {
     const wallets = await this.walletService.resetEntityTxnData({
       userIds: uniqueIds,
       adminEmail: user.email,
-      reason: `reset ${dto.entityType} ${dto.entityId}`,
+      reason: `reset ${dto.entityType} ${entityLabel}`,
     });
 
     await this.auditService.log({
@@ -275,8 +277,9 @@ export class WalletController {
       actorEmail: user.email,
       action: 'reset_txn_data',
       resource: dto.entityType,
-      resourceId: dto.entityId,
+      resourceId: entityId,
       metadata: {
+        entityLabel,
         userCount: uniqueIds.length,
         cancelledWithdrawals: cancelledWd.modifiedCount,
         cancelledDeposits: cancelledDep.modifiedCount,
@@ -289,6 +292,54 @@ export class WalletController {
       cancelledWithdrawals: cancelledWd.modifiedCount,
       cancelledDeposits: cancelledDep.modifiedCount,
       wallets,
+    };
+  }
+
+  private async resolveResetEntity(dto: ResetTxnDataDto): Promise<{
+    entityId: string;
+    entityLabel: string;
+  }> {
+    if (dto.entityId?.trim()) {
+      const entityId = dto.entityId.trim();
+      if (!Types.ObjectId.isValid(entityId)) {
+        throw new BadRequestException('Invalid entity id');
+      }
+      return { entityId, entityLabel: entityId };
+    }
+
+    let account = null as Awaited<ReturnType<UsersRepository['findByEmail']>>;
+    if (dto.email?.trim()) {
+      account = await this.usersRepo.findByEmail(dto.email.trim());
+      if (!account) throw new NotFoundException('User not found for this email');
+    } else if (dto.phone?.trim()) {
+      account = await this.usersRepo.findByPhone(dto.phone.trim());
+      if (!account) throw new NotFoundException('User not found for this phone');
+    } else {
+      throw new BadRequestException('Provide entity id, email, or phone');
+    }
+
+    if (dto.entityType === 'business') {
+      if (account.role !== UserRole.BUSINESS) {
+        throw new BadRequestException('This account is not a business owner');
+      }
+      const business = await this.businessService.findDocumentByOwner(account._id.toString());
+      if (!business) throw new NotFoundException('Business profile not found for this owner');
+      return {
+        entityId: business._id.toString(),
+        entityLabel: `${account.email} · ${business.name}`,
+      };
+    }
+
+    if (dto.entityType === 'investor' && account.role !== UserRole.INVESTOR) {
+      throw new BadRequestException('This account is not an investor');
+    }
+    if (dto.entityType === 'user' && account.role !== UserRole.USER) {
+      throw new BadRequestException('This account is not an end user');
+    }
+
+    return {
+      entityId: account._id.toString(),
+      entityLabel: account.email,
     };
   }
 

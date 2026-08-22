@@ -2,20 +2,41 @@
 
 Third-party integration tester for the P2P platform business API.
 
-## Run
+Port map (see repo root `dev-ports.json`):
+
+| App | URL |
+|-----|-----|
+| Backend | http://localhost:9091 |
+| Admin | http://localhost:5177 |
+| Business | http://localhost:5180 |
+| User | http://localhost:4761 |
+| Investor | http://localhost:7194 |
+| **This app** | http://localhost:5181 |
+
+## Run everything (Windows)
+
+From repo root:
+
+```cmd
+start.cmd
+```
+
+Or: `pnpm dev` / `pnpm start`
+
+## Run manually
 
 ```bash
 # Terminal 1 — Backend
 cd ../backend && pnpm start:dev
 
-# Terminal 2 — User app (FinGuard)
+# Terminal 2 — User app
 cd ../user && pnpm dev
 
 # Terminal 3 — This app
 cd integration && pnpm install && pnpm dev
 ```
 
-Open **http://localhost:5177**
+Open **http://localhost:5181**
 
 ## P2P deposit test (2 users)
 
@@ -28,14 +49,14 @@ You **cannot** pay your own withdrawal. Use two users:
 
 1. As **User A**: create a withdrawal (user app `/withdrawals` or Partner Simulator → Withdraw)
 2. Logout A (or use another browser / Incognito)
-3. Login as **User B** on `http://localhost:5174` **or** Partner Simulator → B → **Deposit (Pay requests)**
+3. Login as **User B** on `http://localhost:4761` **or** Partner Simulator → B → **Deposit (Pay requests)**
 4. Open `/deposits` → **Pay requests** → User A’s open withdrawals should list
 5. Pay with UTR + screenshot → admin/auto approve → B wallet + partner balance credited
 
 ## Classic integration setup
 
-1. **Business panel** (`http://localhost:5176/integration`) — create business profile, copy API Key + Secret
-2. **Admin panel** (`http://localhost:5173/businesses`) — **approve** the business
+1. **Business panel** (`http://localhost:5180/integration`) — create business profile, copy API Key + Secret
+2. **Admin panel** (`http://localhost:5177/businesses`) — **approve** the business
 3. **Integration app** — paste credentials → **Verify Connection**
 4. Register users, redirects, webhooks as needed
 
@@ -46,7 +67,7 @@ You **cannot** pay your own withdrawal. Use two users:
 | Verify | GET | `/integration/verify` |
 | Register user | POST | `/integration/users` |
 | List users | GET | `/integration/users` |
-| Redirect deposit | POST | `/integration/redirect/deposit` → FinGuard `/deposits` |
+| Redirect deposit | POST | `/integration/redirect/deposit` → User app `/deposits` |
 | Redirect withdrawal | POST | `/integration/redirect/withdrawal` |
 | Test webhook | POST | `/integration/webhook/test` |
 

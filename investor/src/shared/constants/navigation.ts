@@ -3,7 +3,7 @@ export const NAV_ITEMS = [
   { to: '/invest', label: 'Invest', icon: 'add_chart' },
   { to: '/investments', label: 'Investments', icon: 'savings' },
   { to: '/fulfill', label: 'Fulfill & Earn', icon: 'paid' },
-  { to: '/withdrawals', label: 'Investment', icon: 'north_east' },
+  { to: '/withdrawals', label: 'Withdrawals', icon: 'north_east' },
   { to: '/redeem', label: 'Redeem', icon: 'payments' },
   { to: '/redemptions', label: 'Redemptions', icon: 'history' },
   { to: '/transactions', label: 'Ledger', icon: 'receipt_long' },

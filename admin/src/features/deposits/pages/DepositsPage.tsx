@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { depositsApi } from '../api/deposits.api';
+import { withdrawalPaymentsApi } from '@/features/withdrawals/api/withdrawal-payments.api';
+import { SplitPaymentsTab } from '@/features/withdrawals/components/SplitPaymentsTab';
 import { Card } from '@/shared/components/ui/Card';
 import { Button } from '@/shared/components/ui/Button';
 import { Input } from '@/shared/components/ui/Input';
@@ -50,8 +52,50 @@ function methodIcon(method: string) {
   return 'account_balance';
 }
 
+function DepositsEmptyPanel({
+  filtered,
+  p2pTotal,
+  onOpenP2p,
+}: {
+  filtered: boolean;
+  p2pTotal: number;
+  onOpenP2p: () => void;
+}) {
+  return (
+    <div className="rounded-xl border border-dashed border-outline-variant bg-surface-container-low px-4 py-10 text-center sm:px-8 sm:py-12">
+      <span className="material-symbols-outlined text-5xl text-secondary/70">south_west</span>
+      <h3 className="mt-3 font-[family-name:var(--font-headline)] text-lg font-bold">
+        {filtered ? 'No deposits match your filters' : 'No classic deposit requests'}
+      </h3>
+      <p className="mx-auto mt-2 max-w-lg text-sm text-on-surface-variant">
+        {filtered
+          ? 'Try a different status, method, or search term.'
+          : 'Most P2P activity shows up as payment proofs when users pay open withdrawals — not as rows here.'}
+      </p>
+      {!filtered && p2pTotal > 0 ? (
+        <div className="mx-auto mt-5 max-w-md rounded-xl border border-secondary/30 bg-secondary-container/20 px-4 py-3 text-left">
+          <p className="text-sm font-semibold text-on-secondary-container">
+            {p2pTotal} P2P payment proof{p2pTotal === 1 ? '' : 's'} on record
+          </p>
+          <p className="mt-1 text-xs text-on-surface-variant">
+            Review UTR, proof screenshots, and approve payer credits in the P2P payments tab.
+          </p>
+          <Button type="button" size="sm" className="mt-3" onClick={onOpenP2p}>
+            Open P2P payments
+          </Button>
+        </div>
+      ) : null}
+      {!filtered && p2pTotal === 0 ? (
+        <p className="mt-4 text-xs text-on-surface-variant">
+          When a user pays someone&apos;s withdrawal, the proof will appear under P2P payments.
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 export function DepositsPage() {
-  const [tab, setTab] = useState<'deposits' | 'investments'>('deposits');
+  const [tab, setTab] = useState<'deposits' | 'p2p' | 'investments'>('deposits');
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
   const [status, setStatus] = useState('all');
@@ -94,6 +138,11 @@ export function DepositsPage() {
         ? depositsApi.getPending(listQuery)
         : depositsApi.getAll(listQuery),
     enabled: tab === 'deposits',
+  });
+
+  const { data: p2pData } = useQuery({
+    queryKey: ['withdrawal-payments', 'count-for-deposits'],
+    queryFn: () => withdrawalPaymentsApi.getAll({ page: 1, limit: 1 }),
   });
 
   const approve = useMutation({
@@ -139,6 +188,8 @@ export function DepositsPage() {
   const total = data?.total ?? 0;
   const totalPages = data?.totalPages ?? 1;
   const pendingOnPage = items.filter((d) => d.status === 'pending').length;
+  const p2pTotal = p2pData?.total ?? 0;
+  const depositsFiltered = !!(search || status !== 'all' || method !== 'all');
 
   return (
     <div className="mx-auto max-w-7xl space-y-4 sm:space-y-6">
@@ -146,8 +197,7 @@ export function DepositsPage() {
         <div>
           <h1 className="font-[family-name:var(--font-headline)] text-xl font-bold sm:text-2xl">Deposits</h1>
           <p className="mt-0.5 text-sm text-on-surface-variant">
-            Review user deposits and investor investment requests. Platform Payment proofs are under
-            Withdrawals → Split Payments.
+            Classic deposit requests, P2P payment proofs, and investor investment requests.
           </p>
         </div>
         {tab === 'deposits' ? (
@@ -184,6 +234,7 @@ export function DepositsPage() {
         {(
           [
             { id: 'deposits', label: 'Deposits' },
+            { id: 'p2p', label: `P2P payments${p2pTotal ? ` (${p2pTotal})` : ''}` },
             { id: 'investments', label: 'Investments' },
           ] as const
         ).map((t) => (
@@ -202,6 +253,8 @@ export function DepositsPage() {
 
       {tab === 'investments' ? (
         <InvestmentsTab />
+      ) : tab === 'p2p' ? (
+        <SplitPaymentsTab />
       ) : (
       <>
       <div className="grid grid-cols-3 gap-2 sm:gap-3">
@@ -307,13 +360,10 @@ export function DepositsPage() {
             icon="error"
           />
         ) : !items.length ? (
-          <EmptyState
-            message={
-              search || status !== 'all' || method !== 'all'
-                ? 'No deposits match your filters'
-                : 'No classic deposits yet — Platform Payment proofs are in Withdrawals → Split Payments'
-            }
-            icon="south_west"
+          <DepositsEmptyPanel
+            filtered={depositsFiltered}
+            p2pTotal={p2pTotal}
+            onOpenP2p={() => setTab('p2p')}
           />
         ) : (
           <>

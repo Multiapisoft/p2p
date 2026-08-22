@@ -174,7 +174,7 @@ export function DepositsPage() {
         </div>
         <div className="rounded-2xl border border-outline-variant bg-surface-container-lowest p-5">
           <p className="text-sm font-semibold uppercase tracking-wide text-on-surface-variant">
-            Active Users
+            Users with deposits
           </p>
           <p className="mt-2 font-[family-name:var(--font-headline)] text-2xl font-bold">
             {summary?.length ?? 0}
@@ -191,9 +191,8 @@ export function DepositsPage() {
             Retry summary
           </Button>
         </div>
-      ) : (
-        summary &&
-        summary.length > 0 && (
+      ) : summary ? (
+        summary.length > 0 ? (
           <Card title="Deposit Summary by User">
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm">
@@ -218,8 +217,12 @@ export function DepositsPage() {
               </table>
             </div>
           </Card>
+        ) : (
+          <Card title="Deposit Summary by User">
+            <EmptyState message="No completed deposits from users yet." icon="south_west" />
+          </Card>
         )
-      )}
+      ) : null}
 
       <Card title="Platform Payment activity (your users as payers + your WDs)">
         <div className="mb-4 space-y-3">

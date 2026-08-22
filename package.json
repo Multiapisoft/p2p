@@ -2,8 +2,10 @@
   "name": "p2p-platform",
   "private": true,
   "version": "0.1.5",
-  "description": "Monorepo root — each app has its own package.json. Run builds from the app folder, or use the scripts below.",
+  "description": "Monorepo root. Run `start.cmd` or `pnpm dev` to launch all apps. Ports: see dev-ports.json.",
   "scripts": {
+    "start": "start.cmd",
+    "dev": "start.cmd",
     "build": "pnpm run build:backend && pnpm run build:user && pnpm run build:admin && pnpm run build:bussness && pnpm run build:investor",
     "build:backend": "pnpm --dir backend build",
     "build:user": "pnpm --dir user build",

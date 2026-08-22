@@ -56,15 +56,33 @@ export class AdminService implements OnModuleInit {
 
   private async seedAdmin() {
     const email = this.config.get<string>('admin.email')!;
-    const existing = await this.userModel.findOne({ email }).exec();
-    if (existing) return;
-
     const password = this.config.get<string>('admin.password')!;
     const name = this.config.get<string>('admin.name')!;
+    const hashed = await bcrypt.hash(password, 12);
+    const existing = await this.userModel.findOne({ email }).exec();
+
+    if (existing) {
+      const nodeEnv = this.config.get<string>('nodeEnv');
+      if (nodeEnv !== 'production') {
+        await this.userModel.updateOne(
+          { email },
+          {
+            $set: {
+              password: hashed,
+              name,
+              role: UserRole.ADMIN,
+              status: UserStatus.ACTIVE,
+            },
+          },
+        );
+        this.logger.log(`Admin credentials synced from env: ${email}`);
+      }
+      return;
+    }
 
     await this.userModel.create({
       email,
-      password: await bcrypt.hash(password, 12),
+      password: hashed,
       name,
       role: UserRole.ADMIN,
       status: UserStatus.ACTIVE,

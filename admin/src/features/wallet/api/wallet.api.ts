@@ -52,7 +52,9 @@ export const walletApi = {
 
   resetTxnData: (payload: {
     entityType: 'user' | 'investor' | 'business';
-    entityId: string;
+    entityId?: string;
+    email?: string;
+    phone?: string;
     confirm: string;
   }) =>
     apiPost<{

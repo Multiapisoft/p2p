@@ -137,7 +137,13 @@ export function WithdrawalsPage() {
     queryFn: () => withdrawalsApi.getBusinessWithdrawals(listQuery),
   });
 
-  const { data: detail, isLoading: loadingDetail } = useQuery({
+  const {
+    data: detail,
+    isLoading: loadingDetail,
+    isError: detailError,
+    error: detailErr,
+    refetch: refetchDetail,
+  } = useQuery({
     queryKey: ['business-withdrawal', selectedId],
     queryFn: () => withdrawalsApi.getById(selectedId!),
     enabled: !!selectedId,
@@ -555,8 +561,17 @@ export function WithdrawalsPage() {
         title="Withdrawal details"
         className="sm:max-w-xl"
       >
-        {loadingDetail || !detail ? (
+        {loadingDetail ? (
           <LoadingScreen />
+        ) : detailError || !detail ? (
+          <div className="space-y-3 py-6 text-center">
+            <p className="text-sm text-on-surface-variant">
+              {getApiErrorMessage(detailErr, 'Could not load withdrawal details')}
+            </p>
+            <Button type="button" size="sm" onClick={() => void refetchDetail()}>
+              Retry
+            </Button>
+          </div>
         ) : (
           <div className="space-y-1">
             {(() => {

@@ -6,11 +6,18 @@ import { investorApi } from '@/features/investor/api/investor.api';
 import { walletApi } from '@/features/wallet/api/wallet.api';
 import { StatCard } from '@/shared/components/ui/Card';
 import { Card } from '@/shared/components/ui/Card';
+import { Button } from '@/shared/components/ui/Button';
 import { LoadingScreen } from '@/shared/components/ui/Icon';
-import { formatCurrency } from '@/shared/lib/utils';
+import { formatCurrency, apiErrorMessage } from '@/shared/lib/utils';
 
 export function DashboardPage() {
-  const { data: portfolio, isLoading: loadingPortfolio } = useQuery({
+  const {
+    data: portfolio,
+    isLoading: loadingPortfolio,
+    isError: portfolioError,
+    error: portfolioErr,
+    refetch: refetchPortfolio,
+  } = useQuery({
     queryKey: ['portfolio'],
     queryFn: () => investorApi.getPortfolio(),
   });
@@ -45,6 +52,17 @@ export function DashboardPage() {
         </h1>
         <p className="text-on-surface-variant">Your investment portfolio overview</p>
       </div>
+
+      {portfolioError ? (
+        <div className="rounded-2xl border border-error/30 bg-error-container/40 px-4 py-4">
+          <p className="text-sm font-medium text-on-surface">
+            {apiErrorMessage(portfolioErr, 'Could not load portfolio')}
+          </p>
+          <Button type="button" className="mt-3" size="sm" onClick={() => void refetchPortfolio()}>
+            Retry
+          </Button>
+        </div>
+      ) : null}
 
       <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <StatCard
