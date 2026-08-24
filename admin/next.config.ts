@@ -1,7 +1,10 @@
 import type { NextConfig } from 'next';
 
 function backendBaseUrl() {
-  const raw = (process.env.BACKEND_URL || 'http://localhost:9091').replace(/\/$/, '');
+  const raw = (
+    process.env.BACKEND_URL ||
+    (process.env.VERCEL ? 'https://dev.payment.fairplayoffical.com' : 'http://localhost:9091')
+  ).replace(/\/$/, '');
   if (
     raw.startsWith('http://') &&
     !raw.includes('localhost') &&
@@ -13,6 +16,9 @@ function backendBaseUrl() {
 }
 
 const nextConfig: NextConfig = {
+  env: {
+    NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || '/api/v1',
+  },
   eslint: { ignoreDuringBuilds: true },
   async rewrites() {
     const backend = backendBaseUrl();
