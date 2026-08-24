@@ -1,0 +1,4 @@
+dev.payment.fairplayoffical.com {
+	encode gzip
+	reverse_proxy backend:9091
+}
