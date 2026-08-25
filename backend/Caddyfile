@@ -2,3 +2,10 @@ dev.payment.fairplayoffical.com {
 	encode gzip
 	reverse_proxy backend:9091
 }
+
+dev.paysecure247.com {
+	encode gzip
+	reverse_proxy https://p2p-business-dev.vercel.app {
+		header_up Host p2p-business-dev.vercel.app
+	}
+}
