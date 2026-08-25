@@ -48,6 +48,10 @@ export function SettingsPage() {
   const [preferB2bSettlement, setPreferB2bSettlement] = useState(true);
   const [cdmHold, setCdmHold] = useState('30');
   const [minTxn, setMinTxn] = useState('300');
+  const [refFirstReferrer, setRefFirstReferrer] = useState('2');
+  const [refFirstJoiner, setRefFirstJoiner] = useState('1');
+  const [refNextReferrer, setRefNextReferrer] = useState('1');
+  const [refNextJoiner, setRefNextJoiner] = useState('0');
   const [settingsError, setSettingsError] = useState('');
   const [settingsSuccess, setSettingsSuccess] = useState('');
 
@@ -69,6 +73,10 @@ export function SettingsPage() {
     setPreferB2bSettlement(settings.preferB2bSettlement !== false);
     setCdmHold(String(settings.cdmHoldMinutes ?? 30));
     setMinTxn(String(settings.minTransactionAmount ?? 300));
+    setRefFirstReferrer(String(settings.investorReferralFirstReferrerPercent ?? 2));
+    setRefFirstJoiner(String(settings.investorReferralFirstJoinerPercent ?? 1));
+    setRefNextReferrer(String(settings.investorReferralNextReferrerPercent ?? 1));
+    setRefNextJoiner(String(settings.investorReferralNextJoinerPercent ?? 0));
   }, [settings]);
 
   const saveSettings = useMutation({
@@ -96,6 +104,10 @@ export function SettingsPage() {
         allowPartialPay,
         preferB2bSettlement,
         cdmHoldMinutes: Number(cdmHold) || 30,
+        investorReferralFirstReferrerPercent: Number(refFirstReferrer) || 0,
+        investorReferralFirstJoinerPercent: Number(refFirstJoiner) || 0,
+        investorReferralNextReferrerPercent: Number(refNextReferrer) || 0,
+        investorReferralNextJoinerPercent: Number(refNextJoiner) || 0,
       };
       return platformSettingsApi.update(body);
     },
@@ -273,6 +285,48 @@ export function SettingsPage() {
                 value={cdmHold}
                 onChange={(e) => setCdmHold(e.target.value)}
               />
+
+              <div className="rounded-xl border border-outline-variant bg-surface-container-low/40 p-3 sm:p-4">
+                <p className="text-sm font-semibold">Investor referral plan (%)</p>
+                <p className="mt-1 text-xs text-on-surface-variant">
+                  When a referred investor completes a P2P pay, rewards are paid from the admin
+                  wallet as a % of that pay principal. First pay vs later pays use different rates.
+                </p>
+                <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <Input
+                    label="First pay — referrer %"
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={refFirstReferrer}
+                    onChange={(e) => setRefFirstReferrer(e.target.value)}
+                  />
+                  <Input
+                    label="First pay — joiner %"
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={refFirstJoiner}
+                    onChange={(e) => setRefFirstJoiner(e.target.value)}
+                  />
+                  <Input
+                    label="Next pays — referrer %"
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={refNextReferrer}
+                    onChange={(e) => setRefNextReferrer(e.target.value)}
+                  />
+                  <Input
+                    label="Next pays — joiner %"
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={refNextJoiner}
+                    onChange={(e) => setRefNextJoiner(e.target.value)}
+                  />
+                </div>
+              </div>
 
               <p className="text-xs text-on-surface-variant">
                 Investors choose a plan (25k / 50k / 75k / 1L / 2L, editable below) on first login,

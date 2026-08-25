@@ -63,6 +63,19 @@ export class UsdtDetailsDto {
   txHash?: string;
 }
 
+export class DepositCdmDetailsDto {
+  @IsOptional()
+  @IsString()
+  locationHint?: string;
+
+  @IsOptional()
+  @IsString()
+  notes?: string;
+
+  @IsString()
+  payerName!: string;
+}
+
 export class CreateDepositDto {
   @IsNumber()
   @Min(1)
@@ -89,6 +102,11 @@ export class CreateDepositDto {
   @ValidateNested()
   @Type(() => UsdtDetailsDto)
   usdtDetails?: UsdtDetailsDto;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => DepositCdmDetailsDto)
+  cdmDetails?: DepositCdmDetailsDto;
 
   @IsOptional()
   @IsString()

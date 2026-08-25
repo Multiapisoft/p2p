@@ -1,4 +1,5 @@
 import {
+  IsBoolean,
   IsEnum,
   IsNumber,
   IsOptional,
@@ -129,6 +130,11 @@ export class CreateWithdrawalDto {
   @IsOptional()
   @IsString()
   integrationToken?: string;
+
+  /** Business only: jump FIFO queue when listed for P2P pay. */
+  @IsOptional()
+  @IsBoolean()
+  priority?: boolean;
 }
 
 export class UpdateWithdrawalDestinationDto {
@@ -184,4 +190,9 @@ export class AssignWithdrawalDto {
   @IsString()
   @MinLength(1)
   assigneeId!: string;
+}
+
+export class SetWithdrawalPriorityDto {
+  @IsBoolean()
+  priority!: boolean;
 }

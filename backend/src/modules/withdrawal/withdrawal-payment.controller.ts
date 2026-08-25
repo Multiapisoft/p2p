@@ -84,7 +84,13 @@ export class WithdrawalPaymentController {
   }
 
   @Post('withdrawal/:withdrawalId/claim')
-  @Roles(UserRole.USER, UserRole.INVESTOR, UserRole.ADMIN, UserRole.SUB_ADMIN)
+  @Roles(
+    UserRole.USER,
+    UserRole.INVESTOR,
+    UserRole.BUSINESS,
+    UserRole.ADMIN,
+    UserRole.SUB_ADMIN,
+  )
   claimWithdrawal(
     @CurrentUser() user: AuthenticatedUser,
     @Param('withdrawalId') withdrawalId: string,

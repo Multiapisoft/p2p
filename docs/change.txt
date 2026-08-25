@@ -1,31 +1,68 @@
-1
+Haan. Document ke according **jo items abhi missing / failed / partially incomplete hain**, unki list:
 
-1. User’s registered under Different Business should be directed through – URL Paysecure247.com (at present it is done at
-url fairplayofficial.com
-2. Given all websites different designs with own home page content. So that it would’t appear that all the 3 domains are
-run under same project. That’s why we have taken different domain names for each segment.
-3. In investor panel when an Investor logs in ask him to use a plan 25k/50k/1 lac/ 2 lac – after selction of plan show him
-Withdrawal request of equivalent to 110% of plan amount he has choosen. > Now he can start making payments
-(investments). He can choose one any of the available payments to complete his target one by one (choosen payment
-will not be visible to other investor for next 7 minutes (keep this dynamic controllable by admin panel). This is done to
-to give time to investor to complete his payment. After completion of stipulated time the locked payment will be
-available to other users/Investors.
-4. How admin will be identify that a particular user is registered under which business?? At present this is not visible to
-me in admin panel and user panel.
-5. I have just registered a user under business name “Mahavir” by the name Raju dummy as user but it is not visible under
-that business to me.
-6. I have made a widrawal request from rajudummy request reached successfully to “Mahavir” business and business is
-able to approve it as well. But problem is how business will identify that he is his user or not ?? Allow business to set or
-allocate some code for his users so that business can easily identify.
-7. Remove this word P2P from everywhere on platform. Please replace it by Platform Payment.
-8. Don’t allow user to cancel withdrawal request submitted by him. A request needs to cancelled by Concerned business
-or admin only. Give user a time tat of 2 minutes with timer (dynamic which will be set by admin) so that user can
-cancel/edit it within that time frame only. Once the time TAT is over only then send his this request to business for
-approval and once the request is approved by business then user cannot cancel the widrawal request. Apply this for
-investors withdrawal requests also. And give a note to user/investor that once request is approved it cannot be
-edited/deleted.
-9. When a investor accepts any withdrawal for making payment show him stop watch clearly stating that if any payment is
-submitted after time over it will not be Valid/Accepted. ( show him timer of 5 minutes to submit the request but in
-backend don’t show the particular payment (widrawal) to any one for atleast 7 minutes.
-10. Whenever user/investor gives his upi id please system to convert it to scanner/QR code as well.
-11. Ticket raised by user is visible to admin but it is not showing to concerned business please check.
+### 🔴 Missing / Failed
+
+1. **Different Business URL Routing** — Item #1
+   Different business ke users ko `Paysecure247.com` par route karna hai; current URL issue noted hai. 
+
+2. **Different Website Designs/Home Pages** — Item #2
+   3 domains ke liye completely different design + homepage content required hai. Status document me clear pass/fixed nahi hai. 
+
+3. **Split Payment Section Remove** — Item #6
+   Full payment **Split Payment** ke andar show ho raha hai; split section remove/fix karna hai. 
+
+4. **UPI ID Validation** — Item #7
+   UPI validation **not applicable → Fail**. 
+
+5. **Forgot Password / Reset Password** — Item #11
+   Forgot/Reset Password available nahi hai. 
+
+6. **Business Deposit – New Withdrawal Popup** — Item #15
+   New withdrawal available hone par business ko popup notification nahi mil raha. 
+
+7. **Admin Deposit – New Withdrawal Popup** — Item #16
+   New withdrawal available hone par Admin ko popup notification nahi mil raha. 
+
+8. **Investor Referral Plan/Scheme** — Item #20
+   Investor ke liye Referral Plan/Scheme **missing** hai. 
+
+9. **Business Withdrawal Priority** — Item #24
+   Priority withdrawal functionality **missing/partially fixed** hai. Priority transaction ko FIFO override karna required hai. 
+
+10. **CDM Deposit Option** — Item #26
+    CDM withdrawal available hai, lekin **CDM Deposit missing** hai. 
+
+11. **Support Ticket Notification** — Item #33
+    Ticket Support section me visible hai, lekin **Admin/Business ko notification nahi mil raha**. 
+
+12. **Admin Panel Deposits Visibility** — Item #39
+    **User aur Investor deposits Admin panel me visible nahi hain**. Business panel me deposits visible hain. 
+
+13. **Reset Transaction Data** — Item #40
+    Investor/User/Business ki transaction data reset karne ka option **Not Fixed / Fail** hai. 
+
+### Short Priority List
+
+**Done (this pass):**
+
+* #11 Forgot/Reset Password
+* #16 Admin new-withdrawal popup
+* #24 Withdrawal Priority
+* #26 CDM Deposit
+
+**Still open / partial:**
+
+* #7 UPI validation
+* #15 Business popup (already done earlier — verify)
+* #20 Investor Referral (already done earlier — verify)
+* #33 Support Notifications (already done earlier — verify)
+* #39 Admin Deposits (already done earlier — verify)
+* #40 Transaction Reset (already done earlier — verify)
+
+**Also verify:**
+
+* #1 Business URL routing
+* #2 Different website designs
+* #6 Split Payment section remove
+
+**Total: 13 items** currently missing/failed/incomplete based on the document.

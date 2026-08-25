@@ -19,6 +19,8 @@ export class TransactionController {
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: TransactionListQueryDto,
   ) {
+    const hideFeeCuts =
+      user.role === UserRole.USER || user.role === UserRole.INVESTOR;
     return this.transactionService.findByUser(user.userId, {
       page: query.page,
       limit: query.limit,
@@ -26,6 +28,7 @@ export class TransactionController {
       sort: query.sort,
       type: query.type,
       direction: query.direction,
+      hideFeeCuts,
     });
   }
 
@@ -35,15 +38,18 @@ export class TransactionController {
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: TransactionListQueryDto,
   ) {
-    const business = await this.businessService.findForActor(user.userId);
-    return this.transactionService.findAll({
+    // Scope to this business account's own wallet only.
+    // Do NOT list by businessId alone — that also pulls admin PLATFORM_FEE /
+    // business-fee credits (tagged with businessId) and leaks admin balanceAfter.
+    await this.businessService.findForActor(user.userId);
+    return this.transactionService.findByUser(user.userId, {
       page: query.page,
       limit: query.limit,
       search: query.search,
       sort: query.sort,
       type: query.type,
       direction: query.direction,
-      businessId: business._id.toString(),
+      hideFeeCuts: true,
     });
   }
 

@@ -13,7 +13,7 @@ import { Pagination } from '@/shared/components/ui/Pagination';
 import { LoadingScreen, EmptyState } from '@/shared/components/ui/Icon';
 import { PageHeader } from '@/shared/components/layout/PageHeader';
 import { Modal } from '@/shared/components/ui/Modal';
-import { formatCurrency, formatDate } from '@/shared/lib/utils';
+import { formatCurrency, formatDate, cn } from '@/shared/lib/utils';
 import { CsvDownloadButton } from '@/shared/components/CsvDownloadButton';
 import { fetchAllPages } from '@/shared/lib/csv';
 import { resolveUser } from '@/shared/lib/entity-user';
@@ -170,6 +170,18 @@ export function WithdrawalsPage() {
     onError: (err) => setActionError(getApiErrorMessage(err, 'Failed to unlist')),
   });
 
+  const setPriority = useMutation({
+    mutationFn: ({ id, priority }: { id: string; priority: boolean }) =>
+      withdrawalsApi.setPriority(id, priority),
+    onSuccess: () => {
+      setActionError('');
+      qc.invalidateQueries({ queryKey: ['business-withdrawals'] });
+      qc.invalidateQueries({ queryKey: ['business-withdrawal'] });
+      qc.invalidateQueries({ queryKey: ['business-overview'] });
+    },
+    onError: (err) => setActionError(getApiErrorMessage(err, 'Could not update highlight')),
+  });
+
   const assignPayer = useMutation({
     mutationFn: ({ id, assigneeId }: { id: string; assigneeId: string }) =>
       withdrawalsApi.assignPayer(id, assigneeId),
@@ -248,34 +260,56 @@ export function WithdrawalsPage() {
     return 'Awaiting approval';
   }
 
+  function methodIcon(method: string) {
+    if (method === 'upi') return 'qr_code_2';
+    if (method === 'bank') return 'account_balance';
+    if (method === 'usdt') return 'currency_bitcoin';
+    return 'payments';
+  }
+
+  function statusAccent(status: string) {
+    if (status === 'pending') return 'border-l-amber-500';
+    if (status === 'processing') return 'border-l-sky-500';
+    if (status === 'completed') return 'border-l-emerald-500';
+    if (status === 'rejected' || status === 'cancelled' || status === 'failed') {
+      return 'border-l-red-500';
+    }
+    return 'border-l-outline-variant';
+  }
+
   return (
     <div className="mx-auto max-w-7xl space-y-6">
-      <PageHeader
-        title="Withdrawals"
-        description="Request from remaining limit, or approve user withdrawals. Admin verifies your own requests."
-        action={
-          <CsvDownloadButton<Withdrawal>
-            title="Business withdrawals"
-            filename="business-withdrawals"
-            filters={{ Status: status, Method: method, Search: search, Sort: sort }}
-            disabled={!data?.total}
-            columns={[
-              { header: 'Reference', value: (w) => w.referenceId },
-              { header: 'Status', value: (w) => w.status },
-              { header: 'Method', value: (w) => w.method },
-              { header: 'Amount', value: (w) => w.amount },
-              { header: 'List status', value: (w) => w.p2pListStatus || '' },
-              { header: 'Assigned to', value: (w) => resolveUser(w.assignedTo).name },
-              { header: 'Created', value: (w) => w.createdAt },
-            ]}
-            fetchRows={() =>
-              fetchAllPages((page, limit) =>
-                withdrawalsApi.getBusinessWithdrawals({ ...listQuery, page, limit }),
-              )
+      <div className="relative overflow-hidden rounded-2xl border border-outline-variant bg-gradient-to-br from-surface-container-lowest via-surface-container-low/40 to-secondary-container/20 p-4 sm:p-5">
+        <div className="pointer-events-none absolute -right-8 -top-10 h-36 w-36 rounded-full bg-secondary/10 blur-2xl" />
+        <div className="relative">
+          <PageHeader
+            title="Withdrawal requests"
+            description="Request from remaining limit, or approve user withdrawals. Admin verifies your own requests."
+            action={
+              <CsvDownloadButton<Withdrawal>
+                title="Business withdrawals"
+                filename="business-withdrawals"
+                filters={{ Status: status, Method: method, Search: search, Sort: sort }}
+                disabled={!data?.total}
+                columns={[
+                  { header: 'Reference', value: (w) => w.referenceId },
+                  { header: 'Status', value: (w) => w.status },
+                  { header: 'Method', value: (w) => w.method },
+                  { header: 'Amount', value: (w) => w.amount },
+                  { header: 'List status', value: (w) => w.p2pListStatus || '' },
+                  { header: 'Assigned to', value: (w) => resolveUser(w.assignedTo).name },
+                  { header: 'Created', value: (w) => w.createdAt },
+                ]}
+                fetchRows={() =>
+                  fetchAllPages((page, limit) =>
+                    withdrawalsApi.getBusinessWithdrawals({ ...listQuery, page, limit }),
+                  )
+                }
+              />
             }
           />
-        }
-      />
+        </div>
+      </div>
 
       <BusinessWithdrawalForm />
 
@@ -401,146 +435,191 @@ export function WithdrawalsPage() {
               {items.map((w) => {
                 const user = resolveUser(w.userId);
                 return (
-                  <div
+                  <article
                     key={w._id}
-                    className="flex w-full flex-wrap items-center justify-between gap-3 rounded-xl border border-outline-variant p-4"
+                    className={cn(
+                      'overflow-hidden rounded-2xl border border-outline-variant/80 border-l-4 bg-surface-container-lowest shadow-sm transition hover:border-secondary/35 hover:shadow-md',
+                      statusAccent(w.status),
+                    )}
                   >
-                    <button
-                      type="button"
-                      onClick={() => setSelectedId(w._id)}
-                      className="min-w-0 flex-1 text-left transition hover:opacity-80"
-                    >
-                      <p className="font-semibold">
-                        {formatCurrency(w.amount, w.currency)}
-                        {(w.paidAmount || 0) > 0 && (
-                          <span className="ml-2 text-xs font-medium text-secondary">
-                            paid {formatCurrency(w.paidAmount || 0, w.currency)}
+                    <div className="flex flex-col gap-3 p-3 sm:p-4 lg:flex-row lg:justify-between">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedId(w._id)}
+                        className="min-w-0 flex-1 space-y-2.5 text-left"
+                      >
+                        <div className="flex flex-wrap items-start gap-2.5">
+                          <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                            <span className="material-symbols-outlined text-[22px]">
+                              {methodIcon(w.method)}
+                            </span>
                           </span>
-                        )}
-                      </p>
-                      <p className="mt-1 truncate text-sm font-medium">{user.name}</p>
-                      <p className="text-xs text-on-surface-variant">
-                        {user.email || '—'} · {w.referenceId}
-                        {user.businessUserCode ? ` · ${user.businessUserCode}` : ''}
-                      </p>
-                      <p className="mt-0.5 text-xs text-outline">
-                        {destinationLine(w)} · {formatDate(w.createdAt)}
-                        {w.paymentCount ? ` · ${w.paymentCount} payments` : ''}
-                      </p>
-                    </button>
-                    <div className="flex flex-col items-end gap-2">
-                      <div className="flex flex-wrap items-center justify-end gap-1.5">
-                        <StatusBadge status={w.status} />
-                        {(w.status === 'pending' || w.status === 'processing') &&
-                        Math.max(0, w.amount - (w.paidAmount || 0)) > 0 ? (
-                        <span
-                          className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                            (w.p2pListStatus || 'awaiting') === 'listed'
-                              ? 'bg-secondary/15 text-secondary'
-                              : (w.p2pListStatus || 'awaiting') === 'rejected'
-                                ? 'bg-error/10 text-error'
-                                : 'bg-outline-variant/40 text-on-surface-variant'
-                          }`}
-                        >
-                          {p2pLabel(w)}
-                        </span>
-                        ) : null}
-                        {resolveUser(w.assignedTo).id ? (
-                          <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
-                            Assigned: {resolveUser(w.assignedTo).name}
-                          </span>
-                        ) : null}
-                      </div>
-                      {w.status === 'pending' && (w.paidAmount || 0) <= 0 && w.origin !== 'business' && (
-                        <div className="flex gap-2">
-                          {(w.p2pListStatus || 'awaiting') !== 'listed' ? (
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate font-mono text-sm font-bold text-primary">
+                              {w.referenceId}
+                            </p>
+                            <p className="mt-0.5 text-xs text-on-surface-variant">
+                              <span className="font-semibold uppercase">{w.method}</span>
+                              {' · '}
+                              {formatDate(w.createdAt)}
+                              {w.paymentCount ? ` · ${w.paymentCount} payments` : ''}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="rounded-xl border border-outline-variant/70 bg-surface-container-low/40 px-3 py-2.5 text-xs">
+                          <p className="font-medium text-on-surface">{user.name || '—'}</p>
+                          <p className="text-on-surface-variant">
+                            {user.email || '—'}
+                            {user.businessUserCode ? ` · ${user.businessUserCode}` : ''}
+                          </p>
+                          <p className="mt-1 text-on-surface-variant">{destinationLine(w)}</p>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <StatusBadge status={w.status} />
+                          {w.priority ? (
+                            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-900">
+                              Highlighted
+                            </span>
+                          ) : null}
+                          {(w.status === 'pending' || w.status === 'processing') &&
+                          Math.max(0, w.amount - (w.paidAmount || 0)) > 0 ? (
+                            <span
+                              className={cn(
+                                'rounded-full px-2 py-0.5 text-[10px] font-semibold',
+                                (w.p2pListStatus || 'awaiting') === 'listed'
+                                  ? 'bg-secondary/15 text-secondary'
+                                  : (w.p2pListStatus || 'awaiting') === 'rejected'
+                                    ? 'bg-error/10 text-error'
+                                    : 'bg-outline-variant/40 text-on-surface-variant',
+                              )}
+                            >
+                              {p2pLabel(w)}
+                            </span>
+                          ) : null}
+                          {resolveUser(w.assignedTo).id ? (
+                            <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
+                              Assigned: {resolveUser(w.assignedTo).name}
+                            </span>
+                          ) : null}
+                        </div>
+                      </button>
+
+                      <div className="flex shrink-0 flex-col gap-3 border-t border-outline-variant/60 pt-3 lg:w-[220px] lg:border-l lg:border-t-0 lg:pl-4 lg:pt-0">
+                        <div className="lg:text-right">
+                          <p className="text-[10px] font-bold uppercase tracking-wide text-on-surface-variant">
+                            Amount
+                          </p>
+                          <p className="text-xl font-bold tabular-nums text-error">
+                            {formatCurrency(w.amount, w.currency)}
+                          </p>
+                          {(w.paidAmount || 0) > 0 ? (
+                            <p className="text-xs font-medium text-secondary">
+                              paid {formatCurrency(w.paidAmount || 0, w.currency)}
+                            </p>
+                          ) : null}
+                        </div>
+                        <div className="flex flex-wrap gap-2 lg:justify-end">
+                          {w.status === 'pending' &&
+                            (w.paidAmount || 0) <= 0 &&
+                            w.origin !== 'business' && (
+                              <>
+                                {(w.p2pListStatus || 'awaiting') !== 'listed' ? (
+                                  <Button
+                                    size="sm"
+                                    onClick={() => listForP2p.mutate(w._id)}
+                                    loading={listForP2p.isPending}
+                                  >
+                                    Approve
+                                  </Button>
+                                ) : null}
+                                <Button
+                                  size="sm"
+                                  variant="danger"
+                                  onClick={() => {
+                                    setActionError('');
+                                    setRejectReason('');
+                                    setRejectTarget(w);
+                                  }}
+                                >
+                                  Reject
+                                </Button>
+                              </>
+                            )}
+                          {(w.status === 'pending' || w.status === 'processing') &&
+                            (w.p2pListStatus || 'awaiting') !== 'listed' &&
+                            w.origin !== 'business' && (
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                onClick={() => {
+                                  setActionError('');
+                                  setUtr('');
+                                  setTxHash('');
+                                  setApproveTarget(w);
+                                }}
+                              >
+                                Mark paid
+                              </Button>
+                            )}
+                          {(w.status === 'pending' || w.status === 'processing') &&
+                            w.p2pListStatus === 'listed' && (
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                onClick={() => unlistForP2p.mutate(w._id)}
+                                loading={unlistForP2p.isPending}
+                              >
+                                Unlist
+                              </Button>
+                            )}
+                          {(w.status === 'pending' || w.status === 'processing') && (
                             <Button
                               size="sm"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                listForP2p.mutate(w._id);
-                              }}
-                              loading={listForP2p.isPending}
+                              variant="outline"
+                              onClick={() =>
+                                setPriority.mutate({ id: w._id, priority: !w.priority })
+                              }
+                              loading={setPriority.isPending}
                             >
-                              Approve
+                              {w.priority ? 'Clear highlight' : 'Highlight'}
+                            </Button>
+                          )}
+                          {(w.status === 'pending' || w.status === 'processing') &&
+                          Math.max(0, w.amount - (w.paidAmount || 0)) > 0 &&
+                          (w.origin !== 'business' || w.p2pListStatus === 'listed') ? (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => {
+                                setActionError('');
+                                setAssignTarget(w);
+                              }}
+                            >
+                              {resolveUser(w.assignedTo).id ? 'Reassign' : 'Assign'}
+                            </Button>
+                          ) : null}
+                          {resolveUser(w.assignedTo).id &&
+                          (w.status === 'pending' || w.status === 'processing') ? (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              loading={unassignPayer.isPending}
+                              onClick={() => unassignPayer.mutate(w._id)}
+                            >
+                              Unassign
                             </Button>
                           ) : null}
                           <Button
                             size="sm"
-                            variant="danger"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setActionError('');
-                              setRejectReason('');
-                              setRejectTarget(w);
-                            }}
+                            variant="ghost"
+                            onClick={() => setSelectedId(w._id)}
                           >
-                            Reject
+                            Details
                           </Button>
                         </div>
-                      )}
-                      {(w.status === 'pending' || w.status === 'processing') &&
-                        (w.p2pListStatus || 'awaiting') !== 'listed' &&
-                        w.origin !== 'business' && (
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setActionError('');
-                              setUtr('');
-                              setTxHash('');
-                              setApproveTarget(w);
-                            }}
-                          >
-                            Mark paid by business
-                          </Button>
-                        )}
-                      {(w.status === 'pending' || w.status === 'processing') &&
-                        w.p2pListStatus === 'listed' && (
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              unlistForP2p.mutate(w._id);
-                            }}
-                            loading={unlistForP2p.isPending}
-                          >
-                            Unlist
-                          </Button>
-                        )}
-                      {(w.status === 'pending' || w.status === 'processing') &&
-                      Math.max(0, w.amount - (w.paidAmount || 0)) > 0 &&
-                      (w.origin !== 'business' || w.p2pListStatus === 'listed') ? (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setActionError('');
-                            setAssignTarget(w);
-                          }}
-                        >
-                          {resolveUser(w.assignedTo).id ? 'Reassign' : 'Assign user'}
-                        </Button>
-                      ) : null}
-                      {resolveUser(w.assignedTo).id &&
-                      (w.status === 'pending' || w.status === 'processing') ? (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          loading={unassignPayer.isPending}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            unassignPayer.mutate(w._id);
-                          }}
-                        >
-                          Unassign
-                        </Button>
-                      ) : null}
+                      </div>
                     </div>
-                  </div>
+                  </article>
                 );
               })}
             </div>
@@ -718,7 +797,9 @@ export function WithdrawalsPage() {
 
                   {(detail.payments?.length || 0) > 0 && (
                     <div className="mt-4">
-                      <p className="mb-2 text-sm font-semibold">Split payments</p>
+                      <p className="mb-2 text-sm font-semibold">
+                        {(detail.payments?.length || 0) <= 1 ? 'Payment' : 'Payments'}
+                      </p>
                       <div className="space-y-2">
                         {detail.payments!.map((p) => {
                           const commission =

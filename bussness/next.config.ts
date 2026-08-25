@@ -20,7 +20,9 @@ const nextConfig: NextConfig = {
     NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || '/api/v1',
     NEXT_PUBLIC_USER_APP_URL:
       process.env.NEXT_PUBLIC_USER_APP_URL ||
-      (process.env.VERCEL ? 'https://dev.app.fairplayoffical.com' : ''),
+      (process.env.VERCEL
+        ? 'https://dev.app.fairplayoffical.com'
+        : 'http://localhost:4761'),
   },
   eslint: { ignoreDuringBuilds: true },
   async rewrites() {

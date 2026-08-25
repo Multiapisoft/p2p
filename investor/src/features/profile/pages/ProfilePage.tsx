@@ -76,9 +76,42 @@ export function ProfilePage() {
             </div>
           )}
           {profile?.referralCode ? (
-            <div className="flex justify-between gap-2">
-              <span className="text-on-surface-variant">Referral code</span>
-              <span className="font-medium break-all">{profile.referralCode}</span>
+            <div className="space-y-2 border-t border-outline-variant/60 pt-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-on-surface-variant">Your referral code</span>
+                <span className="font-mono font-medium break-all">{profile.referralCode}</span>
+              </div>
+              <p className="text-xs text-on-surface-variant">
+                Share this code so other investors can join under you. You earn referral rewards
+                when they complete Platform Payments (rates set by admin).
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={async () => {
+                    await navigator.clipboard.writeText(profile.referralCode!);
+                    setMessage('Referral code copied');
+                  }}
+                >
+                  Copy code
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  onClick={async () => {
+                    const origin =
+                      typeof window !== 'undefined' ? window.location.origin : '';
+                    const link = `${origin}/register?ref=${encodeURIComponent(profile.referralCode!)}`;
+                    await navigator.clipboard.writeText(link);
+                    setMessage('Invite link copied');
+                  }}
+                >
+                  Copy invite link
+                </Button>
+              </div>
             </div>
           ) : null}
         </div>

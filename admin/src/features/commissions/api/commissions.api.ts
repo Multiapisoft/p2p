@@ -32,12 +32,16 @@ export const commissionsApi = {
     businessId: string,
     body: {
       businessTake?: CommissionRuleInput[];
+      businessTakeDeposit?: CommissionRuleInput[];
+      businessTakeWithdrawal?: CommissionRuleInput[];
       investorBonus?: CommissionRuleInput[];
       p2pPayLimit?: number;
     },
   ) =>
     apiPost<{
       businessTake: Commission[];
+      businessTakeDeposit: Commission[];
+      businessTakeWithdrawal: Commission[];
       investorBonus: Commission[];
       p2pPayLimit: number;
       p2pPayEarned: number;
@@ -47,6 +51,8 @@ export const commissionsApi = {
   getBusiness: (businessId: string) =>
     apiGet<{
       businessTake: Commission[];
+      businessTakeDeposit: Commission[];
+      businessTakeWithdrawal: Commission[];
       investorBonus: Commission[];
       p2pPayLimit: number;
       p2pPayEarned: number;

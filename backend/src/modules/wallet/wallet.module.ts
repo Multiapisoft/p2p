@@ -9,6 +9,7 @@ import { PlatformCommissionService } from './platform-commission.service';
 import { TransactionModule } from '../transaction/transaction.module';
 import { UsersModule } from '../users/users.module';
 import { BusinessModule } from '../business/business.module';
+import { Business, BusinessSchema } from '../business/schemas/business.schema';
 import { IntegrationModule } from '../integration/integration.module';
 import { AuditModule } from '../audit/audit.module';
 import { Withdrawal, WithdrawalSchema } from '../withdrawal/schemas/withdrawal.schema';
@@ -20,6 +21,7 @@ import { Deposit, DepositSchema } from '../deposit/schemas/deposit.schema';
       { name: Wallet.name, schema: WalletSchema },
       { name: Withdrawal.name, schema: WithdrawalSchema },
       { name: Deposit.name, schema: DepositSchema },
+      { name: Business.name, schema: BusinessSchema },
     ]),
     TransactionModule,
     UsersModule,

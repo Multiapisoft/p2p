@@ -244,6 +244,8 @@ export interface Withdrawal {
   };
   assignedBy?: string;
   assignedAt?: string;
+  priority?: boolean;
+  priorityAt?: string;
   completedAt?: string;
   createdAt: string;
 }
@@ -286,6 +288,10 @@ export interface BusinessOverview {
   p2pPayEarned?: number;
   p2pPayUsed?: number;
   p2pPayRemaining?: number | null;
+  highlightLimitPerMonth?: number;
+  highlightUsedThisMonth?: number;
+  highlightRemainingThisMonth?: number;
+  highlightMonthKey?: string;
   businessName?: string;
   businessStatus?: string;
 }

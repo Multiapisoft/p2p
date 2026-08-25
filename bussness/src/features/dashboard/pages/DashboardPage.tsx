@@ -18,11 +18,7 @@ import { getApiErrorMessage, isNotFoundError } from '@/shared/api/client';
 import { resolveUser } from '@/shared/lib/entity-user';
 import { useAuthStore } from '@/features/auth/store/auth.store';
 import { canRequestBusinessWithdrawal } from '@/features/withdrawals/components/BusinessWithdrawalForm';
-
-const USER_APP_URL = (process.env.NEXT_PUBLIC_USER_APP_URL || 'http://localhost:4761').replace(
-  /\/$/,
-  '',
-);
+import { userInviteRegisterUrl } from '@/shared/lib/user-app-url';
 
 const QUICK_LINKS = [
   { href: '/users', icon: 'group', title: 'Users', desc: 'Linked accounts' },
@@ -98,6 +94,12 @@ export function DashboardPage() {
     enabled: !!business,
   });
 
+  const { data: integrationConfig } = useQuery({
+    queryKey: ['business-integration-config'],
+    queryFn: () => businessApi.getIntegrationConfig(),
+    enabled: !!business,
+  });
+
   if (loadingBusiness) return <LoadingScreen />;
 
   if (businessLoadFailed) {
@@ -160,7 +162,10 @@ export function DashboardPage() {
     );
   }
 
-  const inviteLink = `${USER_APP_URL}/register?code=${encodeURIComponent(business.referralCode || '')}`;
+  const inviteLink = userInviteRegisterUrl(
+    business.referralCode || '',
+    integrationConfig?.userPanelUrl,
+  );
   const pendingDeposits = overview?.pendingDeposits ?? 0;
   const pendingWithdrawals = overview?.pendingWithdrawals ?? 0;
   const pendingPayments = overview?.pendingPlatformPayments ?? 0;

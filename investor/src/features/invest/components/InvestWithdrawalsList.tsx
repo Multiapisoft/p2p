@@ -424,7 +424,7 @@ export function InvestWithdrawalsList() {
   const total = data?.total ?? 0;
   const totalPages = data?.totalPages ?? 1;
   const needsLimit = !!(data?.needsLimit ?? data?.needsPlan);
-  const showBonus = data?.showCommissionToInvestor !== false;
+  const showBonus = true;
   const needsAmount = !needsLimit && (!matchAmount || !!data?.needsAmount);
   const limitLots = data?.lots ?? [];
   const limitRemaining = data?.limitRemaining ?? 0;
@@ -689,6 +689,11 @@ export function InvestWithdrawalsList() {
                             {formatCurrency(w.amount, moneyCurrency(w))}
                           </span>
                           <StatusBadge status={w.status} />
+                          {w.priority ? (
+                            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-900">
+                              Highlighted
+                            </span>
+                          ) : null}
                           {w.origin === 'business' ? (
                             <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
                               Business
@@ -913,10 +918,26 @@ export function InvestWithdrawalsList() {
               required
               disabled={payExpired}
             />
-            <p className="text-[11px] text-on-surface-variant">
-              Partial min {formatCurrency(minPartialAmount(target.method, target.currency), moneyCurrency(target))}.
-              Smaller leftover only as full pay.
-            </p>
+            {(() => {
+              const maxPay =
+                target.maxPayable != null
+                  ? Math.min(target.maxPayable, target.remainingAmount)
+                  : target.remainingAmount;
+              const num = Number(payAmount);
+              const isFullPay =
+                Number.isFinite(num) && num >= 1 && num >= maxPay - 0.001;
+              if (isFullPay) return null;
+              return (
+                <p className="text-[11px] text-on-surface-variant">
+                  Min amount{' '}
+                  {formatCurrency(
+                    minPartialAmount(target.method, target.currency),
+                    moneyCurrency(target),
+                  )}
+                  . Smaller leftover only as full pay.
+                </p>
+              );
+            })()}
 
             {payAmountNum >= 1 && (
               <div

@@ -24,8 +24,13 @@ export const businessesApi = {
     apiGet<Paginated<Business>>('/business', cleanQuery(query)),
   approve: (id: string) => apiPost<Business>(`/business/${id}/approve`),
   getStats: (id: string) => apiGet<BusinessStats>(`/business/${id}/stats`),
-  setP2pPayLimit: (id: string, p2pPayLimit: number) =>
-    apiPatch<Business>(`/business/${id}/p2p-pay-limit`, { p2pPayLimit }),
+  setP2pPayLimit: (
+    id: string,
+    p2pPayLimit: number,
+    mode: 'set' | 'add' | 'deduct' = 'set',
+  ) => apiPatch<Business>(`/business/${id}/p2p-pay-limit`, { p2pPayLimit, mode }),
+  setHighlightLimit: (id: string, highlightLimitPerMonth: number) =>
+    apiPatch<Business>(`/business/${id}/highlight-limit`, { highlightLimitPerMonth }),
   update: (
     id: string,
     body: Partial<{

@@ -1,8 +1,18 @@
 import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { createHash, randomInt, timingSafeEqual } from 'crypto';
+import * as bcrypt from 'bcryptjs';
 import { UsersService } from '../users/users.service';
 import { BusinessService } from '../business/business.service';
-import { LoginDto, RegisterDto, SetPasswordDto, EnableTwoFactorDto, DisableTwoFactorDto } from './dto/auth.dto';
+import {
+  LoginDto,
+  RegisterDto,
+  SetPasswordDto,
+  EnableTwoFactorDto,
+  DisableTwoFactorDto,
+  ForgotPasswordDto,
+  ResetPasswordDto,
+} from './dto/auth.dto';
 import { UserRole } from '../../common/enums/role.enum';
 import { UserStatus } from '../../common/enums/currency.enum';
 import { PaymentMethod } from '../../common/enums/payment-method.enum';
@@ -13,6 +23,10 @@ import {
   generateTotpSecret,
   verifyTotp,
 } from './utils/totp.util';
+
+const RESET_TTL_MS = 15 * 60 * 1000;
+const FORGOT_GENERIC =
+  'If an account exists for that email, a reset code has been issued.';
 
 @Injectable()
 export class AuthService {
@@ -95,6 +109,53 @@ export class AuthService {
     await this.usersRepo.update(user._id.toString(), { lastLoginAt: new Date() });
 
     return this.generateToken(user);
+  }
+
+  /**
+   * Issues a 6-digit reset code (15 min). No SMTP yet — code is returned in the
+   * response so panels can complete reset; swap to email when mailer is wired.
+   */
+  async forgotPassword(dto: ForgotPasswordDto) {
+    const email = dto.email.trim().toLowerCase();
+    const user = await this.usersRepo.findByEmail(email);
+    if (!user || user.status !== UserStatus.ACTIVE) {
+      return { message: FORGOT_GENERIC };
+    }
+
+    const code = String(randomInt(100000, 999999));
+    const passwordResetCodeHash = createHash('sha256').update(code).digest('hex');
+    await this.usersRepo.update(user._id.toString(), {
+      passwordResetCodeHash,
+      passwordResetExpires: new Date(Date.now() + RESET_TTL_MS),
+    });
+
+    return { message: FORGOT_GENERIC, resetCode: code };
+  }
+
+  async resetPassword(dto: ResetPasswordDto) {
+    const email = dto.email.trim().toLowerCase();
+    const user = await this.usersRepo.findByEmailWithReset(email);
+    if (!user || user.status !== UserStatus.ACTIVE) {
+      throw new BadRequestException('Invalid or expired reset code');
+    }
+    if (!user.passwordResetCodeHash || !user.passwordResetExpires) {
+      throw new BadRequestException('Invalid or expired reset code');
+    }
+    if (user.passwordResetExpires.getTime() < Date.now()) {
+      throw new BadRequestException('Invalid or expired reset code');
+    }
+
+    const incomingHash = createHash('sha256').update(dto.code.trim()).digest('hex');
+    const a = Buffer.from(incomingHash, 'utf8');
+    const b = Buffer.from(user.passwordResetCodeHash, 'utf8');
+    if (a.length !== b.length || !timingSafeEqual(a, b)) {
+      throw new BadRequestException('Invalid or expired reset code');
+    }
+
+    const hashedPassword = await bcrypt.hash(dto.newPassword, 12);
+    await this.usersRepo.resetPasswordAfterCode(user._id.toString(), hashedPassword);
+
+    return { message: 'Password updated. You can sign in with your new password.' };
   }
 
   async twoFactorStatus(userId: string) {

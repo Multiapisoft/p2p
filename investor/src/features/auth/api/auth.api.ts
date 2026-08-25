@@ -19,6 +19,21 @@ export async function registerApi(data: {
   password: string;
   name: string;
   phone: string;
+  referralCode?: string;
 }) {
   return apiPost<AuthResponse>('/auth/register', { ...data, role: 'investor' });
+}
+
+export async function forgotPasswordApi(email: string) {
+  return apiPost<{ message: string; resetCode?: string }>('/auth/forgot-password', {
+    email: email.trim().toLowerCase(),
+  });
+}
+
+export async function resetPasswordApi(email: string, code: string, newPassword: string) {
+  return apiPost<{ message: string }>('/auth/reset-password', {
+    email: email.trim().toLowerCase(),
+    code,
+    newPassword,
+  });
 }

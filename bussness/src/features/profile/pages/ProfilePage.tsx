@@ -18,12 +18,9 @@ import { normalizePhone, phoneError } from '@/shared/lib/validation';
 import { TwoFactorPanel } from '../components/TwoFactorPanel';
 import { StaffPanel } from '../components/StaffPanel';
 import type { PaymentMethod } from '@/shared/types/api.types';
+import { userInviteRegisterUrl } from '@/shared/lib/user-app-url';
 
 const PAYMENT_METHODS: PaymentMethod[] = ['upi', 'bank', 'usdt'];
-const USER_APP_URL = (process.env.NEXT_PUBLIC_USER_APP_URL || 'http://localhost:4761').replace(
-  /\/$/,
-  '',
-);
 
 export function ProfilePage() {
   const qc = useQueryClient();
@@ -42,6 +39,12 @@ export function ProfilePage() {
   const { data: user, isLoading: loadingUser } = useQuery({
     queryKey: ['user-me'],
     queryFn: () => usersApi.getMe(),
+  });
+
+  const { data: integrationConfig } = useQuery({
+    queryKey: ['business-integration-config'],
+    queryFn: () => businessApi.getIntegrationConfig(),
+    enabled: !!business,
   });
 
   const noBusiness = isNotFoundError(businessError);
@@ -198,8 +201,8 @@ export function ProfilePage() {
           <div className="space-y-3">
             <CopyField label="Business code" value={business.referralCode} />
             <CopyField
-              label="Invite link"
-              value={`${USER_APP_URL}/register?code=${encodeURIComponent(business.referralCode)}`}
+              label="Invite link (user panel)"
+              value={userInviteRegisterUrl(business.referralCode, integrationConfig?.userPanelUrl)}
             />
           </div>
         ) : (

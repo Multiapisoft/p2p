@@ -5,6 +5,7 @@ import {
   IsArray,
   IsEnum,
   IsBoolean,
+  IsIn,
   Min,
   Max,
   IsUrl,
@@ -105,4 +106,16 @@ export class SetP2pPayLimitDto {
   @IsNumber()
   @Min(0)
   p2pPayLimit!: number;
+
+  /** Absolute set (default), or add/deduct from current seed. */
+  @IsOptional()
+  @IsIn(['set', 'add', 'deduct'])
+  mode?: 'set' | 'add' | 'deduct';
+}
+
+export class SetHighlightLimitDto {
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  highlightLimitPerMonth!: number;
 }

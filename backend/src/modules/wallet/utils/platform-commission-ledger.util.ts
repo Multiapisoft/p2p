@@ -24,6 +24,24 @@ export function businessFeeInDescription(params: {
   return `Business fee ${moneyLabel(params.amount, params.currency)} received from ${params.fromName} (${params.referenceLabel})`;
 }
 
+export function platformFeeOutFromBusinessDescription(params: {
+  amount: number;
+  currency?: Currency | string;
+  toName: string;
+  referenceLabel: string;
+}): string {
+  return `Platform fee ${moneyLabel(params.amount, params.currency)} paid to ${params.toName} (${params.referenceLabel})`;
+}
+
+export function businessFeeOutFromBusinessDescription(params: {
+  amount: number;
+  currency?: Currency | string;
+  toName: string;
+  referenceLabel: string;
+}): string {
+  return `Business fee ${moneyLabel(params.amount, params.currency)} paid to ${params.toName} (${params.referenceLabel})`;
+}
+
 export function feeCutNote(
   platformAmount: number,
   businessAmount: number,
@@ -40,6 +58,17 @@ export function feeCutNote(
   return ` Fee cut: ${parts.join(' + ')}.`;
 }
 
+/** Strip historical fee-split notes from payer-facing ledger descriptions. */
+export function stripFeeCutFromDescription(description?: string | null): string | undefined {
+  if (description == null || description === '') return description ?? undefined;
+  return description
+    .replace(/\s*Fee cut:[^.]*\./gi, '')
+    .replace(/\s*platform fee\s*[₹$]?\s*[\d,.]+/gi, '')
+    .replace(/\s*business fee\s*[₹$]?\s*[\d,.]+/gi, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
 export function investorCommissionOutDescription(params: {
   amount: number;
   currency?: Currency | string;
@@ -54,7 +83,27 @@ export function investorCommissionInDescription(params: {
   currency?: Currency | string;
   referenceLabel: string;
 }): string {
-  return `Investor commission ${moneyLabel(params.amount, params.currency)} received from platform (${params.referenceLabel})`;
+  // Investor-facing: bonus credit only — no platform/business fee split wording.
+  return `Bonus ${moneyLabel(params.amount, params.currency)} credited (${params.referenceLabel})`;
+}
+
+export function referralRewardInDescription(params: {
+  amount: number;
+  currency?: Currency | string;
+  referenceLabel: string;
+  role: 'referrer' | 'joiner';
+}): string {
+  const who = params.role === 'referrer' ? 'Referrer' : 'Joiner';
+  return `Referral reward (${who}) ${moneyLabel(params.amount, params.currency)} credited (${params.referenceLabel})`;
+}
+
+export function referralRewardOutDescription(params: {
+  amount: number;
+  currency?: Currency | string;
+  toName: string;
+  referenceLabel: string;
+}): string {
+  return `Referral reward ${moneyLabel(params.amount, params.currency)} paid to ${params.toName} (${params.referenceLabel})`;
 }
 
 export function depositGivenToDescription(params: {

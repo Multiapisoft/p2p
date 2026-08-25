@@ -43,7 +43,6 @@ import {
 import { withOptionalTransaction } from '../../common/utils/mongo-transaction';
 import { assertValidWithdrawalDestination } from './utils/withdrawal-destination.validation';
 import {
-  adminWithdrawalVisibilityFilter,
   businessWithdrawalVisibilityFilter,
   isInvestorToInvestorPay,
   tatCutoffDate,
@@ -52,7 +51,6 @@ import {
 import { assertUniquePaymentRef } from './utils/payment-ref-uniqueness.util';
 import { PlatformSettingsService } from '../platform-settings/platform-settings.service';
 import { PlatformCommissionService } from '../wallet/platform-commission.service';
-import { feeCutNote } from '../wallet/utils/platform-commission-ledger.util';
 import { platformCommissionWithdrawError } from './utils/platform-commission-withdraw.util';
 import { P2pRealtimeService } from '../realtime/p2p-realtime.service';
 
@@ -246,6 +244,7 @@ export class WithdrawalService {
       method: dto.method,
       status: TransactionStatus.PENDING,
       p2pListStatus: 'awaiting',
+      origin: isInvestor ? 'investor' : 'user',
       upiDetails: dto.upiDetails,
       bankDetails: dto.bankDetails,
       usdtDetails: dto.usdtDetails,
@@ -302,49 +301,63 @@ export class WithdrawalService {
       await this.walletService.credit(wallet._id.toString(), p2pAdvanceAmount, false);
     }
 
-    const beforeLock =
-      (await this.walletService.findById(wallet._id.toString())) || wallet;
-    await this.walletService.lock(wallet._id.toString(), lockAmount);
-    const afterLock = await this.walletService.findById(wallet._id.toString());
+    const wantHighlight = !!dto.priority;
+    if (wantHighlight) {
+      await this.businessService.consumeHighlightSlot(businessId);
+    }
 
-    const referenceId = `WDR-${Date.now()}-${uuidv4().slice(0, 8).toUpperCase()}`;
-    const withdrawal = await this.withdrawalModel.create({
-      referenceId,
-      userId: new Types.ObjectId(walletOwnerId),
-      businessId: new Types.ObjectId(businessId),
-      walletId: wallet._id,
-      amount: dto.amount,
-      currency,
-      method: dto.method,
-      status: TransactionStatus.PENDING,
-      p2pListStatus: 'awaiting',
-      origin: 'business',
-      upiDetails: dto.upiDetails,
-      bankDetails: dto.bankDetails,
-      usdtDetails: dto.usdtDetails,
-      cdmDetails: dto.cdmDetails,
-      p2pAdvanceCredited: p2pAdvanceAmount > 0,
-      p2pAdvanceAmount: p2pAdvanceAmount > 0 ? p2pAdvanceAmount : undefined,
-    });
+    try {
+      const beforeLock =
+        (await this.walletService.findById(wallet._id.toString())) || wallet;
+      await this.walletService.lock(wallet._id.toString(), lockAmount);
+      const afterLock = await this.walletService.findById(wallet._id.toString());
 
-    await this.transactionService.record({
-      userId: walletOwnerId,
-      walletId: wallet._id.toString(),
-      type: LedgerType.LOCK,
-      direction: LedgerDirection.DEBIT,
-      amount: lockAmount,
-      currency,
-      balanceBefore: beforeLock.balance,
-      balanceAfter: afterLock?.balance ?? beforeLock.balance,
-      referenceType: 'business_withdrawal',
-      referenceId: withdrawal._id.toString(),
-      description: `Business withdrawal requested ${referenceId} — awaiting admin verify`,
-      businessId,
-      fromParty: business.name,
-      toParty: 'P2P',
-    });
+      const referenceId = `WDR-${Date.now()}-${uuidv4().slice(0, 8).toUpperCase()}`;
+      const withdrawal = await this.withdrawalModel.create({
+        referenceId,
+        userId: new Types.ObjectId(walletOwnerId),
+        businessId: new Types.ObjectId(businessId),
+        walletId: wallet._id,
+        amount: dto.amount,
+        currency,
+        method: dto.method,
+        status: TransactionStatus.PENDING,
+        p2pListStatus: 'awaiting',
+        origin: 'business',
+        upiDetails: dto.upiDetails,
+        bankDetails: dto.bankDetails,
+        usdtDetails: dto.usdtDetails,
+        cdmDetails: dto.cdmDetails,
+        priority: wantHighlight,
+        priorityAt: wantHighlight ? new Date() : undefined,
+        p2pAdvanceCredited: p2pAdvanceAmount > 0,
+        p2pAdvanceAmount: p2pAdvanceAmount > 0 ? p2pAdvanceAmount : undefined,
+      });
 
-    return withdrawal;
+      await this.transactionService.record({
+        userId: walletOwnerId,
+        walletId: wallet._id.toString(),
+        type: LedgerType.LOCK,
+        direction: LedgerDirection.DEBIT,
+        amount: lockAmount,
+        currency,
+        balanceBefore: beforeLock.balance,
+        balanceAfter: afterLock?.balance ?? beforeLock.balance,
+        referenceType: 'business_withdrawal',
+        referenceId: withdrawal._id.toString(),
+        description: `Business withdrawal requested ${referenceId} — awaiting admin verify`,
+        businessId,
+        fromParty: business.name,
+        toParty: 'P2P',
+      });
+
+      return withdrawal;
+    } catch (err) {
+      if (wantHighlight) {
+        await this.businessService.releaseHighlightSlot(businessId);
+      }
+      throw err;
+    }
   }
 
   /** Admin withdraws collected platform commission via P2P (listed immediately). */
@@ -484,6 +497,7 @@ export class WithdrawalService {
           CommissionTarget.BUSINESS,
           withdrawal.businessId.toString(),
           withdrawal.method,
+          'withdrawal',
         );
         businessCommission = take.amount;
 
@@ -506,6 +520,7 @@ export class WithdrawalService {
         CommissionTarget.PLATFORM,
         withdrawal.businessId?.toString(),
         withdrawal.method,
+        'withdrawal',
       );
       const platformCommission = platformFee.amount;
       const commissionAmount = businessCommission + platformCommission;
@@ -546,10 +561,9 @@ export class WithdrawalService {
           withdrawal.origin === 'business' ? 'business_withdrawal' : 'withdrawal',
         referenceId: withdrawal._id.toString(),
         description:
-          (withdrawal.origin === 'business'
+          withdrawal.origin === 'business'
             ? `Business withdrawal settled ${withdrawal.referenceId} by ${processedBy}`
-            : `Withdrawal processed by ${processedBy}`) +
-          feeCutNote(platformCommission, businessCommission, withdrawal.currency),
+            : `Withdrawal processed by ${processedBy}`,
         businessId: withdrawal.businessId?.toString(),
         fromParty: 'P2P',
         toParty: processedBy,
@@ -798,6 +812,53 @@ export class WithdrawalService {
     withdrawal.p2pListRejectReason = undefined;
     await withdrawal.save();
     this.p2pRealtime.emitListChanged('listed', {
+      withdrawalId: withdrawal._id.toString(),
+    });
+    return withdrawal;
+  }
+
+  /** Business/admin: toggle FIFO jump for an open withdrawal. */
+  async setPriority(
+    id: string,
+    priority: boolean,
+    actor: { userId: string; email?: string; role: UserRole },
+  ) {
+    const withdrawal = await this.withdrawalModel.findById(id).exec();
+    if (!withdrawal) throw new NotFoundException('Withdrawal not found');
+    if (
+      withdrawal.status !== TransactionStatus.PENDING &&
+      withdrawal.status !== TransactionStatus.PROCESSING
+    ) {
+      throw new BadRequestException('Only open withdrawals can change priority');
+    }
+
+    const wasPriority = !!withdrawal.priority;
+    const nextPriority = !!priority;
+    if (wasPriority === nextPriority) return withdrawal;
+
+    let businessIdForQuota: string | null = null;
+    if (actor.role === UserRole.BUSINESS) {
+      const business = await this.businessService.findForActor(actor.userId);
+      if (withdrawal.businessId?.toString() !== business._id.toString()) {
+        throw new ForbiddenException('Withdrawal does not belong to your business');
+      }
+      businessIdForQuota = business._id.toString();
+    } else if (actor.role !== UserRole.ADMIN && actor.role !== UserRole.SUB_ADMIN) {
+      throw new ForbiddenException('Not allowed to set withdrawal priority');
+    }
+
+    if (businessIdForQuota) {
+      if (nextPriority) {
+        await this.businessService.consumeHighlightSlot(businessIdForQuota);
+      } else {
+        await this.businessService.releaseHighlightSlot(businessIdForQuota);
+      }
+    }
+
+    withdrawal.priority = nextPriority;
+    withdrawal.priorityAt = nextPriority ? new Date() : undefined;
+    await withdrawal.save();
+    this.p2pRealtime.emitListChanged('updated', {
       withdrawalId: withdrawal._id.toString(),
     });
     return withdrawal;
@@ -1194,11 +1255,11 @@ export class WithdrawalService {
 
     const filter = { $and: and };
     const sortSpec = listSortMap(sort, {
-      newest: { createdAt: -1 },
-      oldest: { createdAt: 1 },
-      amount_desc: { amount: -1 },
-      amount_asc: { amount: 1 },
-      status: { status: 1, createdAt: -1 },
+      newest: { priority: -1, createdAt: -1 },
+      oldest: { priority: -1, createdAt: 1 },
+      amount_desc: { priority: -1, amount: -1 },
+      amount_asc: { priority: -1, amount: 1 },
+      status: { priority: -1, status: 1, createdAt: -1 },
     });
 
     const [items, total] = await Promise.all([
@@ -1384,11 +1445,11 @@ export class WithdrawalService {
 
     const filter = { $and: and };
     const sortSpec = listSortMap(sort, {
-      newest: { createdAt: -1 },
-      oldest: { createdAt: 1 },
-      amount_desc: { amount: -1 },
-      amount_asc: { amount: 1 },
-      status: { status: 1, createdAt: -1 },
+      newest: { priority: -1, createdAt: -1 },
+      oldest: { priority: -1, createdAt: 1 },
+      amount_desc: { priority: -1, amount: -1 },
+      amount_asc: { priority: -1, amount: 1 },
+      status: { priority: -1, status: 1, createdAt: -1 },
     });
 
     const [items, total] = await Promise.all([
@@ -1484,12 +1545,8 @@ export class WithdrawalService {
 
   async findAll(opts: WithdrawalListOpts = {}) {
     const { page, limit, skip, search, status, sort } = normalizeListOpts(opts);
-    const tatMs = await this.platformSettingsService.getTatMs();
-    const tatCutoff = tatCutoffDate(Date.now(), tatMs);
-    const and: Record<string, unknown>[] = [
-      // #24: Admin sees business withdrawals only after Platform Payment list approval
-      adminWithdrawalVisibilityFilter(tatCutoff),
-    ];
+    const and: Record<string, unknown>[] = [];
+    // Admin sees all WDs: listed / awaiting / cancelled / within TAT / business-linked.
 
     if (status) and.push({ status });
     if (opts.method && opts.method !== 'all') {
@@ -1507,13 +1564,13 @@ export class WithdrawalService {
       });
     }
 
-    const filter = { $and: and };
+    const filter = and.length ? { $and: and } : {};
     const sortSpec = listSortMap(sort, {
-      newest: { createdAt: -1 },
-      oldest: { createdAt: 1 },
-      amount_desc: { amount: -1 },
-      amount_asc: { amount: 1 },
-      status: { status: 1, createdAt: -1 },
+      newest: { priority: -1, createdAt: -1 },
+      oldest: { priority: -1, createdAt: 1 },
+      amount_desc: { priority: -1, amount: -1 },
+      amount_asc: { priority: -1, amount: 1 },
+      status: { priority: -1, status: 1, createdAt: -1 },
     });
 
     const [items, total] = await Promise.all([

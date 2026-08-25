@@ -515,7 +515,7 @@ export function FulfillWithdrawals({
   const availableTotal = data?.total ?? 0;
   const availableTotalPages = data?.totalPages ?? 1;
   const needsLimit = !!(data?.needsLimit ?? data?.needsPlan);
-  const showBonus = data?.showCommissionToInvestor !== false;
+  const showBonus = true;
   const needsAmount = !needsLimit && (!matchAmount || !!data?.needsAmount);
   const limitLots = data?.lots ?? [];
   const limitRemaining = data?.limitRemaining ?? 0;
@@ -748,6 +748,11 @@ export function FulfillWithdrawals({
                     </div>
                     <div className="flex items-center gap-2">
                       <StatusBadge status={w.status} />
+                      {w.priority ? (
+                        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-900">
+                          Highlighted
+                        </span>
+                      ) : null}
                       {w.origin === 'business' ? (
                         <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
                           Business
@@ -1011,10 +1016,27 @@ export function FulfillWithdrawals({
               required
               disabled={payExpired}
             />
-            <p className="text-[11px] text-on-surface-variant">
-              Partial min {formatCurrency(minPartialAmount(target.method, target.currency), target.currency)}.
-              Smaller leftover only as full pay.
-            </p>
+            {(() => {
+              const maxPay =
+                target.maxPayable != null
+                  ? Math.min(target.maxPayable, target.remainingAmount)
+                  : target.remainingAmount;
+              const isFullPay =
+                Number.isFinite(payAmountNum) &&
+                payAmountNum >= 1 &&
+                payAmountNum >= maxPay - 0.001;
+              if (isFullPay) return null;
+              return (
+                <p className="text-[11px] text-on-surface-variant">
+                  Min amount{' '}
+                  {formatCurrency(
+                    minPartialAmount(target.method, target.currency),
+                    target.currency,
+                  )}
+                  . Smaller leftover only as full pay.
+                </p>
+              );
+            })()}
 
             {isInvest && payAmountNum >= 1 && (
               <div

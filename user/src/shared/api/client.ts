@@ -23,7 +23,10 @@ apiClient.interceptors.response.use(
       const url = String(error.config?.url || '');
       // Don't bounce the login/register screen on bad credentials
       const isAuthAttempt =
-        url.includes('/auth/login') || url.includes('/auth/register');
+        url.includes('/auth/login') ||
+        url.includes('/auth/register') ||
+        url.includes('/auth/forgot-password') ||
+        url.includes('/auth/reset-password');
       if (!isAuthAttempt) {
         useAuthStore.getState().logout();
         window.location.href = '/login';

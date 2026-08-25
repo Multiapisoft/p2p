@@ -64,6 +64,7 @@ export function BusinessWithdrawalForm() {
   const [selectedSavedMethodId, setSelectedSavedMethodId] = useState('');
   const [saveCurrentMethod, setSaveCurrentMethod] = useState(false);
   const [saveAsDefault, setSaveAsDefault] = useState(false);
+  const [priority, setPriority] = useState(false);
 
   const { data: overview } = useQuery({
     queryKey: ['business-overview'],
@@ -115,6 +116,7 @@ export function BusinessWithdrawalForm() {
       setSelectedSavedMethodId('');
       setSaveCurrentMethod(false);
       setSaveAsDefault(false);
+      setPriority(false);
       setSuccess(`Request ${w.referenceId} submitted — waiting admin verify`);
       qc.invalidateQueries({ queryKey: ['business-withdrawals'] });
       qc.invalidateQueries({ queryKey: ['business-overview'] });
@@ -151,6 +153,8 @@ export function BusinessWithdrawalForm() {
   if (!allowed) return null;
 
   const remaining = overview?.p2pPayRemaining ?? 0;
+  const highlightLeft = overview?.highlightRemainingThisMonth ?? 0;
+  const highlightLimit = overview?.highlightLimitPerMonth ?? 0;
   const limit = overview?.p2pPayLimit ?? 0;
   const used = overview?.p2pPayUsed ?? 0;
   const earned = overview?.p2pPayEarned ?? 0;
@@ -260,6 +264,7 @@ export function BusinessWithdrawalForm() {
       await create.mutateAsync({
         amount: num,
         method,
+        priority: priority || undefined,
         ...dest,
       });
     } catch {
@@ -365,6 +370,24 @@ export function BusinessWithdrawalForm() {
               </button>
             ))}
           </div>
+          <label className="flex items-start gap-2 rounded-lg border border-outline-variant px-3 py-2 text-sm">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={priority}
+              onChange={(e) => setPriority(e.target.checked)}
+              disabled={exhausted || (!priority && highlightLeft < 1)}
+            />
+            <span>
+              <span className="font-semibold">Highlight (top of pay list)</span>
+              <span className="block text-xs text-on-surface-variant">
+                Pins this request to the top for users, investors, and admin.
+                {highlightLimit > 0
+                  ? ` ${highlightLeft} of ${highlightLimit} left this month.`
+                  : ' Admin must set a monthly highlight limit first.'}
+              </span>
+            </span>
+          </label>
           <div className="space-y-3 rounded-xl border border-outline-variant bg-surface-container-low px-4 py-3">
             <label className="flex flex-col gap-1 text-sm font-semibold">
               Saved withdrawal method

@@ -11,3 +11,10 @@ export enum CommissionFeeMode {
   FIXED = 'fixed',
   BOTH = 'both',
 }
+
+/** Which txn kind a business/platform fee rule applies to. */
+export enum CommissionAppliesTo {
+  ALL = 'all',
+  DEPOSIT = 'deposit',
+  WITHDRAWAL = 'withdrawal',
+}

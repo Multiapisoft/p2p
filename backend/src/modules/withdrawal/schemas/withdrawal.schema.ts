@@ -149,6 +149,13 @@ export class Withdrawal {
 
   @Prop()
   assignedAt?: Date;
+
+  /** Jump FIFO pay queue when true (business withdrawals). */
+  @Prop({ default: false, index: true })
+  priority?: boolean;
+
+  @Prop()
+  priorityAt?: Date;
 }
 
 export const WithdrawalSchema = SchemaFactory.createForClass(Withdrawal);

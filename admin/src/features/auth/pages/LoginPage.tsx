@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { useMutation } from '@tanstack/react-query';
 import { loginApi } from '@/features/auth/api/auth.api';
 import { useAuthStore } from '@/features/auth/store/auth.store';
@@ -105,6 +106,11 @@ export function LoginPage() {
               placeholder="••••••••"
               required
             />
+            <div className="flex justify-end">
+              <Link href="/forgot-password" className="text-sm font-medium text-secondary hover:underline">
+                Forgot password?
+              </Link>
+            </div>
 
             {needs2fa && (
               <Input

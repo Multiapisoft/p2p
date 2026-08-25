@@ -1,9 +1,11 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { ClientSession } from 'mongoose';
+import { InjectModel } from '@nestjs/mongoose';
+import { ClientSession, Model } from 'mongoose';
 import { WalletService } from './wallet.service';
 import { TransactionService } from '../transaction/transaction.service';
 import { UsersRepository } from '../users/users.repository';
+import { Business, BusinessDocument } from '../business/schemas/business.schema';
 import { UserRole } from '../../common/enums/role.enum';
 import {
   Currency,
@@ -13,10 +15,14 @@ import {
 } from '../../common/enums/currency.enum';
 import {
   businessFeeInDescription,
+  businessFeeOutFromBusinessDescription,
   investorCommissionOutDescription,
   partyLabel,
   platformFeeInDescription,
+  platformFeeOutFromBusinessDescription,
   depositGivenToDescription,
+  referralRewardInDescription,
+  referralRewardOutDescription,
 } from './utils/platform-commission-ledger.util';
 import { UserDocument } from '../users/schemas/user.schema';
 
@@ -54,6 +60,19 @@ export type InvestorCommissionSettleParams = {
   session?: ClientSession;
 };
 
+export type ReferralRewardSettleParams = {
+  amount: number;
+  currency?: Currency;
+  toUserId: string;
+  toName: string;
+  referralRole: 'referrer' | 'joiner';
+  referenceType: string;
+  referenceId: string;
+  referenceLabel: string;
+  businessId?: string;
+  session?: ClientSession;
+};
+
 export type DepositGivenToParams = {
   amount: number;
   currency?: Currency;
@@ -76,6 +95,7 @@ export class PlatformCommissionService {
     private transactionService: TransactionService,
     private usersRepo: UsersRepository,
     private config: ConfigService,
+    @InjectModel(Business.name) private businessModel: Model<BusinessDocument>,
   ) {}
 
   async findPlatformAdmin(): Promise<UserDocument> {
@@ -165,9 +185,121 @@ export class PlatformCommissionService {
     });
   }
 
-  /** Credit platform + business take to admin wallet (sequential, same wallet). */
+  /**
+   * Debit fee from business wallet, then credit admin.
+   * User/investor principal is never reduced for these fees.
+   */
+  private async transferFeeFromBusinessToAdmin(
+    params: PlatformSettleParams & {
+      businessOwnerId: string;
+      businessName: string;
+    },
+  ) {
+    if (params.amount <= 0) return null;
+
+    const currency = params.currency || Currency.INR;
+    const kind = params.kind || 'platform';
+    const admin = await this.findPlatformAdmin();
+    const from = partyLabel(params.businessName, UserRole.BUSINESS);
+    const to = partyLabel(admin.name, UserRole.ADMIN);
+
+    const bizWallet = await this.walletService.getOrCreate(
+      params.businessOwnerId,
+      currency,
+      params.businessId,
+    );
+    const bizBefore = bizWallet.balance;
+    const bizUpdated = await this.walletService.debit(
+      bizWallet._id.toString(),
+      params.amount,
+      false,
+      params.session,
+      { allowOverdraft: true },
+    );
+
+    const outDescription =
+      kind === 'business'
+        ? businessFeeOutFromBusinessDescription({
+            amount: params.amount,
+            currency,
+            toName: to,
+            referenceLabel: params.referenceLabel,
+          })
+        : platformFeeOutFromBusinessDescription({
+            amount: params.amount,
+            currency,
+            toName: to,
+            referenceLabel: params.referenceLabel,
+          });
+
+    await this.transactionService.record({
+      userId: params.businessOwnerId,
+      walletId: bizWallet._id.toString(),
+      type: LedgerType.COMMISSION,
+      direction: LedgerDirection.DEBIT,
+      flow: LedgerFlow.PLATFORM_FEE,
+      amount: params.amount,
+      currency,
+      balanceBefore: bizBefore,
+      balanceAfter: bizUpdated.balance,
+      referenceType: params.referenceType,
+      referenceId: params.referenceId,
+      description: outDescription,
+      businessId: params.businessId,
+      counterpartyUserId: admin._id.toString(),
+      fromParty: from,
+      toParty: to,
+    });
+
+    return this.creditPlatformFee({
+      ...params,
+      fromUserId: params.businessOwnerId,
+      fromName: params.businessName,
+      fromRole: UserRole.BUSINESS,
+      kind,
+    });
+  }
+
+  /**
+   * Collect platform + business fees:
+   * - With businessId → debit business wallet, credit admin (business pays).
+   * - Without businessId → credit admin only (legacy / no business context).
+   * Investor bonus / referral stay separate and debit admin wallet.
+   */
   async creditCollectedFees(params: CollectedFeesSettleParams) {
-    const { platformAmount, businessAmount, ...common } = params;
+    const { platformAmount, businessAmount, businessId, ...common } = params;
+    if (platformAmount <= 0 && businessAmount <= 0) return;
+
+    if (businessId) {
+      const business = await this.businessModel.findById(businessId).exec();
+      if (!business) {
+        throw new NotFoundException('Business not found for fee collection');
+      }
+      const ownerId = business.ownerId.toString();
+      const businessName = business.name;
+      if (platformAmount > 0) {
+        await this.transferFeeFromBusinessToAdmin({
+          ...common,
+          businessId,
+          amount: platformAmount,
+          kind: 'platform',
+          businessOwnerId: ownerId,
+          businessName,
+        });
+      }
+      if (businessAmount > 0) {
+        await this.transferFeeFromBusinessToAdmin({
+          ...common,
+          businessId,
+          amount: businessAmount,
+          kind: 'business',
+          businessOwnerId: ownerId,
+          businessName,
+        });
+      }
+      return;
+    }
+
     if (platformAmount > 0) {
       await this.creditPlatformFee({
         ...common,
@@ -279,6 +411,85 @@ export class PlatformCommissionService {
       counterpartyUserId: params.toUserId,
       fromParty: from,
       toParty: to,
+    });
+  }
+
+  /**
+   * Investor referral reward: credit investor wallet + debit admin wallet.
+   */
+  async settleReferralReward(params: ReferralRewardSettleParams) {
+    if (params.amount <= 0) return null;
+
+    const currency = params.currency || Currency.INR;
+    const admin = await this.findPlatformAdmin();
+    const toWallet = await this.walletService.getOrCreate(params.toUserId, currency);
+    const toBefore = toWallet.balance;
+    const toUpdated = await this.walletService.credit(
+      toWallet._id.toString(),
+      params.amount,
+      false,
+      params.session,
+    );
+
+    await this.transactionService.record({
+      userId: params.toUserId,
+      walletId: toWallet._id.toString(),
+      type: LedgerType.COMMISSION,
+      direction: LedgerDirection.CREDIT,
+      flow: LedgerFlow.REFERRAL_REWARD,
+      amount: params.amount,
+      currency,
+      balanceBefore: toBefore,
+      balanceAfter: toUpdated.balance,
+      referenceType: params.referenceType,
+      referenceId: params.referenceId,
+      description: referralRewardInDescription({
+        amount: params.amount,
+        currency,
+        referenceLabel: params.referenceLabel,
+        role: params.referralRole,
+      }),
+      businessId: params.businessId,
+      counterpartyUserId: admin._id.toString(),
+      fromParty: partyLabel(admin.name, UserRole.ADMIN),
+      toParty: partyLabel(params.toName, UserRole.INVESTOR),
+    });
+
+    const adminWallet = await this.walletService.getOrCreate(
+      admin._id.toString(),
+      currency,
+    );
+    const adminBefore = adminWallet.balance;
+    const adminUpdated = await this.walletService.debit(
+      adminWallet._id.toString(),
+      params.amount,
+      false,
+      params.session,
+      { allowOverdraft: true },
+    );
+
+    return this.transactionService.record({
+      userId: admin._id.toString(),
+      walletId: adminWallet._id.toString(),
+      type: LedgerType.COMMISSION,
+      direction: LedgerDirection.DEBIT,
+      flow: LedgerFlow.REFERRAL_REWARD,
+      amount: params.amount,
+      currency,
+      balanceBefore: adminBefore,
+      balanceAfter: adminUpdated.balance,
+      referenceType: params.referenceType,
+      referenceId: params.referenceId,
+      description: referralRewardOutDescription({
+        amount: params.amount,
+        currency,
+        toName: partyLabel(params.toName, UserRole.INVESTOR),
+        referenceLabel: params.referenceLabel,
+      }),
+      businessId: params.businessId,
+      counterpartyUserId: params.toUserId,
+      fromParty: partyLabel(admin.name, UserRole.ADMIN),
+      toParty: partyLabel(params.toName, UserRole.INVESTOR),
     });
   }
 }

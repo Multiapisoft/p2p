@@ -440,9 +440,6 @@ export function AvailableWithdrawalsPanel({
             {matchAmount != null ? (
               <p className="mt-0.5 text-xs text-on-surface-variant">
                 Showing matches for {formatCurrency(matchAmount)}
-                {matchAmount >= 5000
-                  ? `, including larger requests for ₹${matchAmount.toLocaleString('en-IN')} partial`
-                  : ''}
               </p>
             ) : (
               <p className="mt-0.5 text-xs text-on-surface-variant">
@@ -559,6 +556,11 @@ export function AvailableWithdrawalsPanel({
                       </span>
                       <p className="text-base font-bold">{formatCurrency(w.amount, moneyCurrency(w))}</p>
                       <StatusBadge status={w.status} />
+                      {w.priority ? (
+                        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-900">
+                          Highlighted
+                        </span>
+                      ) : null}
                       <span className="rounded-full bg-surface-container-high px-2 py-0.5 text-[10px] font-semibold uppercase">
                         {METHOD_META[w.method].label}
                       </span>
@@ -688,10 +690,27 @@ export function AvailableWithdrawalsPanel({
               required
               disabled={payExpired}
             />
-            <p className="text-[11px] text-on-surface-variant">
-              Partial min {formatCurrency(minPartialAmount(target.method, target.currency), moneyCurrency(target))}.
-              Smaller leftover only as full pay.
-            </p>
+            {(() => {
+              const maxPay =
+                target.maxPayable != null
+                  ? Math.min(target.maxPayable, target.remainingAmount)
+                  : target.remainingAmount;
+              const isFullPay =
+                Number.isFinite(payAmountNum) &&
+                payAmountNum >= 1 &&
+                payAmountNum >= maxPay - 0.001;
+              if (isFullPay) return null;
+              return (
+                <p className="text-[11px] text-on-surface-variant">
+                  Min amount{' '}
+                  {formatCurrency(
+                    minPartialAmount(target.method, target.currency),
+                    moneyCurrency(target),
+                  )}
+                  . Smaller leftover only as full pay.
+                </p>
+              );
+            })()}
 
             {payAmountNum >= 1 && creditPreview && (
               <div

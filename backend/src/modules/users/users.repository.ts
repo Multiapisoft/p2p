@@ -72,6 +72,13 @@ export class UsersRepository implements OnModuleInit {
       .exec();
   }
 
+  async findByEmailWithReset(email: string): Promise<UserDocument | null> {
+    return this.userModel
+      .findOne({ email: email.toLowerCase().trim() })
+      .select('+passwordResetCodeHash +passwordResetExpires')
+      .exec();
+  }
+
   async findByIdWithSecrets(id: string): Promise<UserDocument | null> {
     return this.userModel.findById(id).select('+twoFactorSecret').exec();
   }
@@ -163,6 +170,22 @@ export class UsersRepository implements OnModuleInit {
   async update(id: string, data: Partial<User>): Promise<UserDocument> {
     const user = await this.userModel
       .findByIdAndUpdate(id, data, { new: true })
+      .exec();
+    if (!user) throw new NotFoundException('User not found');
+    await this.redis.del(`user:${id}`);
+    return user;
+  }
+
+  async resetPasswordAfterCode(id: string, hashedPassword: string): Promise<UserDocument> {
+    const user = await this.userModel
+      .findByIdAndUpdate(
+        id,
+        {
+          $set: { password: hashedPassword, mustSetPassword: false },
+          $unset: { passwordResetCodeHash: 1, passwordResetExpires: 1 },
+        },
+        { new: true },
+      )
       .exec();
     if (!user) throw new NotFoundException('User not found');
     await this.redis.del(`user:${id}`);

@@ -6,6 +6,7 @@ import { useSearchParams } from 'next/navigation';
 import { LoadingScreen } from '@/shared/components/ui/Icon';
 import { Button } from '@/shared/components/ui/Button';
 import { AvailableWithdrawalsPanel } from '../components/AvailableWithdrawalsPanel';
+import { CdmDepositForm } from '../components/CdmDepositForm';
 
 function DepositsPageInner() {
   const searchParams = useSearchParams();
@@ -37,6 +38,7 @@ function DepositsPageInner() {
       </div>
 
       <AvailableWithdrawalsPanel preferredAmount={preferredPayAmount} />
+      <CdmDepositForm />
     </div>
   );
 }

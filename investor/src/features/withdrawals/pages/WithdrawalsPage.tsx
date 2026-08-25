@@ -351,27 +351,34 @@ export function WithdrawalsPage() {
 
   return (
     <div className="mx-auto max-w-7xl space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="font-[family-name:var(--font-headline)] text-2xl font-bold">
-            My Withdrawals
-          </h1>
-          <p className="text-sm text-on-surface-variant">
-            Open a payout request (UPI / Bank / USDT). Others can fulfill it on Invest.
-          </p>
+      <div className="relative overflow-hidden rounded-2xl border border-outline-variant bg-gradient-to-br from-surface-container-lowest via-surface-container-low/40 to-secondary-container/20 p-4 sm:p-5">
+        <div className="pointer-events-none absolute -right-8 -top-10 h-36 w-36 rounded-full bg-secondary/10 blur-2xl" />
+        <div className="relative flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="mb-1 inline-flex items-center gap-1.5 rounded-full bg-secondary/15 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-secondary">
+              <span className="material-symbols-outlined text-sm">north_east</span>
+              Withdrawals
+            </p>
+            <h1 className="font-[family-name:var(--font-headline)] text-2xl font-bold">
+              My withdrawal requests
+            </h1>
+            <p className="mt-1 text-sm text-on-surface-variant">
+              Open a payout request (UPI / Bank / USDT). Others can fulfill it on Invest.
+            </p>
+          </div>
+          <Button
+            onClick={() => {
+              if (showForm) {
+                setShowForm(false);
+                resetForm();
+              } else {
+                setShowForm(true);
+              }
+            }}
+          >
+            {showForm ? 'Close' : editingId ? 'Edit withdrawal' : 'New Withdrawal'}
+          </Button>
         </div>
-        <Button
-          onClick={() => {
-            if (showForm) {
-              setShowForm(false);
-              resetForm();
-            } else {
-              setShowForm(true);
-            }
-          }}
-        >
-          {showForm ? 'Close' : editingId ? 'Edit withdrawal' : 'New Withdrawal'}
-        </Button>
       </div>
 
       <div className="rounded-xl border border-secondary/25 bg-secondary-container/15 p-4">
@@ -632,19 +639,46 @@ export function WithdrawalsPage() {
                     )
                   : w.tatSecondsRemaining ?? 0;
               return (
-              <div key={w._id} className="rounded-xl border border-outline-variant p-3">
+              <article
+                key={w._id}
+                className={`overflow-hidden rounded-2xl border border-outline-variant/80 border-l-4 bg-surface-container-lowest p-3 shadow-sm sm:p-4 ${
+                  w.status === 'pending'
+                    ? 'border-l-amber-500'
+                    : w.status === 'processing'
+                      ? 'border-l-sky-500'
+                      : w.status === 'completed'
+                        ? 'border-l-emerald-500'
+                        : w.status === 'cancelled' || w.status === 'rejected'
+                          ? 'border-l-red-500'
+                          : 'border-l-outline-variant'
+                }`}
+              >
                 <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div>
-                    <p className="font-semibold">
-                      {formatCurrency(w.amount, w.currency)}
-                      {w.sourceAmount != null && w.currency === 'USDT' ? (
-                        <span className="ml-1 text-xs font-normal text-on-surface-variant">
-                          (locked {formatCurrency(w.sourceAmount, 'INR')})
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                        <span className="material-symbols-outlined text-[18px]">
+                          {w.method === 'upi'
+                            ? 'qr_code_2'
+                            : w.method === 'bank'
+                              ? 'account_balance'
+                              : 'currency_bitcoin'}
                         </span>
-                      ) : null}
+                      </span>
+                      <p className="text-lg font-bold tabular-nums text-error">
+                        {formatCurrency(w.amount, w.currency)}
+                        {w.sourceAmount != null && w.currency === 'USDT' ? (
+                          <span className="ml-1 text-xs font-normal text-on-surface-variant">
+                            (locked {formatCurrency(w.sourceAmount, 'INR')})
+                          </span>
+                        ) : null}
+                      </p>
+                    </div>
+                    <p className="mt-1 font-mono text-[11px] font-semibold text-primary">
+                      {w.referenceId}
                     </p>
-                    <p className="font-mono text-[11px] text-on-surface-variant">
-                      {w.referenceId} · {w.method.toUpperCase()} · {formatDate(w.createdAt)}
+                    <p className="text-xs text-on-surface-variant">
+                      {w.method.toUpperCase()} · {formatDate(w.createdAt)}
                     </p>
                     {w.p2pListStatus === 'listed' &&
                     (w.status === 'pending' || w.status === 'processing') ? (
@@ -685,7 +719,7 @@ export function WithdrawalsPage() {
                     )}
                   </div>
                 </div>
-              </div>
+              </article>
               );
             })}
             <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />

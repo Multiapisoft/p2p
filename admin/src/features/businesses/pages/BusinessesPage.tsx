@@ -44,13 +44,21 @@ export function BusinessesPage() {
   const [limitTarget, setLimitTarget] = useState<Business | null>(null);
   const [commissionTarget, setCommissionTarget] = useState<Business | null>(null);
   const [txnFlagsTarget, setTxnFlagsTarget] = useState<Business | null>(null);
-  const [businessTake, setBusinessTake] = useState<CommissionRuleInput[]>([emptyRule({ percentage: 2 })]);
+  const [businessTakeDeposit, setBusinessTakeDeposit] = useState<CommissionRuleInput[]>([
+    emptyRule({ percentage: 2 }),
+  ]);
+  const [businessTakeWithdrawal, setBusinessTakeWithdrawal] = useState<CommissionRuleInput[]>([
+    emptyRule({ percentage: 2 }),
+  ]);
   const [investorBonus, setInvestorBonus] = useState<CommissionRuleInput[]>([
     emptyRule({ percentage: 1, feeMode: 'percentage' }),
   ]);
   const [p2pPayLimit, setP2pPayLimit] = useState('0');
   const [limitDraft, setLimitDraft] = useState('0');
+  const [limitMode, setLimitMode] = useState<'set' | 'add' | 'deduct'>('set');
   const [limitError, setLimitError] = useState('');
+  const [highlightDraft, setHighlightDraft] = useState('0');
+  const [highlightError, setHighlightError] = useState('');
   const [commissionError, setCommissionError] = useState('');
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
@@ -98,7 +106,20 @@ export function BusinessesPage() {
 
   useEffect(() => {
     if (!commissionTarget || !businessCommission) return;
-    setBusinessTake(rulesFromConfigs(businessCommission.businessTake));
+    setBusinessTakeDeposit(
+      rulesFromConfigs(
+        businessCommission.businessTakeDeposit?.length
+          ? businessCommission.businessTakeDeposit
+          : businessCommission.businessTake,
+      ),
+    );
+    setBusinessTakeWithdrawal(
+      rulesFromConfigs(
+        businessCommission.businessTakeWithdrawal?.length
+          ? businessCommission.businessTakeWithdrawal
+          : businessCommission.businessTake,
+      ),
+    );
     setInvestorBonus(rulesFromConfigs(businessCommission.investorBonus));
     setP2pPayLimit(String(businessCommission.p2pPayLimit ?? 0));
     setCommissionError('');
@@ -106,9 +127,11 @@ export function BusinessesPage() {
 
   useEffect(() => {
     if (!limitTarget) return;
-    setLimitDraft(String(limitTarget.p2pPayLimit ?? 0));
+    setLimitDraft(limitMode === 'set' ? String(limitTarget.p2pPayLimit ?? 0) : '');
+    setHighlightDraft(String(limitTarget.highlightLimitPerMonth ?? 0));
     setLimitError('');
-  }, [limitTarget]);
+    setHighlightError('');
+  }, [limitTarget, limitMode]);
 
   const approve = useMutation({
     mutationFn: (id: string) => businessesApi.approve(id),
@@ -116,20 +139,33 @@ export function BusinessesPage() {
   });
 
   const saveLimit = useMutation({
-    mutationFn: () => {
+    mutationFn: async () => {
       const num = Number(limitDraft);
       if (!Number.isFinite(num) || num < 0) {
-        throw new Error('Enter a valid limit (0 = unlimited until deposits)');
+        throw new Error('Enter a valid pay-limit amount');
       }
-      return businessesApi.setP2pPayLimit(limitTarget!._id, num);
+      if ((limitMode === 'add' || limitMode === 'deduct') && num <= 0) {
+        throw new Error('Amount must be greater than 0');
+      }
+      const hl = Number(highlightDraft);
+      if (!Number.isFinite(hl) || hl < 0 || !Number.isInteger(hl)) {
+        throw new Error('Highlight limit must be a whole number ≥ 0');
+      }
+      await businessesApi.setP2pPayLimit(limitTarget!._id, num, limitMode);
+      return businessesApi.setHighlightLimit(limitTarget!._id, hl);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['businesses'] });
       qc.invalidateQueries({ queryKey: ['business-stats'] });
       qc.invalidateQueries({ queryKey: ['business-commission'] });
       setLimitTarget(null);
+      setLimitMode('set');
     },
-    onError: (err) => setLimitError(getApiErrorMessage(err, 'Could not save limit')),
+    onError: (err) => {
+      const msg = getApiErrorMessage(err, 'Could not save limits');
+      setLimitError(msg);
+      setHighlightError(msg);
+    },
   });
 
   const saveTxnFlags = useMutation({
@@ -147,7 +183,8 @@ export function BusinessesPage() {
   const saveCommissions = useMutation({
     mutationFn: () =>
       commissionsApi.upsertBusiness(commissionTarget!._id, {
-        businessTake,
+        businessTakeDeposit,
+        businessTakeWithdrawal,
         investorBonus,
         p2pPayLimit: Number(p2pPayLimit) || 0,
       }),
@@ -322,6 +359,13 @@ export function BusinessesPage() {
                         Left {formatCurrency(b.p2pPayRemaining ?? 0)}
                       </p>
                     </div>
+                    <div>
+                      <p className="text-xs text-on-surface-variant sm:text-sm">Highlight / mo</p>
+                      <p className="font-semibold">{b.highlightLimitPerMonth ?? 0}</p>
+                      <p className="text-[11px] text-on-surface-variant">
+                        Left {b.highlightRemainingThisMonth ?? 0}
+                      </p>
+                    </div>
                   </div>
                   <div className="mt-3 flex flex-wrap gap-2 sm:mt-4">
                     <Button
@@ -336,7 +380,10 @@ export function BusinessesPage() {
                       size="sm"
                       variant="secondary"
                       className="flex-1 sm:flex-none"
-                      onClick={() => setLimitTarget(b)}
+                      onClick={() => {
+                        setLimitMode('set');
+                        setLimitTarget(b);
+                      }}
                     >
                       Set Limit
                     </Button>
@@ -427,8 +474,11 @@ export function BusinessesPage() {
 
       <Modal
         open={!!limitTarget}
-        onClose={() => setLimitTarget(null)}
-        title={`Set pay limit — ${limitTarget?.name ?? ''}`}
+        onClose={() => {
+          setLimitTarget(null);
+          setLimitMode('set');
+        }}
+        title={`Set limits — ${limitTarget?.name ?? ''}`}
       >
         {loadingLimitStats ? (
           <LoadingScreen />
@@ -438,6 +488,7 @@ export function BusinessesPage() {
             onSubmit={(e) => {
               e.preventDefault();
               setLimitError('');
+              setHighlightError('');
               saveLimit.mutate();
             }}
           >
@@ -458,7 +509,13 @@ export function BusinessesPage() {
                   {formatCurrency(limitStats?.p2pPayUsed ?? limitTarget?.p2pPayUsed ?? 0)}
                 </p>
               </div>
-              <div className="col-span-2">
+              <div>
+                <p className="text-xs text-on-surface-variant">Current seed</p>
+                <p className="font-semibold">
+                  {formatCurrency(limitStats?.p2pPayLimit ?? limitTarget?.p2pPayLimit ?? 0)}
+                </p>
+              </div>
+              <div>
                 <p className="text-xs text-on-surface-variant">Remaining</p>
                 <p className="text-lg font-bold text-secondary">
                   {formatCurrency(
@@ -467,8 +524,41 @@ export function BusinessesPage() {
                 </p>
               </div>
             </div>
+
+            <div>
+              <p className="mb-2 text-sm font-semibold">Action</p>
+              <div className="flex flex-wrap gap-2">
+                {(
+                  [
+                    { value: 'set', label: 'Set absolute' },
+                    { value: 'add', label: 'Add' },
+                    { value: 'deduct', label: 'Deduct' },
+                  ] as const
+                ).map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => setLimitMode(opt.value)}
+                    className={`rounded-full border px-3 py-1.5 text-sm ${
+                      limitMode === opt.value
+                        ? 'border-secondary bg-secondary-container font-semibold'
+                        : 'border-outline-variant'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
             <Input
-              label="Seed pay limit (₹)"
+              label={
+                limitMode === 'set'
+                  ? 'Seed pay limit (₹)'
+                  : limitMode === 'add'
+                    ? 'Amount to add (₹)'
+                    : 'Amount to deduct (₹)'
+              }
               type="number"
               min={0}
               step="1"
@@ -476,17 +566,74 @@ export function BusinessesPage() {
               onChange={(e) => setLimitDraft(e.target.value)}
               required
             />
-            {limitError ? (
+            {limitMode !== 'set' && limitDraft !== '' && Number.isFinite(Number(limitDraft)) ? (
+              <p className="text-xs text-on-surface-variant">
+                Seed after:{' '}
+                {formatCurrency(
+                  Math.max(
+                    0,
+                    (limitStats?.p2pPayLimit ?? limitTarget?.p2pPayLimit ?? 0) +
+                      (limitMode === 'add' ? Number(limitDraft) : -Number(limitDraft)),
+                  ),
+                )}
+              </p>
+            ) : null}
+
+            <div className="rounded-xl border border-outline-variant p-3 space-y-3">
+              <div>
+                <p className="text-sm font-semibold">Monthly highlight limit</p>
+                <p className="text-xs text-on-surface-variant">
+                  How many withdrawal requests this business can pin to the top of pay lists
+                  each calendar month (user / investor / admin). 0 = highlighting off.
+                </p>
+              </div>
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div>
+                  <p className="text-xs text-on-surface-variant">Used this month</p>
+                  <p className="font-semibold">
+                    {limitStats?.highlightUsedThisMonth ??
+                      limitTarget?.highlightUsedThisMonth ??
+                      0}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs text-on-surface-variant">Remaining</p>
+                  <p className="font-semibold text-secondary">
+                    {limitStats?.highlightRemainingThisMonth ??
+                      limitTarget?.highlightRemainingThisMonth ??
+                      0}
+                  </p>
+                </div>
+              </div>
+              <Input
+                label="Highlights per month"
+                type="number"
+                min={0}
+                step={1}
+                value={highlightDraft}
+                onChange={(e) => setHighlightDraft(e.target.value)}
+                required
+              />
+            </div>
+
+            {limitError || highlightError ? (
               <p className="rounded-lg bg-error-container px-3 py-2 text-sm text-on-error-container">
-                {limitError}
+                {limitError || highlightError}
               </p>
             ) : null}
             <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-              <Button type="button" variant="outline" onClick={() => setLimitTarget(null)}>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setLimitTarget(null);
+                  setLimitMode('set');
+                }}
+              >
                 Cancel
               </Button>
               <Button type="submit" loading={saveLimit.isPending}>
-                Save limit
+                Save limits
               </Button>
             </div>
           </form>
@@ -504,11 +651,9 @@ export function BusinessesPage() {
         ) : (
           <div className="space-y-5">
             <p className="text-sm text-on-surface-variant">
-              Business fee is collected to the admin wallet on deposit and withdrawal
-              (with the related transaction). It is not deducted from the user/investor
-              principal. When this business&apos;s users pay anyone and the payment is
-              verified, that pay amount is added to this business&apos;s Platform Payment
-              limit.
+              <strong>Business fee</strong> aur <strong>Platform fee</strong> business wallet se
+              cut hote hain, phir admin wallet mein credit. User/investor ko full principal milta
+              hai. <strong>Investor bonus / referral</strong> admin wallet se cut hota hai.
             </p>
 
             <div className="space-y-2 rounded-xl border border-outline-variant bg-surface-container-low/40 p-3">
@@ -532,15 +677,22 @@ export function BusinessesPage() {
             </div>
 
             <CommissionRulesEditor
-              title="Business take (collected to admin)"
-              hint="Charged on deposit and withdrawal. Amount is credited to the admin wallet with the related transaction. User/investor still receives the full principal."
-              rules={businessTake}
-              onChange={setBusinessTake}
+              title="Business fee — Deposit"
+              hint="Deposit approve par business wallet se cut → admin wallet. User ko full principal."
+              rules={businessTakeDeposit}
+              onChange={setBusinessTakeDeposit}
+            />
+
+            <CommissionRulesEditor
+              title="Business fee — Withdrawal / P2P pay"
+              hint="P2P/withdrawal verify par business wallet se cut → admin wallet. Payer ko full amount."
+              rules={businessTakeWithdrawal}
+              onChange={setBusinessTakeWithdrawal}
             />
 
             <CommissionRulesEditor
               title="Investor bonus (extra credit)"
-              hint="The investor wallet is credited with the pay amount plus this bonus."
+              hint="Investor bonus admin wallet se cut hota hai, investor ko credit."
               rules={investorBonus}
               onChange={setInvestorBonus}
             />

@@ -13,6 +13,7 @@ import {
   normalizeListOpts,
   type ListQueryOpts,
 } from '../../common/dto/list-query.dto';
+import { stripFeeCutFromDescription } from '../wallet/utils/platform-commission-ledger.util';
 
 export interface CreateLedgerParams {
   userId: string;
@@ -38,6 +39,8 @@ export type TransactionListOpts = ListQueryOpts & {
   userId?: string;
   direction?: string;
   businessId?: string;
+  /** When true, strip fee-cut wording (user/investor self ledger). */
+  hideFeeCuts?: boolean;
 };
 
 @Injectable()
@@ -130,8 +133,30 @@ export class TransactionService {
       this.ledgerModel.countDocuments(filter).exec(),
     ]);
 
+    const mapped = opts.hideFeeCuts
+      ? items.map((row) => {
+          const obj = row.toObject() as unknown as Record<string, unknown>;
+          const desc = stripFeeCutFromDescription(
+            typeof obj.description === 'string' ? obj.description : undefined,
+          );
+          // Never expose platform/business fee flow labels on payer ledgers.
+          if (
+            obj.flow === LedgerFlow.PLATFORM_FEE ||
+            (typeof obj.description === 'string' &&
+              /platform fee|business fee|fee cut/i.test(obj.description))
+          ) {
+            return {
+              ...obj,
+              description: desc,
+              flow: obj.flow === LedgerFlow.PLATFORM_FEE ? undefined : obj.flow,
+            };
+          }
+          return { ...obj, description: desc };
+        })
+      : items;
+
     return {
-      items,
+      items: mapped,
       total,
       page,
       limit,

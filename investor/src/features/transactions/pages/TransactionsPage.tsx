@@ -3,14 +3,19 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { transactionsApi } from '../api/transactions.api';
+import { walletApi } from '@/features/wallet/api/wallet.api';
 import { Card } from '@/shared/components/ui/Card';
 import { Pagination } from '@/shared/components/ui/Pagination';
 import { LoadingScreen, EmptyState } from '@/shared/components/ui/Icon';
 import { Input } from '@/shared/components/ui/Input';
 import { Button } from '@/shared/components/ui/Button';
-import { apiErrorMessage, formatCurrency, formatDate } from '@/shared/lib/utils';
+import { apiErrorMessage, cn, formatCurrency } from '@/shared/lib/utils';
+import {
+  StatementCards,
+  StatementTable,
+} from '../components/ledger-ui';
 
-const PAGE_SIZES = [5, 10, 20];
+const PAGE_SIZES = [10, 20, 50];
 
 const TYPE_FILTERS = [
   { value: 'all', label: 'All' },
@@ -18,7 +23,7 @@ const TYPE_FILTERS = [
   { value: 'withdrawal', label: 'Withdrawal' },
   { value: 'investment', label: 'Investment' },
   { value: 'redemption', label: 'Redemption' },
-  { value: 'commission', label: 'Commission' },
+  { value: 'commission', label: 'Bonus' },
   { value: 'adjustment', label: 'Adjustment' },
   { value: 'lock', label: 'Lock' },
   { value: 'unlock', label: 'Unlock' },
@@ -29,7 +34,6 @@ const SORT_OPTIONS = [
   { value: 'oldest', label: 'Oldest first' },
   { value: 'amount_desc', label: 'Amount: high to low' },
   { value: 'amount_asc', label: 'Amount: low to high' },
-  { value: 'status', label: 'Type' },
 ];
 
 export function TransactionsPage() {
@@ -53,6 +57,11 @@ export function TransactionsPage() {
     [page, limit, type, search, sort],
   );
 
+  const { data: balance } = useQuery({
+    queryKey: ['wallet-balance'],
+    queryFn: () => walletApi.getBalance(),
+  });
+
   const { data, isLoading, isFetching, isError, error, refetch } = useQuery({
     queryKey: ['transactions', listQuery],
     queryFn: () => transactionsApi.getAll(listQuery),
@@ -61,29 +70,21 @@ export function TransactionsPage() {
   const items = data?.items ?? [];
   const total = data?.total ?? 0;
   const totalPages = data?.totalPages ?? 1;
+  const available = balance?.availableBalance ?? 0;
+  const currency = items[0]?.currency || 'INR';
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6">
-      <div>
-        <h1 className="font-[family-name:var(--font-headline)] text-2xl font-bold">Transaction Ledger</h1>
-        <p className="text-on-surface-variant">Your wallet activity history</p>
-      </div>
-
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div className="rounded-2xl border border-outline-variant bg-surface-container-lowest p-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-on-surface-variant">
-            Total results
-          </p>
-          <p className="mt-2 text-2xl font-bold">{total}</p>
-          <p className="mt-1 text-xs text-on-surface-variant">Matching filters</p>
-        </div>
-        <div className="rounded-2xl border border-outline-variant bg-surface-container-lowest p-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-on-surface-variant">
-            On this page
-          </p>
-          <p className="mt-2 text-2xl font-bold">{items.length}</p>
-          <p className="mt-1 text-xs text-on-surface-variant">Current page</p>
-        </div>
+    <div className="mx-auto max-w-7xl space-y-5">
+      <div className="rounded-xl border border-outline-variant bg-surface-container-lowest p-4 sm:p-5">
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-on-surface-variant">
+          Investor statement
+        </p>
+        <h1 className="font-[family-name:var(--font-headline)] text-xl font-bold sm:text-2xl">
+          Combined ledger
+        </h1>
+        <p className="mt-2 text-2xl font-bold tabular-nums sm:text-3xl">
+          {formatCurrency(available, currency)}
+        </p>
       </div>
 
       <Card>
@@ -93,49 +94,42 @@ export function TransactionsPage() {
               <Input
                 label="Search"
                 icon="search"
-                placeholder="Reference, description…"
+                placeholder="Remark, reference…"
                 value={searchInput}
                 onChange={(e) => setSearchInput(e.target.value)}
               />
             </div>
             <div className="grid grid-cols-2 gap-3 lg:w-[280px]">
-              <label className="flex flex-col gap-1 text-sm font-semibold">
-                Sort
-                <select
-                  value={sort}
-                  onChange={(e) => {
-                    setSort(e.target.value);
-                    setPage(1);
-                  }}
-                  className="rounded-lg border border-outline-variant bg-surface-container-lowest px-3 py-3 text-sm font-normal focus:border-secondary focus:outline-none focus:ring-2 focus:ring-secondary/20"
-                >
-                  {SORT_OPTIONS.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="flex flex-col gap-1 text-sm font-semibold">
-                Per page
-                <select
-                  value={limit}
-                  onChange={(e) => {
-                    setLimit(Number(e.target.value));
-                    setPage(1);
-                  }}
-                  className="rounded-lg border border-outline-variant bg-surface-container-lowest px-3 py-3 text-sm font-normal focus:border-secondary focus:outline-none focus:ring-2 focus:ring-secondary/20"
-                >
-                  {PAGE_SIZES.map((n) => (
-                    <option key={n} value={n}>
-                      {n}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <select
+                value={sort}
+                onChange={(e) => {
+                  setSort(e.target.value);
+                  setPage(1);
+                }}
+                className="rounded-lg border border-outline-variant bg-surface-container-lowest px-3 py-3 text-sm"
+              >
+                {SORT_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={limit}
+                onChange={(e) => {
+                  setLimit(Number(e.target.value));
+                  setPage(1);
+                }}
+                className="rounded-lg border border-outline-variant bg-surface-container-lowest px-3 py-3 text-sm"
+              >
+                {PAGE_SIZES.map((n) => (
+                  <option key={n} value={n}>
+                    {n} / page
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
-
           <div className="flex flex-wrap gap-2">
             {TYPE_FILTERS.map((t) => (
               <button
@@ -145,11 +139,12 @@ export function TransactionsPage() {
                   setType(t.value);
                   setPage(1);
                 }}
-                className={`rounded-full px-3.5 py-1.5 text-xs font-semibold transition ${
+                className={cn(
+                  'rounded-full px-3.5 py-1.5 text-xs font-semibold',
                   type === t.value
                     ? 'bg-primary text-on-primary'
-                    : 'border border-outline-variant bg-surface-container-lowest hover:bg-surface-container-low'
-                }`}
+                    : 'border border-outline-variant bg-surface-container-lowest',
+                )}
               >
                 {t.label}
               </button>
@@ -161,7 +156,7 @@ export function TransactionsPage() {
           <LoadingScreen />
         ) : isError ? (
           <div className="rounded-2xl border border-error/30 bg-error-container/40 px-4 py-8 text-center">
-            <p className="text-sm font-medium text-on-surface">
+            <p className="text-sm font-medium">
               {apiErrorMessage(error, 'Could not load transactions')}
             </p>
             <Button type="button" className="mt-4" onClick={() => refetch()}>
@@ -176,42 +171,12 @@ export function TransactionsPage() {
             icon="receipt_long"
           />
         ) : (
-          <>
-            <div className={`space-y-3 ${isFetching ? 'opacity-70' : ''}`}>
-              {items.map((tx) => (
-                <div
-                  key={tx._id}
-                  className="flex items-center justify-between gap-4 rounded-xl border border-outline-variant p-4"
-                >
-                  <div>
-                    <p className="font-semibold capitalize">{tx.type.replace('_', ' ')}</p>
-                    <p className="mt-1 text-sm text-on-surface-variant">
-                      {tx.fromParty || tx.toParty
-                        ? `${tx.fromParty || '—'} → ${tx.toParty || '—'}`
-                        : tx.description ?? tx.referenceType}
-                    </p>
-                    {tx.fromParty && tx.description ? (
-                      <p className="mt-0.5 text-xs text-on-surface-variant">{tx.description}</p>
-                    ) : null}
-                    <p className="mt-1 text-xs text-outline">{formatDate(tx.createdAt)}</p>
-                  </div>
-                  <div className="text-right">
-                    <p
-                      className={`font-semibold ${
-                        tx.direction === 'debit' ? 'text-error' : 'text-on-secondary-container'
-                      }`}
-                    >
-                      {tx.direction === 'debit' ? '−' : '+'}
-                      {formatCurrency(tx.amount, tx.currency)}
-                    </p>
-                    <p className="text-xs text-outline">
-                      Bal: {formatCurrency(tx.balanceAfter, tx.currency)}
-                    </p>
-                  </div>
-                </div>
-              ))}
+          <div className={isFetching ? 'opacity-70' : ''}>
+            <div className="hidden md:block">
+              <StatementTable items={items} page={page} limit={limit} />
             </div>
-            <div className="mt-5">
+            <StatementCards items={items} page={page} limit={limit} />
+            <div className="mt-4">
               <Pagination
                 page={page}
                 totalPages={totalPages}
@@ -220,7 +185,7 @@ export function TransactionsPage() {
                 onPageChange={setPage}
               />
             </div>
-          </>
+          </div>
         )}
       </Card>
     </div>

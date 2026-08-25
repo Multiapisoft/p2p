@@ -7,6 +7,7 @@ import {
   partyLabel,
   platformFeeInDescription,
   depositGivenToDescription,
+  stripFeeCutFromDescription,
 } from './platform-commission-ledger.util';
 
 describe('platform-commission-ledger.util', () => {
@@ -32,13 +33,14 @@ describe('platform-commission-ledger.util', () => {
     );
   });
 
-  it('describes investor commission arriving from platform', () => {
+  it('describes investor bonus credited without fee-split wording', () => {
     const text = investorCommissionInDescription({
       amount: 25.5,
       referenceLabel: 'PAY-9',
     });
-    expect(text).toContain('received from platform');
-    expect(text).toContain('₹25.5');
+    expect(text).toBe('Bonus ₹25.5 credited (PAY-9)');
+    expect(text.toLowerCase()).not.toContain('fee');
+    expect(text.toLowerCase()).not.toContain('platform');
   });
 
   it('labels parties with role', () => {
@@ -71,5 +73,14 @@ describe('platform-commission-ledger.util', () => {
     expect(feeCutNote(10, 0)).toBe(' Fee cut: platform fee ₹10.');
     expect(feeCutNote(0, 5)).toBe(' Fee cut: business fee ₹5.');
     expect(feeCutNote(10, 5)).toBe(' Fee cut: platform fee ₹10 + business fee ₹5.');
+  });
+
+  it('strips fee cut notes from payer ledger descriptions', () => {
+    expect(
+      stripFeeCutFromDescription(
+        'Deposit approved by admin Fee cut: platform fee ₹10 + business fee ₹5.',
+      ),
+    ).toBe('Deposit approved by admin');
+    expect(stripFeeCutFromDescription('P2P payment — WDR-1')).toBe('P2P payment — WDR-1');
   });
 });

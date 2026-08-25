@@ -1,8 +1,9 @@
 /**
- * Visibility rules (Noida #24):
- * - During user cancel TAT → only owner (user) sees the WD
+ * Visibility rules:
+ * - During user cancel TAT → only owner (user) sees edit/cancel on their panel
  * - After TAT → owning business can see / list for Platform Payment
- * - After business lists (p2pListStatus=listed) → admin + investors/users for pay
+ * - After listed (p2pListStatus=listed) → investors/users for pay
+ * - Admin list → all withdrawals (no visibility gate)
  */
 
 export function tatCutoffDate(nowMs: number, tatMs: number): Date {
@@ -36,30 +37,11 @@ export function businessWithdrawalVisibilityFilter(tatCutoff: Date) {
 }
 
 /**
- * Admin list: listed for Platform Payment, OR terminal status,
- * OR business-origin requests (admin must verify those),
- * OR non-business WD after TAT.
+ * Admin list: every withdrawal — awaiting (not listed), listed, rejected list,
+ * cancelled / completed / rejected status, business-origin, within TAT, etc.
  */
-export function adminWithdrawalVisibilityFilter(tatCutoff: Date) {
-  return {
-    $or: [
-      { p2pListStatus: 'listed' },
-      { origin: 'business' },
-      {
-        status: {
-          $in: ['completed', 'rejected', 'cancelled'],
-        },
-      },
-      {
-        $and: [
-          {
-            $or: [{ businessId: { $exists: false } }, { businessId: null }],
-          },
-          { createdAt: { $lte: tatCutoff } },
-        ],
-      },
-    ],
-  };
+export function adminWithdrawalVisibilityFilter(_tatCutoff?: Date): Record<string, never> {
+  return {};
 }
 
 /**

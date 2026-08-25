@@ -72,6 +72,13 @@ export function DashboardPage() {
           variant="success"
         />
         <StatCard
+          label="Bonus Earned"
+          value={formatCurrency(portfolio?.totalBonusEarned ?? 0)}
+          icon="loyalty"
+          variant="success"
+          trend="From verified investments"
+        />
+        <StatCard
           label="Redeemable"
           value={formatCurrency(portfolio?.redeemableAmount ?? balance?.redeemableAmount ?? 0)}
           icon="payments"

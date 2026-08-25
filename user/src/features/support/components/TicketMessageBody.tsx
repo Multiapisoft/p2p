@@ -49,8 +49,15 @@ export function parseWithdrawalDisputeMessage(message: string): ParsedDisputeTic
   ];
 
   // Amount appears in both sections — parse by section slices
+  const payStartSplit = message.indexOf('--- Split payment ---');
+  const payStartPlain = message.indexOf('--- Payment ---');
+  const payStart =
+    payStartPlain >= 0
+      ? payStartPlain
+      : payStartSplit >= 0
+        ? payStartSplit
+        : -1;
   const wdStart = message.indexOf('--- Withdrawal ---');
-  const payStart = message.indexOf('--- Split payment ---');
   const wdBlock = wdStart >= 0 ? message.slice(wdStart, payStart >= 0 ? payStart : undefined) : message;
   const payBlock = payStart >= 0 ? message.slice(payStart) : message;
 
@@ -168,7 +175,7 @@ export function TicketMessageBody({ message }: { message: string }) {
         <FieldGrid fields={dispute.withdrawal} />
       </Section>
 
-      <Section title="Split payment" icon="payments">
+      <Section title="Payment" icon="payments">
         <FieldGrid fields={paymentFields} />
         {dispute.payer && (
           <p className="mt-3 text-sm">

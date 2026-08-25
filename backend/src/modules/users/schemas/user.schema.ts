@@ -99,6 +99,13 @@ export class User {
   @Prop({ select: false })
   twoFactorSecret?: string;
 
+  /** SHA-256 of 6-digit forgot-password code (select:false). */
+  @Prop({ select: false })
+  passwordResetCodeHash?: string;
+
+  @Prop({ select: false })
+  passwordResetExpires?: Date;
+
   /** Set when this account is business staff (not the owner). */
   @Prop({ type: Types.ObjectId, ref: 'Business', index: true })
   staffBusinessId?: Types.ObjectId;

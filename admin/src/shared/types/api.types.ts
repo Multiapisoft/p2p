@@ -68,12 +68,26 @@ export interface Deposit {
   _id: string;
   referenceId: string;
   userId: string | UserSummary;
-  businessId?: string;
+  businessId?: string | { _id: string; name?: string; slug?: string; status?: string; referralCode?: string };
   amount: number;
   currency: string;
   method: string;
   status: TransactionStatus;
   commissionAmount?: number;
+  commissionPaidTo?: string | UserSummary;
+  utr?: string;
+  upiDetails?: { upiId?: string; payerName?: string; utr?: string };
+  bankDetails?: {
+    accountNumber?: string;
+    ifscCode?: string;
+    accountHolderName?: string;
+    bankName?: string;
+    utr?: string;
+  };
+  usdtDetails?: { walletAddress?: string; network?: string; txHash?: string };
+  cdmDetails?: { payerName?: string; locationHint?: string; notes?: string };
+  failureReason?: string;
+  completedAt?: string;
   createdAt: string;
 }
 
@@ -125,6 +139,8 @@ export interface Withdrawal {
   assignedTo?: string | UserSummary;
   assignedBy?: string;
   assignedAt?: string;
+  priority?: boolean;
+  priorityAt?: string;
   createdAt: string;
   upiDetails?: { upiId?: string; payerName?: string; utr?: string };
   bankDetails?: {
@@ -150,6 +166,10 @@ export interface Business {
   p2pPayUsed?: number;
   p2pPayCap?: number;
   p2pPayRemaining?: number | null;
+  highlightLimitPerMonth?: number;
+  highlightUsedThisMonth?: number;
+  highlightRemainingThisMonth?: number;
+  highlightMonthKey?: string;
   totalCommissionEarned?: number;
   depositsEnabled?: boolean;
   withdrawalsEnabled?: boolean;
@@ -167,6 +187,7 @@ export interface Commission {
   fixedFee: number;
   minAmount?: number;
   maxAmount?: number;
+  appliesTo?: 'all' | 'deposit' | 'withdrawal';
   isActive: boolean;
   description?: string;
 }
@@ -261,6 +282,10 @@ export interface BusinessStats {
   p2pPayUsed?: number;
   p2pPayCap?: number;
   p2pPayRemaining?: number | null;
+  highlightLimitPerMonth?: number;
+  highlightUsedThisMonth?: number;
+  highlightRemainingThisMonth?: number;
+  highlightMonthKey?: string;
 }
 
 export interface AuditLog {

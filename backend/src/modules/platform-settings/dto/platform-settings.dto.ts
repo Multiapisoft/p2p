@@ -53,4 +53,24 @@ export class UpdatePlatformSettingsDto {
   @IsNumber()
   @Min(1)
   cdmHoldMinutes?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  investorReferralFirstReferrerPercent?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  investorReferralFirstJoinerPercent?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  investorReferralNextReferrerPercent?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  investorReferralNextJoinerPercent?: number;
 }

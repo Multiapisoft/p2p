@@ -9,9 +9,24 @@ export interface WithdrawalPaymentAdmin {
     referenceId: string;
     amount: number;
     paidAmount?: number;
+    remainingAmount?: number;
     method: string;
-    upiDetails?: { upiId?: string };
-    bankDetails?: { accountNumber?: string; ifscCode?: string };
+    status?: string;
+    origin?: string;
+    userId?: {
+      _id: string;
+      name?: string;
+      email?: string;
+      phone?: string;
+      role?: string;
+      status?: string;
+      businessUserCode?: string;
+      externalRef?: string;
+    };
+    businessId?: string | { _id: string; name?: string; slug?: string; referralCode?: string };
+    upiDetails?: { upiId?: string; payerName?: string };
+    bankDetails?: { accountNumber?: string; ifscCode?: string; accountHolderName?: string };
+    usdtDetails?: { walletAddress?: string; network?: string };
   };
   payerUserId: {
     _id: string;
@@ -21,6 +36,7 @@ export interface WithdrawalPaymentAdmin {
     role?: string;
     status?: string;
     businessUserCode?: string;
+    externalRef?: string;
   };
   amount: number;
   currency: string;

@@ -12,6 +12,10 @@ export interface PlatformSettings {
   allowPartialPay: boolean;
   preferB2bSettlement: boolean;
   cdmHoldMinutes: number;
+  investorReferralFirstReferrerPercent: number;
+  investorReferralFirstJoinerPercent: number;
+  investorReferralNextReferrerPercent: number;
+  investorReferralNextJoinerPercent: number;
 }
 
 export type UpdatePlatformSettingsPayload = Partial<PlatformSettings>;

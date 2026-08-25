@@ -1,7 +1,17 @@
 import { visibleInvestorBonusAmount } from './investor-commission-visibility.util';
 
 describe('visibleInvestorBonusAmount', () => {
-  it('shows bonus to investor when toggle is on', () => {
+  it('always shows bonus to investor (even if legacy toggle off)', () => {
+    expect(
+      visibleInvestorBonusAmount({
+        viewerRole: 'investor',
+        showToInvestor: false,
+        bonusAmount: 150,
+      }),
+    ).toBe(150);
+  });
+
+  it('shows bonus when toggle is on', () => {
     expect(
       visibleInvestorBonusAmount({
         viewerRole: 'investor',
@@ -11,17 +21,7 @@ describe('visibleInvestorBonusAmount', () => {
     ).toBe(150);
   });
 
-  it('hides bonus from investor when toggle is off', () => {
-    expect(
-      visibleInvestorBonusAmount({
-        viewerRole: 'investor',
-        showToInvestor: false,
-        bonusAmount: 150,
-      }),
-    ).toBe(0);
-  });
-
-  it('still shows bonus to regular users (toggle is investor-only)', () => {
+  it('shows bonus for other roles the same way', () => {
     expect(
       visibleInvestorBonusAmount({
         viewerRole: 'user',

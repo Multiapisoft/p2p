@@ -34,6 +34,7 @@ export const withdrawalsApi = {
     };
     usdtDetails?: { walletAddress: string; network?: string };
     cdmDetails?: { payerName: string; locationHint?: string; notes?: string };
+    priority?: boolean;
   }) => apiPost<Withdrawal>('/withdrawals/business', payload),
   getBusinessWithdrawals: (query: WithdrawalsListQuery = {}) =>
     apiGet<Paginated<Withdrawal>>('/withdrawals/business', cleanQuery(query)),
@@ -41,6 +42,8 @@ export const withdrawalsApi = {
   listForP2p: (id: string) => apiPatch<Withdrawal>(`/withdrawals/${id}/list-for-p2p`, {}),
   unlistForP2p: (id: string, reason?: string) =>
     apiPatch<Withdrawal>(`/withdrawals/${id}/unlist-for-p2p`, { reason }),
+  setPriority: (id: string, priority: boolean) =>
+    apiPatch<Withdrawal>(`/withdrawals/${id}/priority`, { priority }),
   assignPayer: (id: string, assigneeId: string) =>
     apiPatch<Withdrawal>(`/withdrawals/${id}/assign`, { assigneeId }),
   unassignPayer: (id: string) => apiPatch<Withdrawal>(`/withdrawals/${id}/unassign`, {}),

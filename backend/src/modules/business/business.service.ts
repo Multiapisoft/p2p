@@ -432,17 +432,145 @@ export class BusinessService {
       p2pPayUsed: snap.p2pPayUsed,
       p2pPayCap: snap.p2pPayCap,
       p2pPayRemaining: snap.p2pPayRemaining,
+      ...this.highlightSnapshot(business),
     };
   }
 
-  async setP2pPayLimit(businessId: string, p2pPayLimit: number, ref?: P2pPayQuotaRef) {
+  async setHighlightLimitPerMonth(businessId: string, highlightLimitPerMonth: number) {
+    if (!Types.ObjectId.isValid(businessId)) {
+      throw new BadRequestException('Invalid business id');
+    }
+    if (highlightLimitPerMonth < 0) {
+      throw new BadRequestException('Highlight limit cannot be negative');
+    }
+    const rounded = Math.floor(highlightLimitPerMonth);
+    const business = await this.businessModel
+      .findByIdAndUpdate(businessId, { highlightLimitPerMonth: rounded }, { new: true })
+      .exec();
+    if (!business) throw new NotFoundException('Business not found');
+    await this.redis.del(`business:${businessId}`);
+    return this.sanitize(business);
+  }
+
+  /** UTC calendar month key, e.g. 2026-08 */
+  currentHighlightMonthKey(now = new Date()): string {
+    return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
+  }
+
+  highlightSnapshot(
+    business: Pick<
+      Business,
+      'highlightLimitPerMonth' | 'highlightUsedThisMonth' | 'highlightMonthKey'
+    >,
+  ) {
+    const monthKey = this.currentHighlightMonthKey();
+    const limit = Math.max(0, Math.floor(Number(business.highlightLimitPerMonth) || 0));
+    const used =
+      business.highlightMonthKey === monthKey
+        ? Math.max(0, Math.floor(Number(business.highlightUsedThisMonth) || 0))
+        : 0;
+    return {
+      highlightLimitPerMonth: limit,
+      highlightUsedThisMonth: used,
+      highlightRemainingThisMonth: Math.max(0, limit - used),
+      highlightMonthKey: monthKey,
+    };
+  }
+
+  async getHighlightQuota(businessId: string) {
+    const business = await this.businessModel.findById(businessId).exec();
+    if (!business) throw new NotFoundException('Business not found');
+    return this.highlightSnapshot(business);
+  }
+
+  /** Consume one monthly highlight slot (business actor). */
+  async consumeHighlightSlot(businessId: string) {
+    const monthKey = this.currentHighlightMonthKey();
+    const business = await this.businessModel.findById(businessId).exec();
+    if (!business) throw new NotFoundException('Business not found');
+    const snap = this.highlightSnapshot(business);
+    if (snap.highlightLimitPerMonth <= 0) {
+      throw new BadRequestException(
+        'Highlighting is disabled. Ask admin to set a monthly highlight limit for your business.',
+      );
+    }
+    if (snap.highlightRemainingThisMonth <= 0) {
+      throw new BadRequestException(
+        `Monthly highlight limit reached (${snap.highlightLimitPerMonth}). Resets next month.`,
+      );
+    }
+    await this.businessModel
+      .findByIdAndUpdate(businessId, {
+        highlightMonthKey: monthKey,
+        highlightUsedThisMonth: snap.highlightUsedThisMonth + 1,
+      })
+      .exec();
+    await this.redis.del(`business:${businessId}`);
+  }
+
+  /** Refund one slot when business clears a highlight in the same month. */
+  async releaseHighlightSlot(businessId: string) {
+    const monthKey = this.currentHighlightMonthKey();
+    const business = await this.businessModel.findById(businessId).exec();
+    if (!business) return;
+    const snap = this.highlightSnapshot(business);
+    if (snap.highlightUsedThisMonth <= 0) return;
+    await this.businessModel
+      .findByIdAndUpdate(businessId, {
+        highlightMonthKey: monthKey,
+        highlightUsedThisMonth: snap.highlightUsedThisMonth - 1,
+      })
+      .exec();
+    await this.redis.del(`business:${businessId}`);
+  }
+
+  async setP2pPayLimit(
+    businessId: string,
+    p2pPayLimit: number,
+    ref?: P2pPayQuotaRef,
+    mode: 'set' | 'add' | 'deduct' = 'set',
+  ) {
     if (!Types.ObjectId.isValid(businessId)) {
       throw new BadRequestException('Invalid business id');
     }
     if (p2pPayLimit < 0) throw new BadRequestException('Limit cannot be negative');
-    const rounded = Math.round(p2pPayLimit * 100) / 100;
+    const amount = Math.round(p2pPayLimit * 100) / 100;
     const before = await this.businessModel.findById(businessId).exec();
     if (!before) throw new NotFoundException('Business not found');
+    const seedBefore = before.p2pPayLimit || 0;
+    let rounded: number;
+    let action: P2pPayQuotaLedgerAction;
+    let ledgerAmount: number;
+    let refType: string;
+    switch (mode) {
+      case 'add': {
+        if (amount <= 0) throw new BadRequestException('Add amount must be greater than 0');
+        rounded = Math.round((seedBefore + amount) * 100) / 100;
+        action = 'add';
+        ledgerAmount = amount;
+        refType = 'p2p_pay_limit_add';
+        break;
+      }
+      case 'deduct': {
+        if (amount <= 0) throw new BadRequestException('Deduct amount must be greater than 0');
+        rounded = Math.max(0, Math.round((seedBefore - amount) * 100) / 100);
+        action = 'deduct';
+        ledgerAmount = Math.round((seedBefore - rounded) * 100) / 100;
+        refType = 'p2p_pay_limit_deduct';
+        break;
+      }
+      case 'set': {
+        rounded = amount;
+        action = 'set';
+        ledgerAmount = Math.abs(Math.round((rounded - seedBefore) * 100) / 100);
+        refType = 'p2p_pay_limit_set';
+        break;
+      }
+      default: {
+        const _exhaustive: never = mode;
+        throw new BadRequestException(`Unsupported mode: ${_exhaustive}`);
+      }
+    }
     const hold = await this.sumOpenBusinessOriginHold(businessId);
     const remainingBefore = p2pPayQuotaRemaining({
       p2pPayLimit: before.p2pPayLimit,
@@ -461,17 +589,16 @@ export class BusinessService {
       p2pPayUsed: business.p2pPayUsed,
       hold,
     });
-    const delta = Math.round((rounded - (before.p2pPayLimit || 0)) * 100) / 100;
-    if (delta !== 0) {
+    if (ledgerAmount > 0) {
       await this.recordQuotaLedger({
         business,
-        action: 'set',
-        amount: Math.abs(delta),
+        action,
+        amount: ledgerAmount,
         remainingBefore,
         remainingAfter,
-        seedBefore: before.p2pPayLimit || 0,
+        seedBefore,
         seedAfter: rounded,
-        ref: { referenceType: 'p2p_pay_limit_set', referenceId: businessId, ...ref },
+        ref: { referenceType: refType, referenceId: businessId, ...ref },
       });
     }
     return this.sanitize(business);
@@ -904,6 +1031,12 @@ export class BusinessService {
         p2pPayLimit: Number(obj.p2pPayLimit) || 0,
         p2pPayEarned: Number(obj.p2pPayEarned) || 0,
         p2pPayUsed: Number(obj.p2pPayUsed) || 0,
+      }),
+      ...this.highlightSnapshot({
+        highlightLimitPerMonth: Number(obj.highlightLimitPerMonth) || 0,
+        highlightUsedThisMonth: Number(obj.highlightUsedThisMonth) || 0,
+        highlightMonthKey:
+          typeof obj.highlightMonthKey === 'string' ? obj.highlightMonthKey : undefined,
       }),
     };
   }

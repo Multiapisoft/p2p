@@ -15,6 +15,7 @@ import {
   RejectRedemptionDto,
 } from './dto/investor.dto';
 import { WalletService } from '../wallet/wallet.service';
+import { PlatformCommissionService } from '../wallet/platform-commission.service';
 import { CommissionService } from '../commission/commission.service';
 import { TransactionService } from '../transaction/transaction.service';
 import {
@@ -23,7 +24,7 @@ import {
 } from '../withdrawal/schemas/withdrawal-payment.schema';
 import { TransactionStatus } from '../../common/enums/transaction-status.enum';
 import { CommissionTarget } from '../../common/enums/commission-target.enum';
-import { LedgerType } from '../../common/enums/currency.enum';
+import { Currency, LedgerType } from '../../common/enums/currency.enum';
 import { PaymentMethod } from '../../common/enums/payment-method.enum';
 import {
   listSortMap,
@@ -46,6 +47,7 @@ export class InvestorService {
     @InjectModel(User.name) private userModel: Model<UserDocument>,
     @InjectConnection() private connection: Connection,
     private walletService: WalletService,
+    private platformCommissionService: PlatformCommissionService,
     private commissionService: CommissionService,
     private transactionService: TransactionService,
   ) {}
@@ -173,11 +175,25 @@ export class InvestorService {
         balanceAfter: updatedWallet.balance,
         referenceType: 'redemption',
         referenceId: redemption._id.toString(),
-        description:
-          fee > 0
-            ? `Investor redemption ₹${redemption.amount} + fee ₹${fee} by ${processedBy}`
-            : `Investor redemption processed by ${processedBy}`,
+        // Investor sees only that redemption settled — not platform fee destination.
+        description: `Investor redemption processed by ${processedBy}`,
       });
+
+      if (fee > 0) {
+        const investor = await this.userModel.findById(investorId).exec();
+        await this.platformCommissionService.creditPlatformFee({
+          amount: fee,
+          currency: Currency.INR,
+          fromUserId: investorId,
+          fromName: investor?.name || 'Investor',
+          fromRole: UserRole.INVESTOR,
+          referenceType: 'redemption',
+          referenceId: redemption._id.toString(),
+          referenceLabel: redemption.referenceId,
+          kind: 'platform',
+          session: session || undefined,
+        });
+      }
 
       return redemption;
     });
@@ -224,10 +240,27 @@ export class InvestorService {
       { $group: { _id: null, total: { $sum: '$amount' } } },
     ]);
     const pendingInvestmentLocked = pendingRows[0]?.total || 0;
+
+    const bonusRows = await this.paymentModel.aggregate<{ total: number }>([
+      {
+        $match: {
+          status: TransactionStatus.COMPLETED,
+          bonusAmount: { $gt: 0 },
+          $or: [
+            { payerUserId: new Types.ObjectId(investorId) },
+            { payerUserId: investorId },
+          ],
+        },
+      },
+      { $group: { _id: null, total: { $sum: '$bonusAmount' } } },
+    ]);
+    const totalBonusEarned = Math.round((bonusRows[0]?.total || 0) * 100) / 100;
+
     return {
       totalDeposited: wallet.totalDeposited,
       totalInvested: wallet.totalInvested,
       totalRedeemed: wallet.totalRedeemed,
+      totalBonusEarned,
       redeemableAmount: redeemable,
       balance: wallet.balance,
       // Wallet locks (redemptions) + pending P2P pay investments awaiting verify / 24h

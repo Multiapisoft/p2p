@@ -11,9 +11,9 @@ import { StatusBadge } from '@/shared/components/ui/Badge';
 import { Modal } from '@/shared/components/ui/Modal';
 import { Pagination } from '@/shared/components/ui/Pagination';
 import { LoadingScreen, EmptyState } from '@/shared/components/ui/Icon';
-import { formatCurrency, formatDate } from '@/shared/lib/utils';
+import { cn, formatCurrency, formatDate } from '@/shared/lib/utils';
 import { getApiErrorMessage } from '@/shared/lib/api-error';
-import { fetchAllPages, personCsvCells } from '@/shared/lib/csv';
+import { asPerson, fetchAllPages, personCsvCells } from '@/shared/lib/csv';
 import { CsvDownloadButton } from '@/shared/components/CsvDownloadButton';
 import { PersonDetails } from '@/shared/components/PersonDetails';
 
@@ -39,7 +39,7 @@ const SORT_OPTIONS = [
   { value: 'status', label: 'Status' },
 ];
 
-const PAGE_SIZES = [5, 10, 20];
+const PAGE_SIZES = [10, 20, 50];
 
 function paymentCommission(p: WithdrawalPaymentAdmin) {
   return p.commissionAmount ?? p.estimatedCommissionAmount ?? 0;
@@ -53,10 +53,41 @@ function paymentNet(p: WithdrawalPaymentAdmin) {
   return p.netCreditedAmount ?? p.estimatedNetCredited;
 }
 
+function statusAccent(status: string) {
+  switch (status) {
+    case 'pending':
+      return 'border-l-amber-500';
+    case 'processing':
+      return 'border-l-sky-500';
+    case 'completed':
+      return 'border-l-emerald-500';
+    case 'rejected':
+    case 'cancelled':
+    case 'failed':
+      return 'border-l-red-500';
+    default:
+      return 'border-l-outline-variant';
+  }
+}
+
+function payeeName(p: WithdrawalPaymentAdmin) {
+  const w = p.withdrawalId;
+  const user = asPerson(w?.userId);
+  if (user?.name) return user.name;
+  if (typeof w?.businessId === 'object' && w.businessId?.name) return w.businessId.name;
+  return 'Withdrawal owner';
+}
+
+function businessName(p: WithdrawalPaymentAdmin) {
+  const b = p.withdrawalId?.businessId;
+  if (typeof b === 'object') return b.name || null;
+  return null;
+}
+
 export function SplitPaymentsTab() {
   const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(10);
-  const [listMode, setListMode] = useState<'pending' | 'all'>('pending');
+  const [limit, setLimit] = useState(20);
+  const [listMode, setListMode] = useState<'pending' | 'all'>('all');
   const [status, setStatus] = useState('all');
   const [method, setMethod] = useState('all');
   const [sort, setSort] = useState('newest');
@@ -101,6 +132,7 @@ export function SplitPaymentsTab() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['split-payments'] });
       qc.invalidateQueries({ queryKey: ['withdrawals'] });
+      qc.invalidateQueries({ queryKey: ['withdrawal-payments'] });
       setDetail(null);
       setActionError('');
     },
@@ -111,6 +143,7 @@ export function SplitPaymentsTab() {
     mutationFn: () => withdrawalPaymentsApi.reject(rejectTarget!._id, rejectReason),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['split-payments'] });
+      qc.invalidateQueries({ queryKey: ['withdrawal-payments'] });
       setRejectTarget(null);
       setRejectReason('');
       setDetail(null);
@@ -123,45 +156,58 @@ export function SplitPaymentsTab() {
   const total = data?.total ?? 0;
   const totalPages = data?.totalPages ?? 1;
   const pendingOnPage = items.filter((p) => p.status === 'pending').length;
+  const pageAmount = useMemo(
+    () => items.reduce((sum, p) => sum + (p.amount || 0), 0),
+    [items],
+  );
   const withdrawal = detail?.withdrawalId;
+  const detailPayee = asPerson(withdrawal?.userId);
+  const detailPayer = asPerson(detail?.payerUserId);
 
   return (
     <div className="space-y-3 sm:space-y-4">
-      {actionError && (
-        <div className="rounded-lg bg-error-container px-4 py-3 text-sm text-on-error-container">
+      {actionError ? (
+        <div className="rounded-lg bg-error-container px-3 py-2.5 text-sm text-on-error-container">
           {actionError}
         </div>
-      )}
-      <div className="grid grid-cols-3 gap-2 sm:gap-3">
-        <div className="rounded-xl border border-outline-variant bg-surface-container-lowest p-2.5 sm:rounded-2xl sm:p-4">
-          <p className="text-[10px] font-bold uppercase tracking-wide text-on-surface-variant sm:text-[11px]">
-            Total results
+      ) : null}
+
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3">
+        <div className="rounded-xl border border-outline-variant bg-surface-container-lowest px-3 py-2.5">
+          <p className="text-[10px] font-bold uppercase tracking-wide text-on-surface-variant">
+            Total
           </p>
-          <p className="mt-1 text-lg font-bold sm:text-2xl">{total}</p>
+          <p className="mt-0.5 text-lg font-bold tabular-nums">{total}</p>
         </div>
-        <div className="rounded-xl border border-outline-variant bg-surface-container-lowest p-2.5 sm:rounded-2xl sm:p-4">
-          <p className="text-[10px] font-bold uppercase tracking-wide text-on-surface-variant sm:text-[11px]">
-            On this page
+        <div className="rounded-xl border border-outline-variant bg-surface-container-lowest px-3 py-2.5">
+          <p className="text-[10px] font-bold uppercase tracking-wide text-on-surface-variant">
+            Page
           </p>
-          <p className="mt-1 text-lg font-bold sm:text-2xl">{items.length}</p>
+          <p className="mt-0.5 text-lg font-bold tabular-nums">{items.length}</p>
         </div>
-        <div className="rounded-xl border border-outline-variant bg-surface-container-lowest p-2.5 sm:rounded-2xl sm:p-4">
-          <p className="text-[10px] font-bold uppercase tracking-wide text-on-surface-variant sm:text-[11px]">
-            Pending on page
+        <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2.5">
+          <p className="text-[10px] font-bold uppercase tracking-wide text-amber-800/80">Pending</p>
+          <p className="mt-0.5 text-lg font-bold tabular-nums text-amber-800">{pendingOnPage}</p>
+        </div>
+        <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-2.5">
+          <p className="text-[10px] font-bold uppercase tracking-wide text-emerald-800/80">
+            Page amount
           </p>
-          <p className="mt-1 text-lg font-bold sm:text-2xl">{pendingOnPage}</p>
+          <p className="mt-0.5 text-base font-bold tabular-nums text-emerald-800 sm:text-lg">
+            {formatCurrency(pageAmount)}
+          </p>
         </div>
       </div>
 
       <Card>
-        <div className="mb-4 space-y-3">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-            <p className="text-sm text-on-surface-variant">
-              Matching filters: {total} payment{total === 1 ? '' : 's'}
+        <div className="mb-3 space-y-2.5">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-xs text-on-surface-variant sm:text-sm">
+              Payer → payee · {total} payment{total === 1 ? '' : 's'}
             </p>
             <CsvDownloadButton<WithdrawalPaymentAdmin>
-              title="Split payments"
-              filename={`split-payments-${listMode}`}
+              title="P2P payments"
+              filename={`p2p-payments-${listMode}`}
               filters={{ View: listMode, Status: status, Method: method, Search: search, Sort: sort }}
               disabled={!total}
               columns={[
@@ -169,10 +215,26 @@ export function SplitPaymentsTab() {
                 { header: 'Status', value: (p) => p.status },
                 { header: 'Amount', value: (p) => p.amount },
                 { header: 'UTR', value: (p) => p.utr },
-                { header: 'Payer name', value: (p) => personCsvCells(p.payerUserId)[0] },
-                { header: 'Payer email', value: (p) => personCsvCells(p.payerUserId)[1] },
-                { header: 'Payer phone', value: (p) => personCsvCells(p.payerUserId)[2] },
-                { header: 'Payer role', value: (p) => personCsvCells(p.payerUserId)[3] },
+                { header: 'From name', value: (p) => personCsvCells(p.payerUserId)[0] },
+                { header: 'From email', value: (p) => personCsvCells(p.payerUserId)[1] },
+                { header: 'From phone', value: (p) => personCsvCells(p.payerUserId)[2] },
+                { header: 'From role', value: (p) => personCsvCells(p.payerUserId)[3] },
+                {
+                  header: 'To name',
+                  value: (p) => personCsvCells(p.withdrawalId?.userId)[0],
+                },
+                {
+                  header: 'To email',
+                  value: (p) => personCsvCells(p.withdrawalId?.userId)[1],
+                },
+                {
+                  header: 'To role',
+                  value: (p) => personCsvCells(p.withdrawalId?.userId)[3],
+                },
+                {
+                  header: 'Business',
+                  value: (p) => businessName(p) || '',
+                },
                 { header: 'Withdrawal', value: (p) => p.withdrawalId?.referenceId || '' },
                 { header: 'Created', value: (p) => p.createdAt },
               ]}
@@ -185,8 +247,9 @@ export function SplitPaymentsTab() {
               }
             />
           </div>
+
           <div className="chip-scroll">
-            {(['pending', 'all'] as const).map((t) => (
+            {(['all', 'pending'] as const).map((t) => (
               <button
                 key={t}
                 type="button"
@@ -194,26 +257,26 @@ export function SplitPaymentsTab() {
                   setListMode(t);
                   setPage(1);
                 }}
-                className={`rounded-full px-2.5 py-1 text-[11px] font-semibold capitalize transition sm:px-3.5 sm:py-1.5 sm:text-xs ${
+                className={`rounded-full px-2.5 py-1 text-[11px] font-semibold capitalize ${
                   listMode === t
                     ? 'bg-primary text-on-primary'
                     : 'border border-outline-variant'
                 }`}
               >
-                {t === 'pending' ? 'Pending Proofs' : 'All'}
+                {t === 'pending' ? 'Pending proofs' : 'All payments'}
               </button>
             ))}
           </div>
 
           <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
             <Input
-              className="min-w-0 flex-1 sm:min-w-[220px]"
-              placeholder="Search reference, UTR, payer…"
+              className="min-w-0 flex-1 sm:min-w-[200px]"
+              placeholder="Search ref, UTR, payer…"
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
             />
             <select
-              className="rounded-lg border border-outline-variant bg-surface-container-lowest px-2.5 py-2 text-sm sm:px-3 sm:py-2.5"
+              className="rounded-lg border border-outline-variant bg-surface-container-lowest px-2.5 py-2 text-sm"
               value={sort}
               onChange={(e) => {
                 setSort(e.target.value);
@@ -227,7 +290,7 @@ export function SplitPaymentsTab() {
               ))}
             </select>
             <select
-              className="rounded-lg border border-outline-variant bg-surface-container-lowest px-2.5 py-2 text-sm sm:px-3 sm:py-2.5"
+              className="rounded-lg border border-outline-variant bg-surface-container-lowest px-2.5 py-2 text-sm"
               value={method}
               onChange={(e) => {
                 setMethod(e.target.value);
@@ -241,7 +304,7 @@ export function SplitPaymentsTab() {
               ))}
             </select>
             <select
-              className="rounded-lg border border-outline-variant bg-surface-container-lowest px-2.5 py-2 text-sm sm:px-3 sm:py-2.5"
+              className="rounded-lg border border-outline-variant bg-surface-container-lowest px-2.5 py-2 text-sm"
               value={limit}
               onChange={(e) => {
                 setLimit(Number(e.target.value));
@@ -256,7 +319,7 @@ export function SplitPaymentsTab() {
             </select>
           </div>
 
-          {listMode === 'all' && (
+          {listMode === 'all' ? (
             <div className="chip-scroll">
               {STATUS_FILTERS.map((s) => (
                 <button
@@ -266,7 +329,7 @@ export function SplitPaymentsTab() {
                     setStatus(s.value);
                     setPage(1);
                   }}
-                  className={`rounded-full px-2.5 py-1 text-[11px] font-semibold capitalize transition sm:px-3.5 sm:py-1.5 sm:text-xs ${
+                  className={`rounded-full px-2.5 py-1 text-[11px] font-semibold capitalize ${
                     status === s.value
                       ? 'bg-primary text-on-primary'
                       : 'border border-outline-variant'
@@ -276,99 +339,132 @@ export function SplitPaymentsTab() {
                 </button>
               ))}
             </div>
-          )}
+          ) : null}
         </div>
 
         {isLoading ? (
           <LoadingScreen />
         ) : isError ? (
           <EmptyState
-            message={getApiErrorMessage(error, 'Failed to load split payments')}
+            message={getApiErrorMessage(error, 'Failed to load P2P payments')}
             icon="error"
           />
         ) : !items.length ? (
           <EmptyState
             message={
               search || (listMode === 'all' && status !== 'all') || method !== 'all'
-                ? 'No split payments match your filters'
-                : 'No split payments'
+                ? 'No P2P payments match your filters'
+                : 'No P2P payments'
             }
             icon="payments"
           />
         ) : (
           <>
-            <div className={`space-y-2 sm:space-y-3 ${isFetching ? 'opacity-70' : ''}`}>
+            <div className={cn('space-y-2', isFetching && 'opacity-70')}>
               {items.map((p) => {
-                const w = p.withdrawalId;
+                const payer = asPerson(p.payerUserId);
+                const to = payeeName(p);
+                const toUser = asPerson(p.withdrawalId?.userId);
+                const biz = businessName(p);
                 return (
                   <div
                     key={p._id}
-                    className="flex flex-col gap-2 rounded-lg border border-outline-variant p-3 sm:gap-3 sm:rounded-xl sm:p-4 sm:flex-row sm:items-center sm:justify-between"
+                    className={cn(
+                      'overflow-hidden rounded-xl border border-outline-variant/80 border-l-[3px] bg-surface-container-lowest p-2.5 shadow-sm sm:p-3',
+                      statusAccent(p.status),
+                    )}
                   >
-                    <div className="min-w-0">
-                      <p className="truncate font-semibold">{p.referenceId}</p>
-                      <p className="text-xs text-on-surface-variant sm:text-sm">
-                        Payer: {p.payerUserId?.name || '—'}
-                        {p.payerUserId?.role ? ` · ${p.payerUserId.role}` : ''}
-                        {p.payerUserId?.email ? ` (${p.payerUserId.email})` : ''}
-                      </p>
-                      <p className="text-xs text-on-surface-variant sm:text-sm">
-                        Withdrawal: {w?.referenceId} · UTR:{' '}
-                        <span className="font-mono">{p.utr}</span>
-                      </p>
-                      <p className="text-xs text-on-surface-variant">{formatDate(p.createdAt)}</p>
-                    </div>
-                    <div className="flex flex-col gap-2 sm:items-end">
-                      <div className="flex items-center justify-between gap-3 sm:justify-end">
-                        <div className="text-left sm:text-right">
-                          <p className="text-base font-bold text-secondary sm:text-lg">
-                            {formatCurrency(p.amount, p.currency)}
-                          </p>
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <button
+                        type="button"
+                        className="min-w-0 flex-1 text-left"
+                        onClick={() => setDetail(p)}
+                      >
+                        <div className="flex flex-wrap items-center gap-1.5">
                           <StatusBadge status={p.status} />
-                          {paymentCommission(p) > 0 && (
-                            <p className="mt-1 text-[11px] text-on-surface-variant">
-                              Commission cut{' '}
-                              <span className="font-semibold text-error">
-                                −{formatCurrency(paymentCommission(p), p.currency)}
-                              </span>
-                            </p>
-                          )}
-                          {paymentBonus(p) > 0 && (
-                            <p className="text-[11px] text-secondary">
-                              Investor bonus +{formatCurrency(paymentBonus(p), p.currency)}
-                            </p>
-                          )}
+                          {p.withdrawalId?.method ? (
+                            <span className="rounded bg-surface-container-high px-1.5 py-0.5 text-[10px] font-bold uppercase text-on-surface-variant">
+                              {p.withdrawalId.method}
+                            </span>
+                          ) : null}
+                          <span className="truncate font-mono text-[10px] text-on-surface-variant">
+                            {p.referenceId}
+                          </span>
                         </div>
+                        <p className="mt-1.5 text-[12px] leading-snug">
+                          <span className="font-semibold text-on-surface">
+                            {payer?.name || 'Payer'}
+                          </span>
+                          {payer?.role ? (
+                            <span className="text-on-surface-variant"> · {payer.role}</span>
+                          ) : null}
+                          <span className="mx-1 font-bold text-secondary">→</span>
+                          <span className="font-semibold text-on-surface">{to}</span>
+                          {toUser?.role ? (
+                            <span className="text-on-surface-variant"> · {toUser.role}</span>
+                          ) : null}
+                        </p>
+                        <p className="mt-0.5 truncate text-[10px] text-on-surface-variant">
+                          {[
+                            biz ? `Biz: ${biz}` : null,
+                            p.withdrawalId?.referenceId
+                              ? `WD ${p.withdrawalId.referenceId}`
+                              : null,
+                            formatDate(p.createdAt),
+                          ]
+                            .filter(Boolean)
+                            .join(' · ')}
+                        </p>
+                        {p.utr ? (
+                          <p className="mt-0.5 font-mono text-[10px] text-secondary">
+                            UTR {p.utr}
+                          </p>
+                        ) : null}
+                      </button>
+                      <div className="shrink-0 text-right">
+                        <p className="text-sm font-bold tabular-nums text-emerald-700 sm:text-base">
+                          {formatCurrency(p.amount, p.currency)}
+                        </p>
+                        {paymentCommission(p) > 0 ? (
+                          <p className="text-[10px] text-rose-600">
+                            Fee −{formatCurrency(paymentCommission(p), p.currency)}
+                          </p>
+                        ) : null}
+                        {paymentBonus(p) > 0 ? (
+                          <p className="text-[10px] text-secondary">
+                            Bonus +{formatCurrency(paymentBonus(p), p.currency)}
+                          </p>
+                        ) : null}
                       </div>
-                      <div className="flex flex-wrap gap-2">
-                        <Button size="sm" variant="outline" onClick={() => setDetail(p)}>
-                          View Proof
-                        </Button>
-                        {p.status === 'pending' && (
-                          <>
-                            <Button
-                              size="sm"
-                              variant="secondary"
-                              loading={approve.isPending}
-                              onClick={() => {
-                                setActionError('');
-                                approve.mutate(p._id);
-                              }}
-                            >
-                              Approve
-                            </Button>
-                            <Button size="sm" variant="danger" onClick={() => setRejectTarget(p)}>
-                              Reject
-                            </Button>
-                          </>
-                        )}
-                      </div>
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      <Button size="sm" variant="outline" onClick={() => setDetail(p)}>
+                        Details
+                      </Button>
+                      {p.status === 'pending' ? (
+                        <>
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            loading={approve.isPending}
+                            onClick={() => {
+                              setActionError('');
+                              approve.mutate(p._id);
+                            }}
+                          >
+                            Approve
+                          </Button>
+                          <Button size="sm" variant="danger" onClick={() => setRejectTarget(p)}>
+                            Reject
+                          </Button>
+                        </>
+                      ) : null}
                     </div>
                   </div>
                 );
               })}
             </div>
-            <div className="mt-5">
+            <div className="mt-4">
               <Pagination
                 page={page}
                 totalPages={totalPages}
@@ -381,100 +477,131 @@ export function SplitPaymentsTab() {
         )}
       </Card>
 
-      <Modal open={!!detail} onClose={() => setDetail(null)} title="Payment Proof">
-        {detail && (
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-3 text-sm">
-              <div className="col-span-2">
-                <PersonDetails title="Payer" person={detail.payerUserId} />
+      <Modal open={!!detail} onClose={() => setDetail(null)} title="Payment details" className="sm:max-w-2xl">
+        {detail ? (
+          <div className="space-y-3">
+            <div className="rounded-xl border border-outline-variant bg-surface-container-low/40 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <p className="font-mono text-xs text-on-surface-variant">{detail.referenceId}</p>
+                  <p className="mt-1 text-xl font-bold tabular-nums text-emerald-700">
+                    {formatCurrency(detail.amount, detail.currency)}
+                  </p>
+                </div>
+                <StatusBadge status={detail.status} />
               </div>
-              <div>
-                <p className="text-on-surface-variant">Pay amount</p>
-                <p className="font-bold">{formatCurrency(detail.amount)}</p>
-              </div>
+              <p className="mt-2 text-[12px]">
+                <span className="font-semibold">{detailPayer?.name || 'Payer'}</span>
+                <span className="mx-1 text-secondary">→</span>
+                <span className="font-semibold">{payeeName(detail)}</span>
+              </p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 text-xs sm:text-sm">
               <div>
                 <p className="text-on-surface-variant">UTR</p>
-                <p className="font-mono font-bold">{detail.utr}</p>
+                <p className="break-all font-mono font-semibold">{detail.utr || '—'}</p>
               </div>
               <div>
-                <p className="text-on-surface-variant">Commission cut</p>
-                <p className="font-bold text-error">
+                <p className="text-on-surface-variant">Created</p>
+                <p className="font-semibold">{formatDate(detail.createdAt)}</p>
+              </div>
+              <div>
+                <p className="text-on-surface-variant">Commission</p>
+                <p className="font-semibold text-rose-600">
                   {paymentCommission(detail) > 0
                     ? `−${formatCurrency(paymentCommission(detail))}`
                     : '—'}
                 </p>
               </div>
               <div>
-                <p className="text-on-surface-variant">Investor bonus</p>
-                <p className="font-bold text-secondary">
+                <p className="text-on-surface-variant">Bonus / net</p>
+                <p className="font-semibold">
                   {paymentBonus(detail) > 0
                     ? `+${formatCurrency(paymentBonus(detail))}`
                     : '—'}
-                </p>
-              </div>
-              <div>
-                <p className="text-on-surface-variant">Wallet credit (investor)</p>
-                <p className="font-bold">
                   {paymentNet(detail) != null
-                    ? formatCurrency(paymentNet(detail)!)
-                    : '—'}
+                    ? ` · net ${formatCurrency(paymentNet(detail)!)}`
+                    : ''}
                 </p>
               </div>
-              <div>
-                <p className="text-on-surface-variant">Status</p>
-                <StatusBadge status={detail.status} />
-              </div>
-              {withdrawal && (
+              {withdrawal ? (
                 <>
                   <div>
-                    <p className="text-on-surface-variant">Withdrawal Total</p>
-                    <p className="font-bold">{formatCurrency(withdrawal.amount)}</p>
+                    <p className="text-on-surface-variant">Withdrawal</p>
+                    <p className="font-mono text-[11px] font-semibold">
+                      {withdrawal.referenceId}
+                    </p>
                   </div>
                   <div>
-                    <p className="text-on-surface-variant">Already Paid</p>
-                    <p className="font-bold">{formatCurrency(withdrawal.paidAmount ?? 0)}</p>
+                    <p className="text-on-surface-variant">WD paid / total</p>
+                    <p className="font-semibold">
+                      {formatCurrency(withdrawal.paidAmount ?? 0)} /{' '}
+                      {formatCurrency(withdrawal.amount)}
+                    </p>
                   </div>
                 </>
-              )}
+              ) : null}
+              {businessName(detail) ? (
+                <div className="col-span-2">
+                  <p className="text-on-surface-variant">Business</p>
+                  <p className="font-semibold">{businessName(detail)}</p>
+                </div>
+              ) : null}
             </div>
-            <div className="overflow-hidden rounded-xl border border-outline-variant">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={detail.proofImageUrl}
-                alt="Payment proof"
-                className="max-h-96 w-full object-contain bg-black/5"
-              />
-            </div>
-            {detail.status === 'pending' && (
-              <div className="flex gap-2">
+
+            <PersonDetails title="From (payer)" person={detail.payerUserId} compact />
+            <PersonDetails title="To (withdrawal owner)" person={withdrawal?.userId} compact />
+
+            {detail.proofImageUrl ? (
+              <div className="overflow-hidden rounded-xl border border-outline-variant">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={detail.proofImageUrl}
+                  alt="Payment proof"
+                  className="max-h-80 w-full bg-black/5 object-contain"
+                />
+              </div>
+            ) : null}
+
+            {detail.status === 'pending' ? (
+              <div className="flex flex-wrap gap-2">
                 <Button
                   className="flex-1"
                   loading={approve.isPending}
-                  onClick={() => approve.mutate(detail._id)}
+                  onClick={() => {
+                    setActionError('');
+                    approve.mutate(detail._id);
+                  }}
                 >
-                  Approve Payment
+                  Approve
                 </Button>
                 <Button
-                  variant="danger"
                   className="flex-1"
-                  onClick={() => {
-                    setRejectTarget(detail);
-                    setDetail(null);
-                  }}
+                  variant="danger"
+                  onClick={() => setRejectTarget(detail)}
                 >
                   Reject
                 </Button>
               </div>
-            )}
+            ) : null}
           </div>
-        )}
+        ) : null}
       </Modal>
 
-      <Modal open={!!rejectTarget} onClose={() => setRejectTarget(null)} title="Reject Payment">
+      <Modal
+        open={!!rejectTarget}
+        onClose={() => {
+          setRejectTarget(null);
+          setActionError('');
+        }}
+        title="Reject payment"
+      >
         <form
           className="space-y-4"
           onSubmit={(e) => {
             e.preventDefault();
+            setActionError('');
             reject.mutate();
           }}
         >
@@ -484,6 +611,11 @@ export function SplitPaymentsTab() {
             onChange={(e) => setRejectReason(e.target.value)}
             required
           />
+          {actionError ? (
+            <div className="rounded-lg bg-error-container px-4 py-3 text-sm text-on-error-container">
+              {actionError}
+            </div>
+          ) : null}
           <Button type="submit" variant="danger" loading={reject.isPending} className="w-full">
             Confirm Reject
           </Button>

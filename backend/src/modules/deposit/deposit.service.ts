@@ -39,7 +39,6 @@ import {
 } from '../../common/dto/list-query.dto';
 import { withOptionalTransaction } from '../../common/utils/mongo-transaction';
 import { PlatformSettingsService } from '../platform-settings/platform-settings.service';
-import { feeCutNote } from '../wallet/utils/platform-commission-ledger.util';
 import {
   businessWithdrawalVisibilityFilter,
   tatCutoffDate,
@@ -184,6 +183,7 @@ export class DepositService {
       upiDetails: dto.upiDetails,
       bankDetails: dto.bankDetails,
       usdtDetails: dto.usdtDetails,
+      cdmDetails: dto.cdmDetails,
       externalRef: dto.externalRef,
       metadata: businessFloatLock ? { businessFloatLock } : undefined,
     });
@@ -256,6 +256,7 @@ export class DepositService {
           CommissionTarget.BUSINESS,
           bizId,
           doc.method,
+          'deposit',
         );
         businessCommission = commission.amount;
         doc.commissionAmount = businessCommission;
@@ -285,6 +286,7 @@ export class DepositService {
         CommissionTarget.PLATFORM,
         doc.businessId?.toString(),
         doc.method,
+        'deposit',
       );
       platformCommission = platformFee.amount;
 
@@ -328,11 +330,7 @@ export class DepositService {
         balanceAfter: updatedWallet.balance,
         referenceType: 'deposit',
         referenceId: doc._id.toString(),
-        description: `Deposit approved by ${approvedBy}${feeCutNote(
-          platformCommission,
-          businessCommission,
-          doc.currency,
-        )}`,
+        description: `Deposit approved by ${approvedBy}`,
         businessId: doc.businessId?.toString(),
       });
 
@@ -480,7 +478,9 @@ export class DepositService {
   async findById(id: string, userId?: string) {
     const q = this.depositModel.findById(id);
     if (!userId) {
-      q.populate('userId', 'name email phone role status businessUserCode externalRef');
+      q.populate('userId', 'name email phone role status businessUserCode externalRef')
+        .populate('businessId', 'name slug status referralCode')
+        .populate('commissionPaidTo', 'name email role');
     }
     const deposit = await q.exec();
     if (!deposit) throw new NotFoundException('Deposit not found');
@@ -558,9 +558,14 @@ export class DepositService {
 
     let q = this.depositModel.find(filter).skip(skip).limit(limit).sort(sortSpec);
     if (populateUser === 'admin') {
-      q = q.populate('userId', 'name email phone role status businessUserCode externalRef');
+      q = q
+        .populate('userId', 'name email phone role status businessUserCode externalRef')
+        .populate('businessId', 'name slug status referralCode')
+        .populate('commissionPaidTo', 'name email role');
     } else if (populateUser === 'public') {
-      q = q.populate('userId', 'name email externalRef');
+      q = q
+        .populate('userId', 'name email externalRef')
+        .populate('businessId', 'name slug');
     }
 
     const [items, total] = await Promise.all([
@@ -577,10 +582,26 @@ export class DepositService {
   }
 
   async findByUser(userId: string, opts: DepositListOpts = {}) {
-    return this.queryDeposits(
+    const result = await this.queryDeposits(
       { $or: [{ userId: new Types.ObjectId(userId) }, { userId }] },
       opts,
     );
+    // User must not see platform/business fee cuts on their deposits.
+    return {
+      ...result,
+      items: result.items.map((d) => {
+        const obj = d.toObject() as unknown as Record<string, unknown>;
+        const {
+          commissionAmount: _c,
+          commissionPaidTo: _p,
+          ...rest
+        } = obj as {
+          commissionAmount?: unknown;
+          commissionPaidTo?: unknown;
+        } & Record<string, unknown>;
+        return rest;
+      }),
+    };
   }
 
   async findByBusiness(businessId: string, opts: DepositListOpts = {}) {
@@ -868,6 +889,7 @@ export class DepositService {
       p2pPayEarned: earned,
       p2pPayUsed: used,
       p2pPayRemaining: await this.businessService.getP2pPayRemaining(businessId),
+      ...this.businessService.highlightSnapshot(business),
       businessName: business.name,
       businessStatus: business.status,
     };
@@ -906,6 +928,16 @@ export class DepositService {
           throw new BadRequestException('USDT wallet address required');
         }
         break;
+      case PaymentMethod.CDM:
+        if (!dto.cdmDetails?.payerName?.trim()) {
+          throw new BadRequestException('CDM depositor name required');
+        }
+        break;
+      default: {
+        const _exhaustive: never = dto.method;
+        void _exhaustive;
+        throw new BadRequestException('Unsupported payment method');
+      }
     }
   }
 }

@@ -69,3 +69,21 @@ export class DisableTwoFactorDto {
   @IsString()
   password!: string;
 }
+
+export class ForgotPasswordDto {
+  @IsAppEmail()
+  email!: string;
+}
+
+export class ResetPasswordDto {
+  @IsAppEmail()
+  email!: string;
+
+  @IsString()
+  @Matches(/^\d{6}$/, { message: 'Reset code must be 6 digits' })
+  code!: string;
+
+  @IsString()
+  @MinLength(8)
+  newPassword!: string;
+}

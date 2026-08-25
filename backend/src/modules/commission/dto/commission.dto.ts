@@ -14,6 +14,7 @@ import { Type } from 'class-transformer';
 import {
   CommissionFeeMode,
   CommissionTarget,
+  CommissionAppliesTo,
 } from '../../../common/enums/commission-target.enum';
 import { PaymentMethod } from '../../../common/enums/payment-method.enum';
 
@@ -28,6 +29,10 @@ export class CreateCommissionDto {
   @IsOptional()
   @IsEnum(PaymentMethod)
   paymentMethod?: PaymentMethod;
+
+  @IsOptional()
+  @IsEnum(CommissionAppliesTo)
+  appliesTo?: CommissionAppliesTo;
 
   @IsOptional()
   @IsEnum(CommissionFeeMode)
@@ -134,11 +139,24 @@ export class CommissionRuleInputDto {
 }
 
 export class UpsertBusinessCommissionsDto {
+  /** @deprecated Prefer businessTakeDeposit / businessTakeWithdrawal */
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => CommissionRuleInputDto)
   businessTake?: CommissionRuleInputDto[];
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CommissionRuleInputDto)
+  businessTakeDeposit?: CommissionRuleInputDto[];
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CommissionRuleInputDto)
+  businessTakeWithdrawal?: CommissionRuleInputDto[];
 
   @IsOptional()
   @IsArray()

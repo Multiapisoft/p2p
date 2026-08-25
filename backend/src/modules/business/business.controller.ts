@@ -9,7 +9,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { BusinessService } from './business.service';
-import { BusinessListQueryDto, CreateBusinessDto, UpdateBusinessDto, SetP2pPayLimitDto } from './dto/business.dto';
+import { BusinessListQueryDto, CreateBusinessDto, UpdateBusinessDto, SetP2pPayLimitDto, SetHighlightLimitDto } from './dto/business.dto';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { UserRole } from '../../common/enums/role.enum';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -196,7 +196,13 @@ export class BusinessController {
   @Patch(':id/p2p-pay-limit')
   @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN)
   setP2pPayLimit(@Param('id') id: string, @Body() dto: SetP2pPayLimitDto) {
-    return this.businessService.setP2pPayLimit(id, dto.p2pPayLimit);
+    return this.businessService.setP2pPayLimit(id, dto.p2pPayLimit, undefined, dto.mode ?? 'set');
+  }
+
+  @Patch(':id/highlight-limit')
+  @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN)
+  setHighlightLimit(@Param('id') id: string, @Body() dto: SetHighlightLimitDto) {
+    return this.businessService.setHighlightLimitPerMonth(id, dto.highlightLimitPerMonth);
   }
 
   @Patch(':id')

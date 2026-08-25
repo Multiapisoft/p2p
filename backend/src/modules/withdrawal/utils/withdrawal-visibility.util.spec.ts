@@ -38,17 +38,9 @@ describe('withdrawal-visibility.util (#8 #24)', () => {
       });
     });
 
-    it('admin filter requires listed OR terminal OR non-business after TAT', () => {
+    it('admin filter matches all withdrawals (listed, awaiting, cancelled, etc.)', () => {
       const cutoff = tatCutoffDate(now, tatMs);
-      const f = adminWithdrawalVisibilityFilter(cutoff);
-      expect(f.$or).toEqual(
-        expect.arrayContaining([
-          { p2pListStatus: 'listed' },
-          expect.objectContaining({
-            status: { $in: ['completed', 'rejected', 'cancelled'] },
-          }),
-        ]),
-      );
+      expect(adminWithdrawalVisibilityFilter(cutoff)).toEqual({});
     });
 
     it('available-for-payment is listed-only (business WD needs admin verify)', () => {

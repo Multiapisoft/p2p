@@ -10,7 +10,7 @@ import { StatusBadge } from '@/shared/components/ui/Badge';
 import { Pagination } from '@/shared/components/ui/Pagination';
 import { LoadingScreen, EmptyState } from '@/shared/components/ui/Icon';
 import { Modal } from '@/shared/components/ui/Modal';
-import { formatCurrency, formatDate } from '@/shared/lib/utils';
+import { formatCurrency, formatDate, cn } from '@/shared/lib/utils';
 import { getApiErrorMessage } from '@/shared/lib/api-error';
 import { asPerson, fetchAllPages, personCsvCells } from '@/shared/lib/csv';
 import { CsvDownloadButton } from '@/shared/components/CsvDownloadButton';
@@ -23,6 +23,7 @@ import type { Withdrawal } from '@/shared/types/api.types';
 const STATUS_FILTERS = [
   { value: 'all', label: 'All' },
   { value: 'pending', label: 'Pending' },
+  { value: 'processing', label: 'Processing' },
   { value: 'completed', label: 'Completed' },
   { value: 'rejected', label: 'Rejected' },
   { value: 'cancelled', label: 'Cancelled' },
@@ -50,7 +51,7 @@ type Tab = 'pending' | 'all' | 'split' | 'redemptions';
 type WithdrawalRow = Withdrawal & { paidAmount?: number; remainingAmount?: number };
 
 export function WithdrawalsPage() {
-  const [tab, setTab] = useState<Tab>('pending');
+  const [tab, setTab] = useState<Tab>('all');
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
   const [status, setStatus] = useState('all');
@@ -222,59 +223,95 @@ export function WithdrawalsPage() {
     return [];
   }
 
+  function methodIcon(method: string) {
+    switch (method) {
+      case 'upi':
+        return 'qr_code_2';
+      case 'bank':
+        return 'account_balance';
+      case 'usdt':
+        return 'currency_bitcoin';
+      default:
+        return 'payments';
+    }
+  }
+
+  function statusAccent(status: string) {
+    switch (status) {
+      case 'pending':
+        return 'border-l-amber-500';
+      case 'processing':
+        return 'border-l-sky-500';
+      case 'completed':
+        return 'border-l-emerald-500';
+      case 'rejected':
+      case 'cancelled':
+      case 'failed':
+        return 'border-l-red-500';
+      default:
+        return 'border-l-outline-variant';
+    }
+  }
+
   return (
     <div className="mx-auto max-w-7xl space-y-4 sm:space-y-6">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <h1 className="font-[family-name:var(--font-headline)] text-xl font-bold sm:text-2xl">
-            Withdrawals
-          </h1>
-          <p className="mt-0.5 text-sm text-on-surface-variant">
-            View withdrawals, investor redemptions, and Platform Payment listing. Final payout
-            approve/reject is done by the owning business.
-          </p>
+      <div className="relative overflow-hidden rounded-2xl border border-outline-variant bg-gradient-to-br from-surface-container-lowest via-surface-container-low/50 to-secondary-container/20 p-4 sm:p-5">
+        <div className="pointer-events-none absolute -right-10 -top-12 h-40 w-40 rounded-full bg-secondary/10 blur-2xl" />
+        <div className="relative flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <p className="mb-1 inline-flex items-center gap-1.5 rounded-full bg-secondary/15 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-secondary">
+              <span className="material-symbols-outlined text-sm">north_east</span>
+              Withdrawals
+            </p>
+            <h1 className="font-[family-name:var(--font-headline)] text-xl font-bold sm:text-2xl">
+              Withdrawal requests
+            </h1>
+            <p className="mt-1 max-w-2xl text-sm text-on-surface-variant">
+              All requests — listed, awaiting, cancelled, and completed. Filter by status anytime.
+            </p>
+          </div>
+          {tab !== 'split' && tab !== 'redemptions' ? (
+            <CsvDownloadButton<WithdrawalRow>
+              title="Withdrawals"
+              filename={`withdrawals-${tab}`}
+              filters={{ Tab: tab, Status: status, Method: method, Search: search, Sort: sort }}
+              disabled={!total}
+              columns={[
+                { header: 'Reference', value: (w) => w.referenceId },
+                { header: 'Status', value: (w) => w.status },
+                { header: 'Method', value: (w) => w.method },
+                { header: 'Amount', value: (w) => w.amount },
+                { header: 'Currency', value: (w) => w.currency },
+                { header: 'Paid', value: (w) => w.paidAmount ?? 0 },
+                { header: 'User name', value: (w) => personCsvCells(w.userId)[0] },
+                { header: 'User email', value: (w) => personCsvCells(w.userId)[1] },
+                { header: 'User phone', value: (w) => personCsvCells(w.userId)[2] },
+                { header: 'User role', value: (w) => personCsvCells(w.userId)[3] },
+                { header: 'List status', value: (w) => w.p2pListStatus || '' },
+                { header: 'Assigned to', value: (w) => personCsvCells(w.assignedTo)[0] },
+                {
+                  header: 'Payers',
+                  value: (w) =>
+                    (w.payments ?? [])
+                      .map((p) => {
+                        const payer = asPerson(p.payerUserId);
+                        return [payer?.name, payer?.role, payer?.email].filter(Boolean).join(' ');
+                      })
+                      .filter(Boolean)
+                      .join(' | '),
+                },
+                { header: 'Created', value: (w) => w.createdAt },
+              ]}
+              fetchRows={() =>
+                fetchAllPages((p, l) =>
+                  tab === 'pending'
+                    ? withdrawalsApi.getPending({ ...listQuery, page: p, limit: l })
+                    : withdrawalsApi.getAll({ ...listQuery, page: p, limit: l }),
+                )
+              }
+            />
+          ) : null}
         </div>
-        {tab !== 'split' && tab !== 'redemptions' ? (
-          <CsvDownloadButton<WithdrawalRow>
-            title="Withdrawals"
-            filename={`withdrawals-${tab}`}
-            filters={{ Tab: tab, Status: status, Method: method, Search: search, Sort: sort }}
-            disabled={!total}
-            columns={[
-              { header: 'Reference', value: (w) => w.referenceId },
-              { header: 'Status', value: (w) => w.status },
-              { header: 'Method', value: (w) => w.method },
-              { header: 'Amount', value: (w) => w.amount },
-              { header: 'Currency', value: (w) => w.currency },
-              { header: 'Paid', value: (w) => w.paidAmount ?? 0 },
-              { header: 'User name', value: (w) => personCsvCells(w.userId)[0] },
-              { header: 'User email', value: (w) => personCsvCells(w.userId)[1] },
-              { header: 'User phone', value: (w) => personCsvCells(w.userId)[2] },
-              { header: 'User role', value: (w) => personCsvCells(w.userId)[3] },
-              { header: 'List status', value: (w) => w.p2pListStatus || '' },
-              { header: 'Assigned to', value: (w) => personCsvCells(w.assignedTo)[0] },
-              {
-                header: 'Payers',
-                value: (w) =>
-                  (w.payments ?? [])
-                    .map((p) => {
-                      const payer = asPerson(p.payerUserId);
-                      return [payer?.name, payer?.role, payer?.email].filter(Boolean).join(' ');
-                    })
-                    .filter(Boolean)
-                    .join(' | '),
-              },
-              { header: 'Created', value: (w) => w.createdAt },
-            ]}
-            fetchRows={() =>
-              fetchAllPages((p, l) =>
-                tab === 'pending'
-                  ? withdrawalsApi.getPending({ ...listQuery, page: p, limit: l })
-                  : withdrawalsApi.getAll({ ...listQuery, page: p, limit: l }),
-              )
-            }
-          />
-        ) : null}
       </div>
 
       <div className="chip-scroll">
@@ -417,152 +454,212 @@ export function WithdrawalsPage() {
               />
             ) : (
               <>
-                <div className={`space-y-2 sm:space-y-3 ${isFetching ? 'opacity-70' : ''}`}>
-                  {items.map((w) => (
-                    <div
-                      key={w._id}
-                      className="flex flex-col gap-2 rounded-lg border border-outline-variant p-3 sm:gap-3 sm:rounded-xl sm:p-4 sm:flex-row sm:items-center sm:justify-between"
-                    >
-                      <div className="min-w-0">
-                        <p className="truncate font-semibold">{w.referenceId}</p>
-                        <p className="text-xs text-on-surface-variant sm:text-sm">
-                          {w.method.toUpperCase()} • {formatDate(w.createdAt)}
-                          {w.paidAmount ? (
-                            <> • Paid: {formatCurrency(w.paidAmount)}</>
-                          ) : null}
-                        </p>
-                        {asPerson(w.userId)?.name || asPerson(w.userId)?.email ? (
-                          <p className="mt-1 text-[11px] text-on-surface-variant sm:text-xs">
-                            User: {asPerson(w.userId)?.name || '—'}
-                            {asPerson(w.userId)?.role ? ` · ${asPerson(w.userId)?.role}` : ''}
-                            {asPerson(w.userId)?.email ? ` · ${asPerson(w.userId)?.email}` : ''}
-                          </p>
-                        ) : null}
-                        {destinationLines(w).length > 0 && (
-                          <p className="mt-1 text-[11px] text-on-surface-variant sm:text-xs">
-                            {destinationLines(w).join(' · ')}
-                          </p>
+                <div className={`space-y-3 ${isFetching ? 'opacity-70' : ''}`}>
+                  {items.map((w) => {
+                    const person = asPerson(w.userId);
+                    const remaining = Math.max(0, w.amount - (w.paidAmount || 0));
+                    return (
+                      <article
+                        key={w._id}
+                        className={cn(
+                          'overflow-hidden rounded-2xl border border-outline-variant/80 border-l-4 bg-surface-container-lowest shadow-sm transition hover:border-secondary/35 hover:shadow-md',
+                          statusAccent(w.status),
                         )}
-                      </div>
-                      <div className="flex items-center justify-between gap-3 sm:justify-end sm:gap-4">
-                        <div className="text-left sm:text-right">
-                          <p className="text-base font-bold text-error sm:text-lg">
-                            {formatCurrency(w.amount, w.currency)}
-                          </p>
-                          <div className="mt-1 flex flex-wrap items-center gap-1.5 sm:justify-end">
-                            <StatusBadge status={w.status} />
-                            {w.origin === 'business' ? (
-                              <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
-                                Business req
+                      >
+                        <div className="flex flex-col gap-3 p-3 sm:p-4 lg:flex-row lg:items-stretch lg:justify-between">
+                          <div className="min-w-0 flex-1 space-y-2.5">
+                            <div className="flex flex-wrap items-start gap-2.5">
+                              <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                                <span className="material-symbols-outlined text-[22px]">
+                                  {methodIcon(w.method)}
+                                </span>
                               </span>
-                            ) : null}
-                            {showP2pListChip(w) ? (
-                            <span
-                              className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                                (w.p2pListStatus || 'awaiting') === 'listed'
-                                  ? 'bg-secondary/15 text-secondary'
-                                  : (w.p2pListStatus || 'awaiting') === 'rejected'
-                                    ? 'bg-error/10 text-error'
-                                    : 'bg-outline-variant/40 text-on-surface-variant'
-                              }`}
-                            >
-                              {p2pListLabel(w)}
-                            </span>
-                            ) : null}
-                            {assigneeName(w) ? (
-                              <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
-                                Assigned: {assigneeName(w)}
-                              </span>
-                            ) : null}
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate font-mono text-sm font-bold tracking-tight text-primary sm:text-base">
+                                  {w.referenceId}
+                                </p>
+                                <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-on-surface-variant">
+                                  <span className="font-semibold uppercase">{w.method}</span>
+                                  <span>·</span>
+                                  <span>{formatDate(w.createdAt)}</span>
+                                  {w.paidAmount ? (
+                                    <>
+                                      <span>·</span>
+                                      <span className="text-secondary">
+                                        Paid {formatCurrency(w.paidAmount, w.currency)}
+                                      </span>
+                                    </>
+                                  ) : null}
+                                </p>
+                              </div>
+                            </div>
+
+                            <div className="grid gap-2 rounded-xl border border-outline-variant/70 bg-surface-container-low/40 px-3 py-2.5 text-xs sm:grid-cols-2">
+                              <div>
+                                <p className="text-[10px] font-bold uppercase tracking-wide text-on-surface-variant">
+                                  User
+                                </p>
+                                <p className="mt-0.5 font-medium text-on-surface">
+                                  {person?.name || '—'}
+                                  {person?.role ? (
+                                    <span className="font-normal text-on-surface-variant">
+                                      {' '}
+                                      · {person.role}
+                                    </span>
+                                  ) : null}
+                                </p>
+                                {person?.email ? (
+                                  <p className="truncate text-on-surface-variant">{person.email}</p>
+                                ) : null}
+                              </div>
+                              <div>
+                                <p className="text-[10px] font-bold uppercase tracking-wide text-on-surface-variant">
+                                  Destination
+                                </p>
+                                <p className="mt-0.5 text-on-surface">
+                                  {destinationLines(w).join(' · ') || '—'}
+                                </p>
+                              </div>
+                            </div>
+
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <StatusBadge status={w.status} />
+                              {w.priority ? (
+                                <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-900">
+                                  Highlighted
+                                </span>
+                              ) : null}
+                              {w.origin === 'business' ? (
+                                <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
+                                  Business req
+                                </span>
+                              ) : null}
+                              {showP2pListChip(w) ? (
+                                <span
+                                  className={cn(
+                                    'rounded-full px-2 py-0.5 text-[10px] font-semibold',
+                                    (w.p2pListStatus || 'awaiting') === 'listed'
+                                      ? 'bg-secondary/15 text-secondary'
+                                      : (w.p2pListStatus || 'awaiting') === 'rejected'
+                                        ? 'bg-error/10 text-error'
+                                        : 'bg-outline-variant/40 text-on-surface-variant',
+                                  )}
+                                >
+                                  {p2pListLabel(w)}
+                                </span>
+                              ) : null}
+                              {assigneeName(w) ? (
+                                <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
+                                  Assigned: {assigneeName(w)}
+                                </span>
+                              ) : null}
+                              {remaining > 0 && (w.paidAmount || 0) > 0 ? (
+                                <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
+                                  Left {formatCurrency(remaining, w.currency)}
+                                </span>
+                              ) : null}
+                            </div>
                           </div>
-                        </div>
-                        <div className="flex flex-col gap-2 sm:flex-row">
-                          <Button size="sm" variant="secondary" onClick={() => setDetail(w)}>
-                            Details
-                          </Button>
-                          {(w.status === 'pending' || w.status === 'processing') &&
-                            (w.p2pListStatus || 'awaiting') !== 'listed' && (
-                              <Button
-                                size="sm"
-                                variant="secondary"
-                                loading={listForP2p.isPending}
-                                onClick={() => listForP2p.mutate(w._id)}
-                              >
-                                {w.origin === 'business' ? 'Verify' : 'Approve'}
+
+                          <div className="flex shrink-0 flex-col gap-3 border-t border-outline-variant/60 pt-3 lg:w-[220px] lg:border-l lg:border-t-0 lg:pl-4 lg:pt-0">
+                            <div className="text-left lg:text-right">
+                              <p className="text-[10px] font-bold uppercase tracking-wide text-on-surface-variant">
+                                Amount
+                              </p>
+                              <p className="text-xl font-bold tabular-nums text-error sm:text-2xl">
+                                {formatCurrency(w.amount, w.currency)}
+                              </p>
+                            </div>
+                            <div className="flex flex-wrap gap-2 lg:justify-end">
+                              <Button size="sm" variant="secondary" onClick={() => setDetail(w)}>
+                                Details
                               </Button>
-                            )}
-                          {(w.status === 'pending' || w.status === 'processing') &&
-                            w.p2pListStatus === 'listed' && (
-                              <>
-                                {w.origin === 'business' ? (
+                              {(w.status === 'pending' || w.status === 'processing') &&
+                                (w.p2pListStatus || 'awaiting') !== 'listed' && (
+                                  <Button
+                                    size="sm"
+                                    loading={listForP2p.isPending}
+                                    onClick={() => listForP2p.mutate(w._id)}
+                                  >
+                                    {w.origin === 'business' ? 'Verify' : 'Approve'}
+                                  </Button>
+                                )}
+                              {(w.status === 'pending' || w.status === 'processing') &&
+                                w.p2pListStatus === 'listed' && (
                                   <>
-                                    <Button
-                                      size="sm"
-                                      onClick={() => {
-                                        setPayTarget(w);
-                                        setPayAmount(String(w.amount - (w.paidAmount || 0)));
-                                        setPayUtr('');
-                                        setActionError('');
-                                      }}
-                                    >
-                                      Pay
-                                    </Button>
+                                    {w.origin === 'business' ? (
+                                      <>
+                                        <Button
+                                          size="sm"
+                                          onClick={() => {
+                                            setPayTarget(w);
+                                            setPayAmount(
+                                              String(w.amount - (w.paidAmount || 0)),
+                                            );
+                                            setPayUtr('');
+                                            setActionError('');
+                                          }}
+                                        >
+                                          Pay
+                                        </Button>
+                                        <Button
+                                          size="sm"
+                                          variant="secondary"
+                                          onClick={() => {
+                                            setMarkPaidTarget(w);
+                                            setMarkPaidUtr('');
+                                            setActionError('');
+                                          }}
+                                        >
+                                          Mark paid
+                                        </Button>
+                                      </>
+                                    ) : null}
                                     <Button
                                       size="sm"
                                       variant="secondary"
-                                      onClick={() => {
-                                        setMarkPaidTarget(w);
-                                        setMarkPaidUtr('');
-                                        setActionError('');
-                                      }}
+                                      loading={unlistForP2p.isPending}
+                                      onClick={() => unlistForP2p.mutate(w._id)}
                                     >
-                                      Mark paid
+                                      Unlist
                                     </Button>
                                   </>
-                                ) : null}
+                                )}
+                              {(w.status === 'pending' || w.status === 'processing') &&
+                              Math.max(0, w.amount - (w.paidAmount || 0)) > 0 ? (
                                 <Button
                                   size="sm"
-                                  variant="secondary"
-                                  loading={unlistForP2p.isPending}
-                                  onClick={() => unlistForP2p.mutate(w._id)}
+                                  variant="outline"
+                                  onClick={() => {
+                                    setAssignTarget(w);
+                                    setActionError('');
+                                  }}
                                 >
-                                  Unlist Platform Payment
+                                  {assigneeName(w) ? 'Reassign' : 'Assign'}
                                 </Button>
-                              </>
+                              ) : null}
+                              {assigneeName(w) &&
+                              (w.status === 'pending' || w.status === 'processing') ? (
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  loading={unassignPayer.isPending}
+                                  onClick={() => unassignPayer.mutate(w._id)}
+                                >
+                                  Unassign
+                                </Button>
+                              ) : null}
+                            </div>
+                            {w.status === 'pending' && (w.paidAmount || 0) > 0 && (
+                              <p className="text-[11px] text-on-surface-variant lg:text-right">
+                                Use Split Payments to approve proofs
+                              </p>
                             )}
-                          {(w.status === 'pending' || w.status === 'processing') &&
-                          Math.max(0, w.amount - (w.paidAmount || 0)) > 0 ? (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => {
-                                setAssignTarget(w);
-                                setActionError('');
-                              }}
-                            >
-                              {assigneeName(w) ? 'Reassign' : 'Assign'}
-                            </Button>
-                          ) : null}
-                          {assigneeName(w) &&
-                          (w.status === 'pending' || w.status === 'processing') ? (
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              loading={unassignPayer.isPending}
-                              onClick={() => unassignPayer.mutate(w._id)}
-                            >
-                              Unassign
-                            </Button>
-                          ) : null}
-                          {w.status === 'pending' && (w.paidAmount || 0) > 0 && (
-                            <p className="text-[11px] text-on-surface-variant">
-                              Use Split Payments to approve proofs
-                            </p>
-                          )}
+                          </div>
                         </div>
-                      </div>
-                    </div>
-                  ))}
+                      </article>
+                    );
+                  })}
                 </div>
                 <div className="mt-5">
                   <Pagination

@@ -9,11 +9,17 @@ describe('PlatformCommissionService', () => {
     email: 'admin@test.com',
     role: UserRole.ADMIN,
   };
-  const wallet = {
-    _id: { toString: () => 'wallet-id' },
+  const adminWallet = {
+    _id: { toString: () => 'admin-wallet' },
     balance: 100,
     lockedBalance: 0,
     userId: { toString: () => 'admin-id' },
+  };
+  const bizWallet = {
+    _id: { toString: () => 'biz-wallet' },
+    balance: 500,
+    lockedBalance: 0,
+    userId: { toString: () => 'owner-1' },
   };
 
   const walletService = {
@@ -37,15 +43,28 @@ describe('PlatformCommissionService', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     usersRepo.findByEmail.mockResolvedValue(admin);
-    walletService.getOrCreate.mockResolvedValue({ ...wallet });
-    walletService.credit.mockResolvedValue({ ...wallet, balance: 115 });
-    walletService.debit.mockResolvedValue({ ...wallet, balance: 80 });
+    walletService.getOrCreate.mockImplementation(async (userId: string) => {
+      if (userId === 'owner-1') return { ...bizWallet };
+      return { ...adminWallet };
+    });
+    walletService.credit.mockResolvedValue({ ...adminWallet, balance: 115 });
+    walletService.debit.mockResolvedValue({ ...bizWallet, balance: 480 });
     transactionService.record.mockImplementation(async (p) => p);
+    const businessModel = {
+      findById: jest.fn().mockReturnValue({
+        exec: jest.fn().mockResolvedValue({
+          _id: { toString: () => 'biz-1' },
+          name: 'Acme Biz',
+          ownerId: { toString: () => 'owner-1' },
+        }),
+      }),
+    };
     service = new PlatformCommissionService(
       walletService as never,
       transactionService as never,
       usersRepo as never,
       config as never,
+      businessModel as never,
     );
   });
 
@@ -61,7 +80,7 @@ describe('PlatformCommissionService', () => {
       referenceLabel: 'PAY-1',
     });
 
-    expect(walletService.credit).toHaveBeenCalledWith('wallet-id', 15, false, undefined);
+    expect(walletService.credit).toHaveBeenCalledWith('admin-wallet', 15, false, undefined);
     expect(transactionService.record).toHaveBeenCalledWith(
       expect.objectContaining({
         userId: 'admin-id',
@@ -90,11 +109,11 @@ describe('PlatformCommissionService', () => {
       kind: 'business',
     });
 
-    expect(walletService.credit).toHaveBeenCalledWith('wallet-id', 8, false, undefined);
+    expect(walletService.credit).toHaveBeenCalledWith('admin-wallet', 8, false, undefined);
     expect(entry?.description).toContain('Business fee ₹8 received from Rahul (user)');
   });
 
-  it('credits platform then business fees sequentially', async () => {
+  it('without businessId credits platform then business fees to admin only', async () => {
     await service.creditCollectedFees({
       platformAmount: 10,
       businessAmount: 5,
@@ -106,13 +125,53 @@ describe('PlatformCommissionService', () => {
       referenceLabel: 'DEP-1',
     });
 
-    expect(walletService.credit).toHaveBeenNthCalledWith(1, 'wallet-id', 10, false, undefined);
-    expect(walletService.credit).toHaveBeenNthCalledWith(2, 'wallet-id', 5, false, undefined);
+    expect(walletService.debit).not.toHaveBeenCalled();
+    expect(walletService.credit).toHaveBeenNthCalledWith(1, 'admin-wallet', 10, false, undefined);
+    expect(walletService.credit).toHaveBeenNthCalledWith(2, 'admin-wallet', 5, false, undefined);
     expect(transactionService.record).toHaveBeenCalledTimes(2);
   });
 
+  it('with businessId debits business wallet then credits admin', async () => {
+    await service.creditCollectedFees({
+      platformAmount: 10,
+      businessAmount: 5,
+      fromUserId: 'payer-1',
+      fromName: 'Rahul',
+      fromRole: 'user',
+      referenceType: 'deposit',
+      referenceId: 'dep-id',
+      referenceLabel: 'DEP-1',
+      businessId: 'biz-1',
+    });
+
+    expect(walletService.debit).toHaveBeenCalledTimes(2);
+    expect(walletService.debit).toHaveBeenCalledWith(
+      'biz-wallet',
+      10,
+      false,
+      undefined,
+      { allowOverdraft: true },
+    );
+    expect(walletService.credit).toHaveBeenCalledTimes(2);
+    expect(transactionService.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'owner-1',
+        direction: LedgerDirection.DEBIT,
+        amount: 10,
+        description: expect.stringContaining('Platform fee ₹10 paid to'),
+      }),
+    );
+    expect(transactionService.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'admin-id',
+        direction: LedgerDirection.CREDIT,
+        fromParty: 'Acme Biz (business)',
+      }),
+    );
+  });
+
   it('credits deposit given to on admin commission wallet', async () => {
-    walletService.credit.mockResolvedValue({ ...wallet, balance: 2100 });
+    walletService.credit.mockResolvedValue({ ...adminWallet, balance: 2100 });
     const entry = await service.creditDepositGivenTo({
       amount: 2000,
       currency: Currency.INR,
@@ -126,7 +185,7 @@ describe('PlatformCommissionService', () => {
       referenceLabel: 'WDR-1',
     });
 
-    expect(walletService.credit).toHaveBeenCalledWith('wallet-id', 2000, false, undefined);
+    expect(walletService.credit).toHaveBeenCalledWith('admin-wallet', 2000, false, undefined);
     expect(transactionService.record).toHaveBeenCalledWith(
       expect.objectContaining({
         userId: 'admin-id',
@@ -167,7 +226,7 @@ describe('PlatformCommissionService', () => {
     });
 
     expect(walletService.debit).toHaveBeenCalledWith(
-      'wallet-id',
+      'admin-wallet',
       20,
       false,
       undefined,

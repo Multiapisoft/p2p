@@ -13,7 +13,7 @@ import { Input } from '@/shared/components/ui/Input';
 import { StatusBadge } from '@/shared/components/ui/Badge';
 import { Pagination } from '@/shared/components/ui/Pagination';
 import { LoadingScreen, EmptyState } from '@/shared/components/ui/Icon';
-import { formatCurrency, formatDate } from '@/shared/lib/utils';
+import { formatCurrency, formatDate, cn } from '@/shared/lib/utils';
 import {
   accountNumberError,
   bankNameError,
@@ -548,13 +548,19 @@ export function WithdrawalsPage() {
 
   return (
     <div className="mx-auto max-w-5xl space-y-4 sm:space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
+      <div className="relative overflow-hidden rounded-2xl border border-outline-variant bg-gradient-to-br from-surface-container-lowest via-surface-container-low/50 to-secondary-container/20 p-4 sm:p-5">
+        <div className="pointer-events-none absolute -right-8 -top-10 h-32 w-32 rounded-full bg-secondary/10 blur-2xl" />
+        <div className="relative flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="font-[family-name:var(--font-headline)] text-xl font-bold tracking-tight sm:text-2xl">
+          <p className="mb-1 inline-flex items-center gap-1.5 rounded-full bg-secondary/15 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-secondary">
+            <span className="material-symbols-outlined text-sm">north_east</span>
             Withdrawals
+          </p>
+          <h1 className="font-[family-name:var(--font-headline)] text-xl font-bold tracking-tight sm:text-2xl">
+            Withdrawal requests
           </h1>
           <p className="mt-0.5 text-sm text-on-surface-variant">
-            Request payouts and track split payments.
+            Request payouts and track incoming payments.
           </p>
         </div>
         <div className="flex w-full flex-col gap-2 sm:w-auto">
@@ -589,6 +595,7 @@ export function WithdrawalsPage() {
         >
           {showForm ? 'Close form' : 'New withdrawal'}
         </Button>
+        </div>
         </div>
       </div>
 
@@ -735,14 +742,6 @@ export function WithdrawalsPage() {
               required
               disabled={!!editingId}
             />
-
-            {isBusinessLinked ? (
-              <p className="text-sm text-on-surface-variant">
-                Linked to a business — withdrawal cannot exceed remaining pay limit
-                {typeof payRemaining === 'number' ? ` (₹${payRemaining})` : ''}.
-                User deposits increase this limit even if it is currently ₹0.
-              </p>
-            ) : null}
 
             {amountIsInrPayout && !isBusinessLinked && Number(amount) > 0 && (
               <p className="text-sm text-on-surface-variant">
@@ -988,12 +987,32 @@ export function WithdrawalsPage() {
                 return (
                   <article
                     key={w._id}
-                    className="overflow-hidden rounded-xl border border-outline-variant bg-surface-container-lowest sm:rounded-2xl"
+                    className={cn(
+                      'overflow-hidden rounded-2xl border border-outline-variant/80 border-l-4 bg-surface-container-lowest shadow-sm sm:rounded-2xl',
+                      w.status === 'pending'
+                        ? 'border-l-amber-500'
+                        : w.status === 'processing'
+                          ? 'border-l-sky-500'
+                          : w.status === 'completed'
+                            ? 'border-l-emerald-500'
+                            : w.status === 'cancelled' || w.status === 'rejected'
+                              ? 'border-l-red-500'
+                              : 'border-l-outline-variant',
+                    )}
                   >
                     <div className="flex flex-wrap items-start justify-between gap-2 p-3 sm:gap-3 sm:p-5">
                       <div className="min-w-0 flex-1 space-y-0.5 sm:space-y-1">
                         <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
-                          <h3 className="text-base font-bold sm:text-lg">
+                          <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                            <span className="material-symbols-outlined text-[18px]">
+                              {w.method === 'upi'
+                                ? 'qr_code_2'
+                                : w.method === 'bank'
+                                  ? 'account_balance'
+                                  : 'currency_bitcoin'}
+                            </span>
+                          </span>
+                          <h3 className="text-base font-bold tabular-nums text-error sm:text-lg">
                             {formatCurrency(w.amount, w.currency)}
                           </h3>
                           <StatusBadge status={w.status as TransactionStatus} />
@@ -1015,7 +1034,7 @@ export function WithdrawalsPage() {
                             </span>
                           )}
                         </div>
-                        <p className="break-all font-mono text-[11px] text-on-surface-variant sm:text-xs">
+                        <p className="break-all font-mono text-[11px] font-semibold text-primary sm:text-xs">
                           {w.referenceId}
                         </p>
                         <p className="text-[11px] text-on-surface-variant sm:text-xs">
@@ -1116,7 +1135,9 @@ export function WithdrawalsPage() {
                         )}
                         {payments.length > 0 && (
                           <div className="space-y-2">
-                            <p className="text-sm font-semibold">Split payments</p>
+                            <p className="text-sm font-semibold">
+                              {payments.length <= 1 ? 'Payment' : 'Payments'}
+                            </p>
                             <p className="text-[11px] text-on-surface-variant sm:text-xs">
                               Tap Received if you got the money, or Dispute within 24 hours. After
                               that it auto-confirms.

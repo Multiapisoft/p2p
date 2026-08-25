@@ -9,6 +9,7 @@ import {
   CommissionRuleInputDto,
 } from './dto/commission.dto';
 import {
+  CommissionAppliesTo,
   CommissionFeeMode,
   CommissionTarget,
 } from '../../common/enums/commission-target.enum';
@@ -24,6 +25,17 @@ export interface CommissionResult {
   fixedFee: number;
   feeMode: CommissionFeeMode;
   configId?: string;
+}
+
+export type CommissionTxnKind = 'deposit' | 'withdrawal';
+
+function ruleAppliesTo(
+  config: CommissionConfigDocument,
+  kind?: CommissionTxnKind,
+): boolean {
+  if (!kind) return true;
+  const applies = config.appliesTo || CommissionAppliesTo.ALL;
+  return applies === CommissionAppliesTo.ALL || applies === kind;
 }
 
 @Injectable()
@@ -87,11 +99,28 @@ export class CommissionService {
       this.findForTarget(CommissionTarget.INVESTOR_BONUS, businessId),
       this.businessModel.findById(businessId).exec(),
     ]);
+
+    const depositRules = businessTake.filter(
+      (r) => (r.appliesTo || CommissionAppliesTo.ALL) === CommissionAppliesTo.DEPOSIT,
+    );
+    const withdrawalRules = businessTake.filter(
+      (r) => (r.appliesTo || CommissionAppliesTo.ALL) === CommissionAppliesTo.WITHDRAWAL,
+    );
+    const legacyAll = businessTake.filter(
+      (r) => !r.appliesTo || r.appliesTo === CommissionAppliesTo.ALL,
+    );
+
+    // Legacy "all" rules show in both editors until admin saves split rates.
+    const businessTakeDeposit = depositRules.length ? depositRules : legacyAll;
+    const businessTakeWithdrawal = withdrawalRules.length ? withdrawalRules : legacyAll;
+
     const limit = business?.p2pPayLimit || 0;
     const earned = business?.p2pPayEarned || 0;
     const used = business?.p2pPayUsed || 0;
     return {
       businessTake,
+      businessTakeDeposit,
+      businessTakeWithdrawal,
       investorBonus,
       p2pPayLimit: limit,
       p2pPayEarned: earned,
@@ -111,6 +140,8 @@ export class CommissionService {
 
     const results = {
       businessTake: [] as CommissionConfigDocument[],
+      businessTakeDeposit: [] as CommissionConfigDocument[],
+      businessTakeWithdrawal: [] as CommissionConfigDocument[],
       investorBonus: [] as CommissionConfigDocument[],
       p2pPayLimit: 0,
       p2pPayEarned: 0,
@@ -118,15 +149,52 @@ export class CommissionService {
       p2pPayRemaining: 0 as number,
     };
 
-    if (dto.businessTake) {
-      results.businessTake = await this.replaceTargetRules(
-        CommissionTarget.BUSINESS,
-        businessId,
-        dto.businessTake,
-        'Business take',
-      );
+    const hasSplit =
+      dto.businessTakeDeposit != null || dto.businessTakeWithdrawal != null;
 
-      const display = dto.businessTake.find((r) => !r.useRange) ?? dto.businessTake[0];
+    if (hasSplit || dto.businessTake) {
+      await this.commissionModel.deleteMany({
+        targetType: CommissionTarget.BUSINESS,
+        targetId: new Types.ObjectId(businessId),
+      });
+
+      if (hasSplit) {
+        results.businessTakeDeposit = await this.insertTargetRules(
+          CommissionTarget.BUSINESS,
+          businessId,
+          dto.businessTakeDeposit || [],
+          'Business take (deposit)',
+          CommissionAppliesTo.DEPOSIT,
+        );
+        results.businessTakeWithdrawal = await this.insertTargetRules(
+          CommissionTarget.BUSINESS,
+          businessId,
+          dto.businessTakeWithdrawal || [],
+          'Business take (withdrawal)',
+          CommissionAppliesTo.WITHDRAWAL,
+        );
+        results.businessTake = [
+          ...results.businessTakeDeposit,
+          ...results.businessTakeWithdrawal,
+        ];
+      } else if (dto.businessTake) {
+        // Legacy single list → apply to both deposit & withdrawal
+        results.businessTake = await this.insertTargetRules(
+          CommissionTarget.BUSINESS,
+          businessId,
+          dto.businessTake,
+          'Business take',
+          CommissionAppliesTo.ALL,
+        );
+        results.businessTakeDeposit = results.businessTake;
+        results.businessTakeWithdrawal = results.businessTake;
+      }
+
+      const display =
+        (dto.businessTakeDeposit || dto.businessTakeWithdrawal || dto.businessTake || []).find(
+          (r) => !r.useRange,
+        ) ??
+        (dto.businessTakeDeposit || dto.businessTakeWithdrawal || dto.businessTake || [])[0];
       const rate =
         display &&
         (display.feeMode === CommissionFeeMode.PERCENTAGE ||
@@ -142,6 +210,7 @@ export class CommissionService {
         businessId,
         dto.investorBonus,
         'Investor bonus',
+        CommissionAppliesTo.WITHDRAWAL,
       );
     }
 
@@ -166,21 +235,16 @@ export class CommissionService {
     return results;
   }
 
-  private async replaceTargetRules(
+  private async insertTargetRules(
     targetType: CommissionTarget,
     targetId: string,
     rules: CommissionRuleInputDto[],
     label: string,
+    appliesTo: CommissionAppliesTo,
   ) {
     for (const rule of rules) {
       this.validateRule(rule);
     }
-
-    await this.commissionModel.deleteMany({
-      targetType,
-      targetId: new Types.ObjectId(targetId),
-    });
-
     if (!rules.length) return [];
 
     const docs = await this.commissionModel.insertMany(
@@ -192,6 +256,7 @@ export class CommissionService {
         fixedFee: rule.feeMode === CommissionFeeMode.PERCENTAGE ? 0 : rule.fixedFee,
         minAmount: rule.useRange ? rule.minAmount : undefined,
         maxAmount: rule.useRange ? rule.maxAmount : undefined,
+        appliesTo,
         isActive: rule.isActive ?? true,
         description:
           rule.description ||
@@ -200,6 +265,20 @@ export class CommissionService {
     );
 
     return docs as CommissionConfigDocument[];
+  }
+
+  private async replaceTargetRules(
+    targetType: CommissionTarget,
+    targetId: string,
+    rules: CommissionRuleInputDto[],
+    label: string,
+    appliesTo: CommissionAppliesTo = CommissionAppliesTo.ALL,
+  ) {
+    await this.commissionModel.deleteMany({
+      targetType,
+      targetId: new Types.ObjectId(targetId),
+    });
+    return this.insertTargetRules(targetType, targetId, rules, label, appliesTo);
   }
 
   private validateRule(rule: CommissionRuleInputDto) {
@@ -225,14 +304,24 @@ export class CommissionService {
   private pickBest(
     configs: CommissionConfigDocument[],
     amount: number,
+    kind?: CommissionTxnKind,
   ): CommissionConfigDocument | null {
-    const matching = configs.filter((c) => this.matchesRange(c, amount));
+    const matching = configs.filter(
+      (c) => this.matchesRange(c, amount) && ruleAppliesTo(c, kind),
+    );
     if (!matching.length) return null;
 
     const ranged = matching.filter((c) => c.minAmount != null || c.maxAmount != null);
     const pool = ranged.length ? ranged : matching;
 
     pool.sort((a, b) => {
+      // Prefer kind-specific rules over legacy "all"
+      const specA =
+        kind && (a.appliesTo || CommissionAppliesTo.ALL) === kind ? 0 : 1;
+      const specB =
+        kind && (b.appliesTo || CommissionAppliesTo.ALL) === kind ? 0 : 1;
+      if (specA !== specB) return specA - specB;
+
       const spanA =
         a.minAmount != null && a.maxAmount != null
           ? a.maxAmount - a.minAmount
@@ -292,6 +381,7 @@ export class CommissionService {
     targetType: CommissionTarget,
     targetId?: string,
     paymentMethod?: PaymentMethod,
+    kind?: CommissionTxnKind,
   ): Promise<CommissionResult> {
     const empty: CommissionResult = {
       amount: 0,
@@ -315,7 +405,7 @@ export class CommissionService {
 
     let config: CommissionConfigDocument | null = null;
     for (const bucket of buckets) {
-      config = this.pickBest(bucket, amount);
+      config = this.pickBest(bucket, amount, kind);
       if (config) break;
     }
 

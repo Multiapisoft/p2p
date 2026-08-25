@@ -30,4 +30,5 @@ export enum LedgerDirection {
 export enum LedgerFlow {
   PLATFORM_FEE = 'platform_fee',
   INVESTOR_COMMISSION = 'investor_commission',
+  REFERRAL_REWARD = 'referral_reward',
 }

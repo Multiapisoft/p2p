@@ -109,6 +109,11 @@ export function LoginPage() {
               placeholder="••••••••"
               required
             />
+            <div className="flex justify-end">
+              <Link href="/forgot-password" className="text-sm font-medium text-secondary hover:underline">
+                Forgot password?
+              </Link>
+            </div>
 
             {needs2fa && (
               <Input

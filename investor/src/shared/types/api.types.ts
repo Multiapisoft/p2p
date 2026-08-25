@@ -51,6 +51,8 @@ export interface Portfolio {
   totalDeposited: number;
   totalInvested: number;
   totalRedeemed: number;
+  /** Sum of investor bonus credits from completed P2P pays. */
+  totalBonusEarned?: number;
   redeemableAmount: number;
   balance: number;
   lockedBalance: number;

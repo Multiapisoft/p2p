@@ -43,6 +43,22 @@ export class PlatformSettings {
   /** Extra hold minutes for CDM destinations before listing widely (Noida #51). */
   @Prop({ default: 30 })
   cdmHoldMinutes!: number;
+
+  /** Investor referral: % of principal to referrer on referred investor's first completed P2P pay. */
+  @Prop({ default: 2 })
+  investorReferralFirstReferrerPercent!: number;
+
+  /** Investor referral: % of principal to joiner on their first completed P2P pay. */
+  @Prop({ default: 1 })
+  investorReferralFirstJoinerPercent!: number;
+
+  /** Investor referral: % to referrer on subsequent completed pays. */
+  @Prop({ default: 1 })
+  investorReferralNextReferrerPercent!: number;
+
+  /** Investor referral: % to joiner on subsequent completed pays (default 0). */
+  @Prop({ default: 0 })
+  investorReferralNextJoinerPercent!: number;
 }
 
 export const PlatformSettingsSchema = SchemaFactory.createForClass(PlatformSettings);

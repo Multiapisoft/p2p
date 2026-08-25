@@ -3,18 +3,24 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { transactionsApi } from '../api/transactions.api';
+import { walletApi } from '@/features/wallet/api/wallet.api';
 import { getApiErrorMessage } from '@/shared/api/client';
 import { Card } from '@/shared/components/ui/Card';
 import { Button } from '@/shared/components/ui/Button';
 import { Input } from '@/shared/components/ui/Input';
 import { Pagination } from '@/shared/components/ui/Pagination';
 import { LoadingScreen, EmptyState } from '@/shared/components/ui/Icon';
-import { PageHeader } from '@/shared/components/layout/PageHeader';
 import { Modal } from '@/shared/components/ui/Modal';
-import { formatCurrency, formatDate } from '@/shared/lib/utils';
+import { cn, formatCurrency, formatDate } from '@/shared/lib/utils';
 import { CsvDownloadButton } from '@/shared/components/CsvDownloadButton';
 import { fetchAllPages } from '@/shared/lib/csv';
 import type { LedgerEntry } from '@/shared/types/api.types';
+import {
+  StatementCards,
+  StatementTable,
+  isCreditEntry,
+  typeMeta,
+} from '../components/ledger-ui';
 
 const TYPE_FILTERS = [
   { value: 'all', label: 'All' },
@@ -34,10 +40,9 @@ const SORT_OPTIONS = [
   { value: 'oldest', label: 'Oldest first' },
   { value: 'amount_desc', label: 'Amount: high to low' },
   { value: 'amount_asc', label: 'Amount: low to high' },
-  { value: 'status', label: 'Type' },
 ];
 
-const PAGE_SIZES = [5, 10, 20];
+const PAGE_SIZES = [10, 20, 50];
 
 function DetailRow({ label, value }: { label: string; value: ReactNode }) {
   return (
@@ -70,6 +75,11 @@ export function TransactionsPage() {
     [page, limit, type, sort, search],
   );
 
+  const { data: balance } = useQuery({
+    queryKey: ['business-wallet'],
+    queryFn: () => walletApi.getBalance(),
+  });
+
   const { data, isLoading, isFetching, isError, error, refetch } = useQuery({
     queryKey: ['transactions', listQuery],
     queryFn: () => transactionsApi.getMy(listQuery),
@@ -78,13 +88,24 @@ export function TransactionsPage() {
   const items = data?.items ?? [];
   const total = data?.total ?? 0;
   const totalPages = data?.totalPages ?? 1;
+  const available =
+    balance?.availableBalance ?? balance?.balance ?? balance?.redeemableAmount ?? 0;
+  const currency = balance?.currency || items[0]?.currency || 'INR';
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6">
-      <PageHeader
-        title="Transaction Ledger"
-        description="Bank-statement style activity — credit, debit and running balance for every record"
-        action={
+    <div className="mx-auto max-w-7xl space-y-5">
+      <div className="flex flex-col gap-3 rounded-xl border border-outline-variant bg-surface-container-lowest p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-on-surface-variant">
+            Business statement
+          </p>
+          <h1 className="font-[family-name:var(--font-headline)] text-xl font-bold sm:text-2xl">
+            Combined cashout ledger
+          </h1>
+          <p className="mt-2 text-2xl font-bold tabular-nums tracking-tight sm:text-3xl">
+            {formatCurrency(available, currency)}
+          </p>
+        </div>
           <CsvDownloadButton<LedgerEntry>
             title="Business ledger"
             filename="business-ledger"
@@ -100,38 +121,9 @@ export function TransactionsPage() {
               { header: 'Created', value: (t) => t.createdAt },
             ]}
             fetchRows={() =>
-              fetchAllPages((page, limit) =>
-                transactionsApi.getMy({ ...listQuery, page, limit }),
-              )
+              fetchAllPages((page, limit) => transactionsApi.getMy({ ...listQuery, page, limit }))
             }
           />
-        }
-      />
-
-      <div className="grid gap-3 sm:grid-cols-3">
-        <div className="rounded-2xl border border-outline-variant bg-surface-container-lowest p-4">
-          <p className="text-[11px] font-bold uppercase tracking-wide text-on-surface-variant">
-            Total results
-          </p>
-          <p className="mt-1 text-2xl font-bold">{total}</p>
-        </div>
-        <div className="rounded-2xl border border-outline-variant bg-surface-container-lowest p-4">
-          <p className="text-[11px] font-bold uppercase tracking-wide text-on-surface-variant">
-            On this page
-          </p>
-          <p className="mt-1 text-2xl font-bold">{items.length}</p>
-        </div>
-        <div className="rounded-2xl border border-outline-variant bg-surface-container-lowest p-4">
-          <p className="text-[11px] font-bold uppercase tracking-wide text-on-surface-variant">
-            Net on page
-          </p>
-          <p className="mt-1 text-2xl font-bold">
-            {formatCurrency(
-              items.reduce((sum, t) => sum + t.amount, 0),
-              items[0]?.currency,
-            )}
-          </p>
-        </div>
       </div>
 
       <Card>
@@ -139,7 +131,7 @@ export function TransactionsPage() {
           <div className="flex flex-wrap gap-2">
             <Input
               className="min-w-[220px] flex-1"
-              placeholder="Search reference, description…"
+              placeholder="Search remark, reference…"
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
             />
@@ -172,7 +164,6 @@ export function TransactionsPage() {
               ))}
             </select>
           </div>
-
           <div className="chip-scroll">
             {TYPE_FILTERS.map((t) => (
               <button
@@ -182,7 +173,12 @@ export function TransactionsPage() {
                   setType(t.value);
                   setPage(1);
                 }}
-                className={`chip ${type === t.value ? 'chip-active' : ''}`}
+                className={cn(
+                  'rounded-full px-3 py-1.5 text-xs font-semibold',
+                  type === t.value
+                    ? 'bg-primary text-on-primary'
+                    : 'border border-outline-variant bg-surface-container-lowest',
+                )}
               >
                 {t.label}
               </button>
@@ -194,7 +190,7 @@ export function TransactionsPage() {
           <LoadingScreen />
         ) : isError ? (
           <div className="rounded-2xl border border-error/30 bg-error-container/40 px-4 py-8 text-center">
-            <p className="text-sm font-medium text-on-surface">
+            <p className="text-sm font-medium">
               {getApiErrorMessage(error, 'Could not load transactions')}
             </p>
             <Button type="button" className="mt-4" onClick={() => refetch()}>
@@ -209,50 +205,21 @@ export function TransactionsPage() {
             icon="receipt_long"
           />
         ) : (
-          <>
-            <div className={`overflow-x-auto ${isFetching ? 'opacity-70' : ''}`}>
-              <table className="w-full text-left text-sm">
-                <thead className="border-b border-outline-variant">
-                  <tr>
-                    <th className="pb-3 pr-4 font-semibold text-on-surface-variant">Type</th>
-                    <th className="pb-3 pr-4 font-semibold text-on-surface-variant">Credit</th>
-                    <th className="pb-3 pr-4 font-semibold text-on-surface-variant">Debit</th>
-                    <th className="pb-3 pr-4 font-semibold text-on-surface-variant">Balance</th>
-                    <th className="pb-3 pr-4 font-semibold text-on-surface-variant">Reference</th>
-                    <th className="pb-3 pr-4 font-semibold text-on-surface-variant">Description</th>
-                    <th className="pb-3 font-semibold text-on-surface-variant">Date</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {items.map((t) => (
-                    <tr
-                      key={t._id}
-                      className="cursor-pointer border-b border-outline-variant/50 hover:bg-surface-container-low/60"
-                      onClick={() => setSelected(t)}
-                    >
-                      <td className="py-3 pr-4 capitalize">{t.type}</td>
-                      <td className="py-3 pr-4 font-semibold text-secondary">
-                        {t.direction === 'credit' ? formatCurrency(t.amount, t.currency) : '—'}
-                      </td>
-                      <td className="py-3 pr-4 font-semibold text-error">
-                        {t.direction === 'debit' ? formatCurrency(t.amount, t.currency) : '—'}
-                      </td>
-                      <td className="py-3 pr-4 text-xs text-on-surface-variant">
-                        {formatCurrency(t.balanceAfter, t.currency)}
-                      </td>
-                      <td className="py-3 pr-4">
-                        <p className="text-xs text-on-surface-variant">{t.referenceType}</p>
-                        <p className="max-w-[140px] truncate font-mono text-xs">{t.referenceId}</p>
-                      </td>
-                      <td className="max-w-[180px] truncate py-3 pr-4 text-on-surface-variant">
-                        {t.description || '—'}
-                      </td>
-                      <td className="py-3 text-on-surface-variant">{formatDate(t.createdAt)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+          <div className={isFetching ? 'opacity-70' : ''}>
+            <div className="hidden md:block">
+              <StatementTable
+                items={items}
+                page={page}
+                limit={limit}
+                onRowClick={setSelected}
+              />
             </div>
+            <StatementCards
+              items={items}
+              page={page}
+              limit={limit}
+              onRowClick={setSelected}
+            />
             <Pagination
               page={page}
               totalPages={totalPages}
@@ -260,7 +227,7 @@ export function TransactionsPage() {
               limit={limit}
               onPageChange={setPage}
             />
-          </>
+          </div>
         )}
       </Card>
 
@@ -270,34 +237,47 @@ export function TransactionsPage() {
         title="Ledger entry"
         className="sm:max-w-lg"
       >
-        {selected && (
-          <div className="space-y-1">
-            <DetailRow label="Type" value={<span className="capitalize">{selected.type}</span>} />
-            <DetailRow
-              label="Direction"
-              value={<span className="capitalize">{selected.direction || '—'}</span>}
-            />
-            <DetailRow
-              label={selected.direction === 'credit' ? 'Credit' : 'Debit'}
-              value={formatCurrency(selected.amount, selected.currency)}
-            />
-            <DetailRow
-              label="Balance before"
-              value={formatCurrency(selected.balanceBefore, selected.currency)}
-            />
-            <DetailRow
-              label="Balance after / current"
-              value={formatCurrency(selected.balanceAfter, selected.currency)}
-            />
-            <DetailRow label="From" value={selected.fromParty || '—'} />
-            <DetailRow label="To" value={selected.toParty || '—'} />
-            <DetailRow label="Reference type" value={selected.referenceType || '—'} />
-            <DetailRow label="Reference ID" value={selected.referenceId || '—'} />
-            <DetailRow label="Description" value={selected.description || '—'} />
-            <DetailRow label="Date" value={formatDate(selected.createdAt)} />
-            <DetailRow label="Entry ID" value={selected._id} />
+        {selected ? (
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="inline-flex items-center gap-1 rounded-md bg-surface-container-high px-2 py-1 text-xs font-semibold capitalize">
+                <span className="material-symbols-outlined text-sm text-secondary">
+                  {typeMeta(selected.type).icon}
+                </span>
+                {typeMeta(selected.type).label}
+              </span>
+              <span
+                className={cn(
+                  'rounded-xl px-3 py-1.5 text-sm font-bold',
+                  isCreditEntry(selected)
+                    ? 'bg-emerald-100 text-emerald-800'
+                    : 'bg-red-100 text-red-700',
+                )}
+              >
+                {isCreditEntry(selected) ? '+' : '−'}
+                {formatCurrency(selected.amount, selected.currency)}
+              </span>
+            </div>
+            {(selected.fromParty || selected.toParty) && (
+              <p className="rounded-lg bg-surface-container-low px-3 py-2 text-sm">
+                {[selected.fromParty || '—', selected.toParty || '—'].join(' → ')}
+              </p>
+            )}
+            <div className="rounded-xl border border-outline-variant px-3">
+              <DetailRow
+                label="Balance before"
+                value={formatCurrency(selected.balanceBefore, selected.currency)}
+              />
+              <DetailRow
+                label="Balance after"
+                value={formatCurrency(selected.balanceAfter, selected.currency)}
+              />
+              <DetailRow label="Reference" value={selected.referenceId || '—'} />
+              <DetailRow label="Description" value={selected.description || '—'} />
+              <DetailRow label="Date" value={formatDate(selected.createdAt)} />
+            </div>
           </div>
-        )}
+        ) : null}
       </Modal>
     </div>
   );

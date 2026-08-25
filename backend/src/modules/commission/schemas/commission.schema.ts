@@ -1,6 +1,7 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument, Types } from 'mongoose';
 import {
+  CommissionAppliesTo,
   CommissionFeeMode,
   CommissionTarget,
 } from '../../../common/enums/commission-target.enum';
@@ -36,6 +37,13 @@ export class CommissionConfig {
   @Prop()
   maxAmount?: number;
 
+  /**
+   * deposit | withdrawal | all.
+   * Unset / all = legacy rules that apply to both deposit and withdrawal.
+   */
+  @Prop({ type: String, enum: CommissionAppliesTo, default: CommissionAppliesTo.ALL })
+  appliesTo!: CommissionAppliesTo;
+
   @Prop({ default: true })
   isActive!: boolean;
 
@@ -45,3 +53,4 @@ export class CommissionConfig {
 
 export const CommissionConfigSchema = SchemaFactory.createForClass(CommissionConfig);
 CommissionConfigSchema.index({ targetType: 1, targetId: 1, paymentMethod: 1, isActive: 1 });
+CommissionConfigSchema.index({ targetType: 1, targetId: 1, appliesTo: 1, isActive: 1 });

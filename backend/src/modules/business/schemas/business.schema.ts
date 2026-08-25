@@ -94,6 +94,20 @@ export class Business {
   @Prop({ default: true })
   b2bMatchingEnabled!: boolean;
 
+  /**
+   * Max withdrawal highlights (FIFO jump) this business may use per calendar month.
+   * 0 = highlighting disabled until admin sets a limit.
+   */
+  @Prop({ default: 0 })
+  highlightLimitPerMonth!: number;
+
+  /** Highlights consumed in `highlightMonthKey` (YYYY-MM UTC). */
+  @Prop({ default: 0 })
+  highlightUsedThisMonth!: number;
+
+  @Prop({ trim: true })
+  highlightMonthKey?: string;
+
   @Prop({ type: String, enum: UserStatus, default: UserStatus.PENDING })
   status!: UserStatus;
 }

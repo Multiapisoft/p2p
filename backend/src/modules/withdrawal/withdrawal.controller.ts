@@ -8,6 +8,7 @@ import {
   AssignWithdrawalDto,
   UpdateWithdrawalDestinationDto,
   WithdrawalListQueryDto,
+  SetWithdrawalPriorityDto,
 } from './dto/withdrawal.dto';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../../common/interfaces/jwt-payload.interface';
@@ -165,6 +166,23 @@ export class WithdrawalController {
       await this.businessService.assertStaffCan(user.userId, Permission.BUSINESS_WITHDRAWALS);
     }
     return this.withdrawalService.listForP2p(id, {
+      userId: user.userId,
+      email: user.email,
+      role: user.role,
+    });
+  }
+
+  @Patch(':id/priority')
+  @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN, UserRole.BUSINESS)
+  async setPriority(
+    @Param('id') id: string,
+    @Body() dto: SetWithdrawalPriorityDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    if (user.role === UserRole.BUSINESS) {
+      await this.businessService.assertStaffCan(user.userId, Permission.BUSINESS_WITHDRAWALS);
+    }
+    return this.withdrawalService.setPriority(id, dto.priority, {
       userId: user.userId,
       email: user.email,
       role: user.role,

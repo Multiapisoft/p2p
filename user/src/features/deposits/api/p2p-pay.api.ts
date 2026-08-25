@@ -6,9 +6,6 @@ export interface CreditPreview {
   payAmount: number;
   payCurrency?: string;
   payAmountInr?: number;
-  commissionAmount: number;
-  businessCommission: number;
-  platformCommission: number;
   principalCredit: number;
   bonusAmount: number;
   netCredited: number;
@@ -47,11 +44,11 @@ export interface AvailableWithdrawal {
   claimPayDeadline?: string | null;
   origin?: 'user' | 'investor' | 'business';
   assignedToMe?: boolean;
+  priority?: boolean;
   creditIfPayFull?: {
     payAmount: number;
     payCurrency?: string;
     payAmountInr?: number;
-    commissionAmount: number;
     bonusAmount: number;
     netCredited: number;
     principalCredit: number;
@@ -84,7 +81,6 @@ export interface P2pPayment {
   utr: string;
   proofImageUrl: string;
   status: TransactionStatus;
-  commissionAmount?: number;
   bonusAmount?: number;
   netCreditedAmount?: number;
   rejectionReason?: string;

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { depositsApi } from '@/features/deposits/api/deposits.api';
 import { platformPaymentsApi } from '@/features/deposits/api/platform-payments.api';
+import { BusinessDepositPayPanel } from '@/features/deposits/components/BusinessDepositPayPanel';
 import { getApiErrorMessage } from '@/shared/api/client';
 import { Card } from '@/shared/components/ui/Card';
 import { Button } from '@/shared/components/ui/Button';
@@ -31,6 +32,7 @@ const METHOD_FILTERS = [
   { value: 'upi', label: 'UPI' },
   { value: 'bank', label: 'Bank' },
   { value: 'usdt', label: 'USDT' },
+  { value: 'cdm', label: 'CDM' },
 ];
 
 const SORT_OPTIONS = [
@@ -86,6 +88,7 @@ function destinationSummary(wd: BusinessPlatformPayment['withdrawalId']) {
 }
 
 export function DepositsPage() {
+  const [tab, setTab] = useState<'deposit' | 'history'>('deposit');
   const [selectedPayment, setSelectedPayment] = useState<BusinessPlatformPayment | null>(null);
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
@@ -117,6 +120,7 @@ export function DepositsPage() {
   } = useQuery({
     queryKey: ['deposits-summary'],
     queryFn: () => depositsApi.getBusinessSummary(),
+    enabled: tab === 'history',
   });
 
   const {
@@ -129,6 +133,7 @@ export function DepositsPage() {
   } = useQuery({
     queryKey: ['business-platform-payments', listQuery],
     queryFn: () => platformPaymentsApi.list(listQuery),
+    enabled: tab === 'history',
   });
 
   const totalFromSummary = summary?.reduce((sum, row) => sum + row.totalDeposited, 0) ?? 0;
@@ -136,33 +141,66 @@ export function DepositsPage() {
   const total = platformPays?.total ?? 0;
   const totalPages = platformPays?.totalPages ?? 1;
 
-  if (loadingSummary && loadingPays) return <LoadingScreen />;
+  if (tab === 'history' && loadingSummary && loadingPays) return <LoadingScreen />;
 
   return (
     <div className="mx-auto max-w-7xl space-y-6">
       <PageHeader
         title="Deposits"
-        description="User deposit summary and Platform Payment activity"
+        description="Enter amount, settle via user/investor withdrawals, and credit your wallet"
         action={
-          <CsvDownloadButton<BusinessPlatformPayment>
-            filename="business-platform-payments"
-            title="Platform payments"
-            filters={{ Status: status, Method: method, Search: search, Sort: sort }}
-            disabled={!total}
-            columns={[
-              { header: 'Reference', value: (p) => p.referenceId },
-              { header: 'Status', value: (p) => p.status },
-              { header: 'Amount', value: (p) => p.amount },
-              { header: 'UTR', value: (p) => p.utr || '' },
-              { header: 'Created', value: (p) => p.createdAt || '' },
-            ]}
-            fetchRows={() =>
-              fetchAllPages((page, limit) => platformPaymentsApi.list({ ...listQuery, page, limit }))
-            }
-          />
+          tab === 'history' ? (
+            <CsvDownloadButton<BusinessPlatformPayment>
+              filename="business-platform-payments"
+              title="Platform payments"
+              filters={{ Status: status, Method: method, Search: search, Sort: sort }}
+              disabled={!total}
+              columns={[
+                { header: 'Reference', value: (p) => p.referenceId },
+                { header: 'Status', value: (p) => p.status },
+                { header: 'Amount', value: (p) => p.amount },
+                { header: 'UTR', value: (p) => p.utr || '' },
+                { header: 'Created', value: (p) => p.createdAt || '' },
+              ]}
+              fetchRows={() =>
+                fetchAllPages((page, limit) =>
+                  platformPaymentsApi.list({ ...listQuery, page, limit }),
+                )
+              }
+            />
+          ) : undefined
         }
       />
 
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={() => setTab('deposit')}
+          className={`rounded-full px-4 py-2 text-sm font-semibold ${
+            tab === 'deposit'
+              ? 'bg-primary text-on-primary'
+              : 'border border-outline-variant bg-surface-container-lowest'
+          }`}
+        >
+          Make deposit
+        </button>
+        <button
+          type="button"
+          onClick={() => setTab('history')}
+          className={`rounded-full px-4 py-2 text-sm font-semibold ${
+            tab === 'history'
+              ? 'bg-primary text-on-primary'
+              : 'border border-outline-variant bg-surface-container-lowest'
+          }`}
+        >
+          History
+        </button>
+      </div>
+
+      {tab === 'deposit' ? (
+        <BusinessDepositPayPanel />
+      ) : (
+        <>
       <section className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div className="rounded-2xl border border-outline-variant bg-surface-container-lowest p-5">
           <p className="text-sm font-semibold uppercase tracking-wide text-on-surface-variant">
@@ -389,6 +427,8 @@ export function DepositsPage() {
         payment={selectedPayment}
         onClose={() => setSelectedPayment(null)}
       />
+        </>
+      )}
     </div>
   );
 }

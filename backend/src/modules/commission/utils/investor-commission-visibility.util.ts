@@ -1,10 +1,12 @@
-/** Hide investor bonus on pay-list / UI when platform toggle is off. Credit still happens. */
+/**
+ * Investor bonus (INVESTOR_BONUS) is always visible to the investor.
+ * Platform/business fee cuts stay hidden separately — this is not a fee split.
+ */
 export function visibleInvestorBonusAmount(opts: {
   viewerRole?: string | null;
-  showToInvestor: boolean;
+  /** @deprecated Ignored — investors always see their bonus amount. */
+  showToInvestor?: boolean;
   bonusAmount: number;
 }): number {
-  const bonus = Math.max(0, Number(opts.bonusAmount) || 0);
-  if (opts.viewerRole === 'investor' && !opts.showToInvestor) return 0;
-  return bonus;
+  return Math.max(0, Number(opts.bonusAmount) || 0);
 }

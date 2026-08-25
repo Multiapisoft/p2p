@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useMutation } from '@tanstack/react-query';
 import { registerApi } from '@/features/auth/api/auth.api';
@@ -18,6 +18,7 @@ import {
 
 export function RegisterPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const hydrated = useAuthHydrated();
   const token = useAuthStore((s) => s.token);
   const setAuth = useAuthStore((s) => s.setAuth);
@@ -31,7 +32,13 @@ export function RegisterPage() {
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [referralCode, setReferralCode] = useState('');
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    const ref = searchParams.get('ref')?.trim();
+    if (ref) setReferralCode(ref);
+  }, [searchParams]);
 
   const register = useMutation({
     mutationFn: () =>
@@ -40,6 +47,7 @@ export function RegisterPage() {
         email: normalizeEmail(email),
         password,
         phone: normalizePhone(phone),
+        referralCode: referralCode.trim() || undefined,
       }),
     onSuccess: (data) => {
       setAuth(data.accessToken, data.user);
@@ -98,12 +106,20 @@ export function RegisterPage() {
       <main className="flex w-full flex-1 flex-col items-center justify-center bg-background px-6 py-10 md:w-1/2">
         <div className="w-full max-w-md">
           <header className="mb-8">
-            <h2 className="font-[family-name:var(--font-headline)] text-2xl font-bold">Create Investor Account</h2>
+            <h2 className="font-[family-name:var(--font-headline)] text-2xl font-bold">
+              Create Investor Account
+            </h2>
             <p className="mt-2 text-on-surface-variant">Register to invest and earn returns.</p>
           </header>
 
           <form className="space-y-4" onSubmit={handleSubmit}>
-            <Input label="Full Name" icon="person" value={name} onChange={(e) => setName(e.target.value)} required />
+            <Input
+              label="Full Name"
+              icon="person"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              required
+            />
             <Input
               label="Email"
               icon="mail"
@@ -125,6 +141,13 @@ export function RegisterPage() {
               required
             />
             <Input
+              label="Referral code (optional)"
+              icon="group_add"
+              value={referralCode}
+              onChange={(e) => setReferralCode(e.target.value)}
+              placeholder="inv_…"
+            />
+            <Input
               label="Password"
               icon="lock"
               type="password"
@@ -142,7 +165,9 @@ export function RegisterPage() {
             />
 
             {error && (
-              <div className="rounded-lg bg-error-container px-4 py-3 text-sm text-on-error-container">{error}</div>
+              <div className="rounded-lg bg-error-container px-4 py-3 text-sm text-on-error-container">
+                {error}
+              </div>
             )}
 
             <Button type="submit" size="lg" className="w-full" loading={register.isPending}>

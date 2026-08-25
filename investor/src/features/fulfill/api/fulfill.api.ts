@@ -6,9 +6,6 @@ export interface CreditPreview {
   payAmount: number;
   payCurrency?: string;
   payAmountInr?: number;
-  commissionAmount: number;
-  businessCommission: number;
-  platformCommission: number;
   principalCredit: number;
   bonusAmount: number;
   bonusInPayCurrency?: number;
@@ -53,12 +50,12 @@ export interface AvailableWithdrawal {
   claimPayDeadline?: string | null;
   origin?: 'user' | 'investor' | 'business';
   assignedToMe?: boolean;
+  priority?: boolean;
   /** Estimated wallet credit if you pay maxPayable (after verify, INR points) */
   creditIfPayFull?: {
     payAmount: number;
     payCurrency?: string;
     payAmountInr?: number;
-    commissionAmount: number;
     bonusAmount: number;
     netCredited: number;
     principalCredit: number;
@@ -115,12 +112,10 @@ export interface FulfillmentPayment {
   utr: string;
   proofImageUrl: string;
   status: TransactionStatus;
-  commissionAmount?: number;
   bonusAmount?: number;
   netCreditedAmount?: number;
   estimatedNetCredited?: number;
   estimatedBonusAmount?: number;
-  estimatedCommissionAmount?: number;
   rejectionReason?: string;
   createdAt: string;
 }

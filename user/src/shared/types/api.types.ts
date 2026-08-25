@@ -222,6 +222,7 @@ export interface CreateDepositPayload {
   upiDetails?: { upiId: string; payerName?: string; utr?: string };
   bankDetails?: { accountNumber: string; ifscCode: string; accountHolderName: string; bankName?: string; utr?: string };
   usdtDetails?: { walletAddress: string; network?: string; txHash?: string };
+  cdmDetails?: { payerName: string; locationHint?: string; notes?: string };
 }
 
 export interface CreateWithdrawalPayload {
