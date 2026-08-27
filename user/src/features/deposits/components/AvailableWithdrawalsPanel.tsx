@@ -437,15 +437,6 @@ export function AvailableWithdrawalsPanel({
             <p className="text-lg font-bold text-secondary">
               {matchAmount != null ? formatCurrency(matchAmount) : 'Enter amount first'}
             </p>
-            {matchAmount != null ? (
-              <p className="mt-0.5 text-xs text-on-surface-variant">
-                Showing payment details for {formatCurrency(matchAmount)}
-              </p>
-            ) : (
-              <p className="mt-0.5 text-xs text-on-surface-variant">
-                Confirm the amount to see payment details
-              </p>
-            )}
           </div>
           <Button type="button" size="sm" variant={matchAmount ? 'outline' : 'primary'} onClick={() => setAmountModalOpen(true)}>
             {matchAmount != null ? 'Change amount' : 'Enter amount'}
@@ -527,20 +518,11 @@ export function AvailableWithdrawalsPanel({
           </div>
         ) : needsAmount && !items.length ? (
           <EmptyState
-            message="Enter a deposit amount first to see payment details."
+            message="Enter amount first."
             icon="payments"
           />
         ) : !items.length ? (
-          <EmptyState
-            message={
-              search || method !== 'all'
-                ? 'No requests match your filters'
-                : matchAmount
-                  ? `No payment details for ${formatCurrency(matchAmount)}`
-                  : 'No approved Platform Payment requests yet. Withdrawals appear here only after business or admin approval.'
-            }
-            icon="payments"
-          />
+          <EmptyState message="No matches." icon="payments" />
         ) : (
           <div className={`space-y-3 ${isFetching ? 'opacity-70' : ''}`}>
             {items.map((w) => (

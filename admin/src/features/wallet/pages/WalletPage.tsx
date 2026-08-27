@@ -129,9 +129,6 @@ export function WalletPage() {
           <h1 className="font-[family-name:var(--font-headline)] text-xl font-bold text-on-background sm:text-2xl md:text-3xl">
             Wallet
           </h1>
-          <p className="mt-0.5 max-w-2xl text-sm text-on-surface-variant">
-            Platform commission pool, payout methods, and manual user wallet adjustments.
-          </p>
         </div>
         <div className="flex flex-wrap gap-2">
           <Link

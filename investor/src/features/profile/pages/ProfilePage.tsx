@@ -52,7 +52,6 @@ export function ProfilePage() {
     <div className="mx-auto max-w-2xl space-y-6">
       <div>
         <h1 className="font-[family-name:var(--font-headline)] text-2xl font-bold">Profile</h1>
-        <p className="text-on-surface-variant">Manage your account details</p>
       </div>
 
       <Card title="Account Info">

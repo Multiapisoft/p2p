@@ -50,7 +50,6 @@ export function DashboardPage() {
         <h1 className="font-[family-name:var(--font-headline)] text-2xl font-bold text-on-background md:text-3xl">
           Dashboard
         </h1>
-        <p className="text-on-surface-variant">Your investment portfolio overview</p>
       </div>
 
       {portfolioError ? (

@@ -185,9 +185,6 @@ export function SavedWithdrawalMethodsPanel({
   return (
     <>
       <Card title="Payout methods">
-        <p className="mb-3 text-sm text-on-surface-variant">
-          Save Bank, UPI or USDT once. Next withdrawal, select it and enter the amount.
-        </p>
         <div className="mb-3 flex flex-wrap gap-1.5">
           {ADD_METHODS.map((m) => (
             <Button
@@ -206,7 +203,7 @@ export function SavedWithdrawalMethodsPanel({
         </div>
         {items.length === 0 ? (
           <p className="rounded-lg border border-dashed border-outline-variant px-3 py-4 text-center text-sm text-on-surface-variant">
-            No saved methods yet. Add Bank, UPI or USDT above.
+            No saved methods.
           </p>
         ) : (
           <ul className="space-y-2">

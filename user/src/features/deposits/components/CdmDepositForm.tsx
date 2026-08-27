@@ -52,9 +52,6 @@ export function CdmDepositForm() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <p className="font-semibold">CDM cash deposit</p>
-            <p className="text-sm text-on-surface-variant">
-              Deposit via CDM machine — request goes for admin/business approval.
-            </p>
           </div>
           <Button type="button" size="sm" variant="secondary" onClick={() => setOpen(true)}>
             New CDM deposit
@@ -70,9 +67,6 @@ export function CdmDepositForm() {
       <div className="mb-3 flex items-start justify-between gap-2">
         <div>
           <p className="font-semibold">CDM cash deposit</p>
-          <p className="text-sm text-on-surface-variant">
-            Enter amount and depositor name after you deposit cash at a CDM.
-          </p>
         </div>
         <Button type="button" size="sm" variant="outline" onClick={() => setOpen(false)}>
           Close

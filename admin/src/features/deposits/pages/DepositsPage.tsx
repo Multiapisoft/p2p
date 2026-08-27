@@ -102,13 +102,8 @@ function DepositsEmptyPanel({
     <div className="rounded-xl border border-dashed border-outline-variant bg-surface-container-low px-4 py-8 text-center">
       <span className="material-symbols-outlined text-4xl text-secondary/70">south_west</span>
       <h3 className="mt-2 text-base font-bold">
-        {filtered ? 'No deposits match your filters' : 'No classic deposit requests'}
+        {filtered ? 'No matches.' : 'No classic deposit requests'}
       </h3>
-      <p className="mx-auto mt-1.5 max-w-lg text-xs text-on-surface-variant sm:text-sm">
-        {filtered
-          ? 'Try a different status, method, or search term.'
-          : 'Most user deposits appear under P2P payments (payer → withdrawal owner).'}
-      </p>
       {!filtered && p2pTotal > 0 ? (
         <div className="mx-auto mt-4 max-w-md rounded-xl border border-secondary/30 bg-secondary-container/20 px-3 py-2.5 text-left">
           <p className="text-sm font-semibold">
@@ -238,9 +233,6 @@ export function DepositsPage() {
             <h1 className="font-[family-name:var(--font-headline)] text-xl font-bold sm:text-2xl">
               All deposit activity
             </h1>
-            <p className="mt-1 max-w-xl text-sm text-on-surface-variant">
-              Kaun deposit kiya, kisko mila, kitna — classic requests, P2P proofs, aur investments.
-            </p>
           </div>
           {tab === 'deposits' ? (
             <CsvDownloadButton<Deposit>

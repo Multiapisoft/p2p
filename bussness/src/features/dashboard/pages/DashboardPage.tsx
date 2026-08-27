@@ -120,7 +120,6 @@ export function DashboardPage() {
       <div className="mx-auto max-w-3xl space-y-6">
         <PageHeader
           title="Business Dashboard"
-          description="Create your business profile first — your code and invite link appear here"
         />
         <Card className="border-secondary/30 bg-gradient-to-br from-secondary-container/20 to-surface-container-lowest">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -132,8 +131,7 @@ export function DashboardPage() {
                 Business profile missing
               </h2>
               <p className="mt-2 max-w-xl text-sm text-on-surface-variant">
-                Create your business on Profile. A referral / business code is generated
-                automatically, then you can invite users and approve withdrawals.
+                Create your business on Profile to get a code and invite users.
               </p>
             </div>
             <Link href="/profile?setup=1">
@@ -181,7 +179,6 @@ export function DashboardPage() {
     <div className="mx-auto max-w-7xl space-y-4 sm:space-y-6">
       <PageHeader
         title={business.name}
-        description="Live counts, status breakdown, and money flow"
         action={
           <div className="flex items-center gap-2">
             <Button

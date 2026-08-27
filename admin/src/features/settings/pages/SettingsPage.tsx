@@ -154,7 +154,6 @@ export function SettingsPage() {
     <div className="mx-auto max-w-3xl space-y-4 sm:space-y-6">
       <div>
         <h1 className="font-[family-name:var(--font-headline)] text-xl font-bold sm:text-2xl">Settings</h1>
-        <p className="mt-0.5 text-sm text-on-surface-variant">Account & platform rules</p>
       </div>
 
       <Card title="Your Account">
@@ -185,10 +184,6 @@ export function SettingsPage() {
                 saveSettings.mutate();
               }}
             >
-              <p className="text-sm text-on-surface-variant">
-                Pay click hold hides the request from others (default 7 min). Payer must
-                submit proof within TAT (default 5 min). Lists update live over socket.
-              </p>
               <div className="grid gap-3 sm:grid-cols-2">
                 <Input
                   label="Pay hold for others (minutes)"

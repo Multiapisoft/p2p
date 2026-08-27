@@ -277,10 +277,6 @@ export function BusinessWithdrawalForm() {
       <div id="business-wd-form" className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="font-semibold">Withdraw from remaining limit</p>
-          <p className="text-sm text-on-surface-variant">
-            Amount is deducted from your remaining pay limit. User deposits and deposits you
-            give users increase it. Admin verifies, then users/investors can pay.
-          </p>
         </div>
         <Button type="button" variant={open ? 'outline' : 'secondary'} onClick={() => setOpen((v) => !v)}>
           {open ? 'Hide form' : 'New request'}
@@ -305,8 +301,7 @@ export function BusinessWithdrawalForm() {
 
       {exhausted ? (
         <p className="mt-3 rounded-lg border border-amber-300/60 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-          Remaining limit is ₹0. User deposits increase remaining even when the limit is
-          exhausted. Withdrawals cannot be more than remaining.
+          Remaining limit is ₹0. Deposits increase remaining.
         </p>
       ) : null}
 

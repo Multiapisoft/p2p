@@ -11,8 +11,8 @@ export function InvestAmountModal({
   initialValue,
   cap,
   title = 'Enter amount first',
-  description = 'Enter an amount first — matching withdrawal requests will appear after that.',
-  submitLabel = 'Show matching list',
+  description = '',
+  submitLabel = 'SUBMIT',
   onClose,
   onApply,
 }: {
@@ -58,7 +58,9 @@ export function InvestAmountModal({
       }
     >
       <form id="invest-amount-form" className="space-y-4" onSubmit={submit}>
-        <p className="text-sm text-on-surface-variant">{description}</p>
+        {description.trim() ? (
+          <p className="text-sm text-on-surface-variant">{description}</p>
+        ) : null}
         <Input
           label="Amount (INR)"
           type="number"

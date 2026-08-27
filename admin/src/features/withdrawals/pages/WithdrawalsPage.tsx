@@ -266,9 +266,6 @@ export function WithdrawalsPage() {
             <h1 className="font-[family-name:var(--font-headline)] text-xl font-bold sm:text-2xl">
               Withdrawal requests
             </h1>
-            <p className="mt-1 max-w-2xl text-sm text-on-surface-variant">
-              All requests — listed, awaiting, cancelled, and completed. Filter by status anytime.
-            </p>
           </div>
           {tab !== 'split' && tab !== 'redemptions' ? (
             <CsvDownloadButton<WithdrawalRow>

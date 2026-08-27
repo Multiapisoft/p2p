@@ -99,7 +99,6 @@ export function NotificationsPage() {
           <h1 className="font-[family-name:var(--font-headline)] text-xl font-bold tracking-tight sm:text-2xl">
             Notifications
           </h1>
-          <p className="mt-0.5 text-sm text-on-surface-variant">Account alerts & updates</p>
         </div>
         <Button
           size="sm"

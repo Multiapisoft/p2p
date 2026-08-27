@@ -221,7 +221,6 @@ export function BusinessesPage() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="font-[family-name:var(--font-headline)] text-xl font-bold sm:text-2xl">Businesses</h1>
-          <p className="mt-0.5 text-sm text-on-surface-variant">Manage business partners & API integrations</p>
         </div>
         <CsvDownloadButton<Business>
           title="Businesses"
@@ -495,8 +494,7 @@ export function BusinessesPage() {
             }}
           >
             <p className="text-sm text-on-surface-variant">
-              Admin seed limit. User deposits and deposits the business gives users add to remaining;
-              completed withdrawals deduct. 0 seed + no deposits = ₹0 remaining.
+              Admin seed; deposits add, withdrawals deduct.
             </p>
             <div className="grid grid-cols-2 gap-3 rounded-xl border border-outline-variant bg-surface-container-low/50 p-3 text-sm">
               <div>
@@ -585,8 +583,7 @@ export function BusinessesPage() {
               <div>
                 <p className="text-sm font-semibold">Monthly highlight limit</p>
                 <p className="text-xs text-on-surface-variant">
-                  How many withdrawal requests this business can pin to the top of pay lists
-                  each calendar month (user / investor / admin). 0 = highlighting off.
+                  Monthly pin quota for pay lists. 0 = off.
                 </p>
               </div>
               <div className="grid grid-cols-2 gap-3 text-sm">
@@ -653,9 +650,7 @@ export function BusinessesPage() {
         ) : (
           <div className="space-y-5">
             <p className="text-sm text-on-surface-variant">
-              <strong>Business fee</strong> aur <strong>Platform fee</strong> business wallet se
-              cut hote hain, phir admin wallet mein credit. User/investor ko full principal milta
-              hai. <strong>Investor bonus / referral</strong> admin wallet se cut hota hai.
+              Fees cut from business wallet; investor bonus from admin wallet.
             </p>
 
             <div className="space-y-2 rounded-xl border border-outline-variant bg-surface-container-low/40 p-3">
@@ -663,9 +658,7 @@ export function BusinessesPage() {
                 Platform Payment pay limit (₹)
               </label>
               <p className="text-xs text-on-surface-variant">
-                Admin seed. User deposits / deposits this business gives users add to this quota;
-                withdrawals deduct. Remaining is never unlimited. Earned:{' '}
-                {formatCurrency(businessCommission?.p2pPayEarned ?? 0)} · Used:{' '}
+                Earned: {formatCurrency(businessCommission?.p2pPayEarned ?? 0)} · Used:{' '}
                 {formatCurrency(businessCommission?.p2pPayUsed ?? 0)}
                 {` · Remaining: ${formatCurrency(businessCommission?.p2pPayRemaining ?? 0)}`}
               </p>
@@ -680,21 +673,18 @@ export function BusinessesPage() {
 
             <CommissionRulesEditor
               title="Business fee — Deposit"
-              hint="Deposit approve par business wallet se cut → admin wallet. User ko full principal."
               rules={businessTakeDeposit}
               onChange={setBusinessTakeDeposit}
             />
 
             <CommissionRulesEditor
               title="Business fee — Withdrawal / P2P pay"
-              hint="P2P/withdrawal verify par business wallet se cut → admin wallet. Payer ko full amount."
               rules={businessTakeWithdrawal}
               onChange={setBusinessTakeWithdrawal}
             />
 
             <CommissionRulesEditor
               title="Investor bonus (extra credit)"
-              hint="Investor bonus admin wallet se cut hota hai, investor ko credit."
               rules={investorBonus}
               onChange={setInvestorBonus}
             />
@@ -731,11 +721,6 @@ export function BusinessesPage() {
       >
         {txnFlagsTarget ? (
           <div className="space-y-4">
-            <p className="text-sm text-on-surface-variant">
-              Enable / disable deposit & withdrawal for this business (Noida #49). B2B matching
-              prefers this business when platform B2B-first is on (#50). Partial pay and
-              mobile-as-UPI can override platform defaults (#37 / #53).
-            </p>
             {(
               [
                 ['depositsEnabled', 'Deposits enabled'],

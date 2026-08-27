@@ -132,7 +132,6 @@ export function ProfilePage() {
       <div className="mx-auto max-w-xl space-y-6 py-8">
         <PageHeader
           title="Finish business setup"
-          description="Create your business to get a referral / business code — no partner URL needed"
         />
         <Card>
           <form
@@ -166,7 +165,7 @@ export function ProfilePage() {
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
-      <PageHeader title="Profile" description="Business settings & account" />
+      <PageHeader title="Profile" />
 
       {(pendingApiSecret || pendingInternalSecret) && (
         <SecretBanner
@@ -178,9 +177,6 @@ export function ProfilePage() {
       )}
 
       <Card title="API Integration">
-        <p className="mb-4 text-sm text-on-surface-variant">
-          Manage API keys, internal keys, partner URLs and user tools in the Integration section.
-        </p>
         <Link href="/integration">
           <Button variant="secondary">Open Integration →</Button>
         </Link>
@@ -194,9 +190,6 @@ export function ProfilePage() {
       </Card>
 
       <Card title="Business code">
-        <p className="mb-3 text-sm text-on-surface-variant">
-          Share the code or invite link — users will register with it.
-        </p>
         {business?.referralCode ? (
           <div className="space-y-3">
             <CopyField label="Business code" value={business.referralCode} />

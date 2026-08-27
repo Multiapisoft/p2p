@@ -26,9 +26,6 @@ function DepositsPageInner() {
           <h1 className="font-[family-name:var(--font-headline)] text-xl font-bold tracking-tight sm:text-2xl">
             Deposits
           </h1>
-          <p className="mt-0.5 text-sm text-on-surface-variant">
-            Enter an amount first — matching withdrawal requests will show after that
-          </p>
         </div>
         <Link href="/my-deposits">
           <Button size="sm" variant="secondary">

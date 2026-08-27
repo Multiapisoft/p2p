@@ -98,14 +98,13 @@ export function AdminNewWithdrawalPopup() {
     <Modal open={open} onClose={() => setOpen(false)} title="New withdrawal listed">
       <div className="space-y-4">
         <p className="text-sm text-on-surface-variant">
-          A withdrawal is now available for P2P settlement
           {latest ? (
             <>
-              : <span className="font-semibold text-on-surface">{latest.referenceId}</span> (
+              <span className="font-semibold text-on-surface">{latest.referenceId}</span> (
               {formatCurrency(latest.amount, latest.currency)})
             </>
           ) : (
-            '.'
+            'New withdrawal available.'
           )}
         </p>
         <div className="flex flex-col gap-2 sm:flex-row">

@@ -362,9 +362,6 @@ export function WithdrawalsPage() {
             <h1 className="font-[family-name:var(--font-headline)] text-2xl font-bold">
               My withdrawal requests
             </h1>
-            <p className="mt-1 text-sm text-on-surface-variant">
-              Open a payout request (UPI / Bank / USDT). Others can fulfill it on Invest.
-            </p>
           </div>
           <Button
             onClick={() => {
@@ -384,13 +381,6 @@ export function WithdrawalsPage() {
       <div className="rounded-xl border border-secondary/25 bg-secondary-container/15 p-4">
         <p className="text-xs text-on-surface-variant">Available balance</p>
         <p className="text-2xl font-bold text-secondary">{formatCurrency(available)}</p>
-        <p className="mt-1 text-xs text-on-surface-variant">
-          USDT method: enter INR amount — open request converts to USDT at live rate.
-        </p>
-        <p className="mt-2 text-[11px] text-on-surface-variant">
-          Once approved (verified for payout), you cannot cancel. Contact
-          business/admin.
-        </p>
       </div>
 
       <SavedWithdrawalMethodsPanel
@@ -794,9 +784,7 @@ export function WithdrawalsPage() {
         {pendingPayload && (
           <div className="space-y-4">
             <p className="text-sm text-on-surface-variant">
-              {editingId
-                ? 'Verify Name, Bank, Account, IFSC and UPI before saving.'
-                : 'Check amount, method and destination before submitting.'}
+              {editingId ? 'Verify details before saving.' : 'Check details before submitting.'}
             </p>
             <dl className="space-y-2 rounded-xl border border-outline-variant bg-surface-container-low/50 px-4 py-3 text-sm">
               <div className="flex justify-between gap-3">

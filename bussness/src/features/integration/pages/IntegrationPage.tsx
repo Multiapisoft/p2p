@@ -106,7 +106,6 @@ export function IntegrationPage() {
     <div className="mx-auto max-w-3xl space-y-6">
       <PageHeader
         title="Integration"
-        description="Configure partner balance, credit, and debit URLs, then manage API keys"
         action={business ? <StatusBadge status={business.status} /> : undefined}
       />
 
@@ -121,11 +120,6 @@ export function IntegrationPage() {
 
       {noBusiness ? (
         <Card title="Create business">
-          <p className="mb-4 text-sm text-on-surface-variant">
-            Only a business name is required. Your business code and API keys are
-            generated immediately. Partner balance/credit/debit URLs are optional — add them later
-            if you use wallet sync.
-          </p>
           <form
             className="space-y-4"
             onSubmit={(e) => {
@@ -206,10 +200,6 @@ export function IntegrationPage() {
           </Card>
 
           <Card title="Partner URLs" className="scroll-mt-20">
-            <p className="mb-4 text-sm text-on-surface-variant">
-              Each partner can use different endpoints. Set the exact URLs here so balance and wallet
-              actions call the correct partner APIs.
-            </p>
             <form
               className="space-y-4"
               onSubmit={(e) => {

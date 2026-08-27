@@ -55,9 +55,6 @@ export function DashboardPage() {
           <h1 className="font-[family-name:var(--font-headline)] text-xl font-bold text-on-background sm:text-2xl md:text-3xl">
             Hello{user?.email ? `, ${user.email.split('@')[0]}` : ''}
           </h1>
-          <p className="text-sm text-on-surface-variant">
-            Wallet, deposits, and withdrawals at a glance
-          </p>
         </div>
         <Button size="sm" variant="ghost" onClick={() => void refetchSummary()}>
           Refresh

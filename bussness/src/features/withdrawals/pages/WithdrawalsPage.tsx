@@ -284,7 +284,6 @@ export function WithdrawalsPage() {
         <div className="relative">
           <PageHeader
             title="Withdrawal requests"
-            description="Request from remaining limit, or approve user withdrawals. Admin verifies your own requests."
             action={
               <CsvDownloadButton<Withdrawal>
                 title="Business withdrawals"

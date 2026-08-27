@@ -436,11 +436,7 @@ export function AdminDepositPayPanel() {
         title="Withdrawal ready"
       >
         <div className="space-y-4">
-          <p className="text-sm text-on-surface-variant">
-            A matching withdrawal is available for your deposit of{' '}
-            {matchAmount != null ? formatCurrency(matchAmount) : 'your amount'}. Pay now to
-            settle and credit your platform wallet.
-          </p>
+          <p className="text-sm text-on-surface-variant">Match found.</p>
           <Button type="button" className="w-full" onClick={() => setMatchReadyOpen(false)}>
             View payment details
           </Button>
@@ -455,9 +451,6 @@ export function AdminDepositPayPanel() {
             </p>
             <p className="text-lg font-bold text-secondary">
               {matchAmount != null ? formatCurrency(matchAmount) : 'Enter amount first'}
-            </p>
-            <p className="mt-0.5 text-xs text-on-surface-variant">
-              Settlement priority: business users first, then investors
             </p>
           </div>
           <Button

@@ -81,9 +81,6 @@ export function TransactionsPage() {
           <h1 className="font-[family-name:var(--font-headline)] text-xl font-bold sm:text-2xl">
             Combined statement
           </h1>
-          <p className="mt-1 text-sm text-on-surface-variant">
-            Credit / debit running balance for every wallet entry
-          </p>
         </div>
         <CsvDownloadButton<LedgerEntry>
           title="Transaction ledger"

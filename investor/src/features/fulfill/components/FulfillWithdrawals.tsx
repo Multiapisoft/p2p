@@ -590,11 +590,6 @@ export function FulfillWithdrawals({
               <p className="text-lg font-bold text-secondary">
                 {matchAmount != null ? formatCurrency(matchAmount) : 'Enter amount first'}
               </p>
-              <p className="mt-0.5 text-xs text-on-surface-variant">
-                {matchAmount != null
-                  ? `Showing matches for ${formatCurrency(matchAmount)}`
-                  : 'Confirm the amount to see the matching list'}
-              </p>
             </div>
             <Button
               type="button"
@@ -691,20 +686,11 @@ export function FulfillWithdrawals({
           />
         ) : needsAmount && !availableItems.length ? (
           <EmptyState
-            message="Enter how much you want to pay to see matching withdrawals."
+            message="Enter amount first."
             icon="payments"
           />
         ) : !availableItems.length ? (
-          <EmptyState
-            message={
-              search || method !== 'all'
-                ? 'No requests match your filters'
-                : matchAmount
-                  ? `No matching requests for ${formatCurrency(matchAmount)}`
-                  : labels.emptyList
-            }
-            icon="payments"
-          />
+          <EmptyState message="No matches." icon="payments" />
         ) : (
           <>
             <div className={`space-y-3 ${isFetching ? 'opacity-70' : ''}`}>

@@ -38,7 +38,7 @@ export function MatchAmountCard({
           {applied != null ? formatCurrency(applied) : 'Enter amount first'}
         </p>
         <p className="mt-0.5 text-[11px] text-on-surface-variant">
-          Full close up to this amount, or larger requests as ₹5,000+ partial (not less).
+          Full close or ₹5,000+ partial.
           {maxHint != null ? ` Max ${formatCurrency(maxHint)}.` : ''}
         </p>
       </div>

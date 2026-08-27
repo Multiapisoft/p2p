@@ -147,7 +147,6 @@ export function SupportPage() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <h1 className="font-[family-name:var(--font-headline)] text-xl font-bold sm:text-2xl">Support</h1>
-          <p className="text-sm text-on-surface-variant">Tickets, replies, and payment disputes</p>
         </div>
         <Button className="w-full sm:w-auto" onClick={() => setShowCreate(true)}>
           New Ticket

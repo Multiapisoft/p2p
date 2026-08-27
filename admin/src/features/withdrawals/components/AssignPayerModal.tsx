@@ -60,8 +60,7 @@ export function AssignPayerModal({
     <Modal open={open} onClose={onClose} title="Assign payer" className="sm:max-w-lg">
       <div className="space-y-3">
         <p className="text-sm text-on-surface-variant">
-          Only the assigned user/investor will see this withdrawal. They must upload UTR or a
-          payment slip.
+          Only assigned payer can submit proof.
         </p>
         {current?.name || current?.email ? (
           <p className="rounded-xl bg-secondary-container/40 px-3 py-2 text-sm">

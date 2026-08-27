@@ -10,7 +10,7 @@ export function DepositAmountModal({
   open,
   initialValue,
   title = 'Enter deposit amount',
-  description = 'Enter an amount first — payment details will appear after that.',
+  description = '',
   submitLabel = 'SUBMIT',
   onClose,
   onApply,
@@ -46,7 +46,9 @@ export function DepositAmountModal({
   return (
     <Modal open={open} onClose={onClose} title={title}>
       <form className="space-y-4" onSubmit={submit}>
-        <p className="text-sm text-on-surface-variant">{description}</p>
+        {description.trim() ? (
+          <p className="text-sm text-on-surface-variant">{description}</p>
+        ) : null}
         <Input
           label="Amount"
           type="number"

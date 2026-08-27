@@ -559,9 +559,6 @@ export function WithdrawalsPage() {
           <h1 className="font-[family-name:var(--font-headline)] text-xl font-bold tracking-tight sm:text-2xl">
             Withdrawal requests
           </h1>
-          <p className="mt-0.5 text-sm text-on-surface-variant">
-            Request payouts and track incoming payments.
-          </p>
         </div>
         <div className="flex w-full flex-col gap-2 sm:w-auto">
           <CsvDownloadButton<Withdrawal>
@@ -1200,7 +1197,7 @@ export function WithdrawalsPage() {
                                           setActionError('');
                                           const ok = await confirmDialog({
                                             title: 'Confirm payment received?',
-                                            description: `Confirm you received ${formatCurrency(p.amount, p.currency || w.currency)}. This will mark the payment as received.`,
+                                            description: `Confirm you received ${formatCurrency(p.amount, p.currency || w.currency)}.`,
                                             confirmLabel: 'Yes, I received it',
                                             cancelLabel: 'Not yet',
                                             variant: 'secondary',
@@ -1256,8 +1253,7 @@ export function WithdrawalsPage() {
           <div className="max-h-[92dvh] w-full overflow-y-auto rounded-t-2xl border border-outline-variant bg-surface-container-lowest p-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-lg sm:max-w-md sm:rounded-2xl sm:p-5 sm:pb-5">
             <h3 className="text-base font-semibold sm:text-lg">Raise a dispute</h3>
             <p className="mt-1 text-sm text-on-surface-variant">
-              Creates a support ticket with full withdrawal and payment details (UTR, proof, amounts).
-              Auto-receive will pause until admin resolves it. Window: 24 hours from payment submit.
+              Opens a support ticket. Auto-receive pauses until resolved.
             </p>
             <p className="mt-3 break-all text-xs text-on-surface-variant">
               {disputeFor.referenceId} · {formatCurrency(disputeFor.amount, disputeFor.currency)}
@@ -1316,9 +1312,7 @@ export function WithdrawalsPage() {
         {pendingPayload && (
           <div className="space-y-4">
             <p className="text-sm text-on-surface-variant">
-              {editingId
-                ? 'Verify Name, Bank, Account, IFSC and UPI before saving.'
-                : 'Check amount, method and destination before submitting.'}
+              {editingId ? 'Verify details before saving.' : 'Check details before submitting.'}
             </p>
             <dl className="space-y-2 rounded-xl border border-outline-variant bg-surface-container-low/50 px-4 py-3 text-sm">
               <div className="flex justify-between gap-3">

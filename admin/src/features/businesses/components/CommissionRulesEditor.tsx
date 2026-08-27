@@ -46,7 +46,7 @@ export function rulesFromConfigs(
 
 interface CommissionRulesEditorProps {
   title: string;
-  hint: string;
+  hint?: string;
   rules: CommissionRuleInput[];
   onChange: (rules: CommissionRuleInput[]) => void;
 }
@@ -68,7 +68,9 @@ export function CommissionRulesEditor({ title, hint, rules, onChange }: Commissi
     <div className="space-y-3">
       <div>
         <h4 className="text-sm font-semibold">{title}</h4>
-        <p className="text-xs text-on-surface-variant">{hint}</p>
+        {hint?.trim() ? (
+          <p className="text-xs text-on-surface-variant">{hint}</p>
+        ) : null}
       </div>
 
       {rules.map((rule, index) => (

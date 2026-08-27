@@ -147,7 +147,6 @@ export function DepositsPage() {
     <div className="mx-auto max-w-7xl space-y-6">
       <PageHeader
         title="Deposits"
-        description="Enter amount, settle via user/investor withdrawals, and credit your wallet"
         action={
           tab === 'history' ? (
             <CsvDownloadButton<BusinessPlatformPayment>

@@ -175,7 +175,6 @@ export function UsersPage() {
     <div className="mx-auto max-w-7xl space-y-6">
       <PageHeader
         title="Integrated Users"
-        description="Users linked via referral / API — view details or reset login password"
       />
 
       <div className="grid gap-3 sm:grid-cols-3">

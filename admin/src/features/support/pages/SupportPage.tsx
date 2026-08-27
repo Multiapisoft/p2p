@@ -140,7 +140,6 @@ export function SupportPage() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="font-[family-name:var(--font-headline)] text-xl font-bold sm:text-2xl">Support</h1>
-          <p className="mt-0.5 text-sm text-on-surface-variant">All user tickets and withdrawal disputes</p>
         </div>
         <CsvDownloadButton<SupportTicket>
           title="Support tickets"

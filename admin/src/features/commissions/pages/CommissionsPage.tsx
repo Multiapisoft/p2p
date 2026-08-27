@@ -139,7 +139,6 @@ export function CommissionsPage() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="font-[family-name:var(--font-headline)] text-xl font-bold sm:text-2xl">Commissions</h1>
-          <p className="mt-0.5 text-sm text-on-surface-variant">Platform, business & investor fee configuration</p>
         </div>
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
           <CsvDownloadButton<Commission>

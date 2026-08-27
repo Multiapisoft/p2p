@@ -147,7 +147,6 @@ export function SupportPage() {
     <div className="mx-auto max-w-7xl space-y-6">
       <PageHeader
         title="Support"
-        description="Your tickets and disputes on your users' withdrawals"
         action={
           <Button onClick={() => setShowCreate(true)}>
             <span className="material-symbols-outlined text-lg">add</span>
