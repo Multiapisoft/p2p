@@ -84,12 +84,18 @@ function businessName(p: WithdrawalPaymentAdmin) {
   return null;
 }
 
-export function SplitPaymentsTab() {
+export function SplitPaymentsTab({
+  defaultPayType = 'all',
+}: {
+  /** Withdrawals "partial" tab should hide full closes by default. */
+  defaultPayType?: 'all' | 'partial' | 'full';
+} = {}) {
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(20);
   const [listMode, setListMode] = useState<'pending' | 'all'>('all');
   const [status, setStatus] = useState('all');
   const [method, setMethod] = useState('all');
+  const [payType, setPayType] = useState<'all' | 'partial' | 'full'>(defaultPayType);
   const [sort, setSort] = useState('newest');
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
@@ -115,8 +121,9 @@ export function SplitPaymentsTab() {
       status: listMode === 'pending' ? 'pending' : status,
       sort,
       method,
+      payType,
     }),
-    [page, limit, search, status, sort, method, listMode],
+    [page, limit, search, status, sort, method, listMode, payType],
   );
 
   const { data, isLoading, isFetching, isError, error } = useQuery({
@@ -208,7 +215,14 @@ export function SplitPaymentsTab() {
             <CsvDownloadButton<WithdrawalPaymentAdmin>
               title="P2P payments"
               filename={`p2p-payments-${listMode}`}
-              filters={{ View: listMode, Status: status, Method: method, Search: search, Sort: sort }}
+              filters={{
+                View: listMode,
+                Status: status,
+                Method: method,
+                PayType: payType,
+                Search: search,
+                Sort: sort,
+              }}
               disabled={!total}
               columns={[
                 { header: 'Payment ref', value: (p) => p.referenceId },
@@ -302,6 +316,18 @@ export function SplitPaymentsTab() {
                   {o.label}
                 </option>
               ))}
+            </select>
+            <select
+              className="rounded-lg border border-outline-variant bg-surface-container-lowest px-2.5 py-2 text-sm"
+              value={payType}
+              onChange={(e) => {
+                setPayType(e.target.value as 'all' | 'partial' | 'full');
+                setPage(1);
+              }}
+            >
+              <option value="all">All pay sizes</option>
+              <option value="partial">Partial only</option>
+              <option value="full">Full only</option>
             </select>
             <select
               className="rounded-lg border border-outline-variant bg-surface-container-lowest px-2.5 py-2 text-sm"

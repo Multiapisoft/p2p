@@ -174,6 +174,8 @@ export interface Business {
   depositsEnabled?: boolean;
   withdrawalsEnabled?: boolean;
   b2bMatchingEnabled?: boolean;
+  allowPartialPay?: boolean;
+  allowMobileNumberUpi?: boolean;
   createdAt: string;
 }
 

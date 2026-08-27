@@ -25,7 +25,12 @@ export class CreateUserDto {
 
   @ValidateIf((o: CreateUserDto) => {
     const role = o.role ?? UserRole.USER;
-    return role === UserRole.USER || role === UserRole.INVESTOR || !!o.phone;
+    return (
+      role === UserRole.USER ||
+      role === UserRole.INVESTOR ||
+      role === UserRole.BUSINESS ||
+      !!o.phone
+    );
   })
   @IsAppPhone()
   phone?: string;

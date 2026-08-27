@@ -1,4 +1,4 @@
-import { IsString, MinLength, IsOptional, IsEnum, ValidateIf, Matches } from 'class-validator';
+import { IsString, MinLength, IsOptional, IsEnum, Matches } from 'class-validator';
 import { UserRole } from '../../../common/enums/role.enum';
 import { IsAppEmail, IsAppPhone } from '../../../common/validators/contact.validators';
 
@@ -26,10 +26,9 @@ export class RegisterDto {
   @IsString()
   name!: string;
 
-  /** Required for user / investor. Optional for business self-register. */
-  @ValidateIf((o: RegisterDto) => o.role !== UserRole.BUSINESS || !!o.phone)
+  /** Required for user / investor / business self-register. */
   @IsAppPhone()
-  phone?: string;
+  phone!: string;
 
   @IsOptional()
   @IsEnum(UserRole)

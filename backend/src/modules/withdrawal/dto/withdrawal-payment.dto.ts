@@ -14,6 +14,11 @@ export class WithdrawalPaymentListQueryDto extends ListQueryDto {
   @IsNumber()
   @Min(1)
   amount?: number;
+
+  /** Filter: partial = pay amount < WD amount; full = pay amount >= WD amount. */
+  @IsOptional()
+  @IsString()
+  payType?: 'all' | 'partial' | 'full';
 }
 
 export class CreditPreviewQueryDto {

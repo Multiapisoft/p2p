@@ -95,6 +95,20 @@ export class Business {
   b2bMatchingEnabled!: boolean;
 
   /**
+   * Per-business partial pay override (Noida #53).
+   * undefined/missing = inherit platform `allowPartialPay`.
+   */
+  @Prop()
+  allowPartialPay?: boolean;
+
+  /**
+   * Per-business mobile-as-UPI override (Noida #37).
+   * undefined/missing = inherit platform `allowMobileNumberUpi`.
+   */
+  @Prop()
+  allowMobileNumberUpi?: boolean;
+
+  /**
    * Max withdrawal highlights (FIFO jump) this business may use per calendar month.
    * 0 = highlighting disabled until admin sets a limit.
    */

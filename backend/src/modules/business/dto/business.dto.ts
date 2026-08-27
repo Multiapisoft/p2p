@@ -93,6 +93,14 @@ export class UpdateBusinessDto {
   @IsOptional()
   @IsBoolean()
   b2bMatchingEnabled?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  allowPartialPay?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  allowMobileNumberUpi?: boolean;
 }
 
 export class RegenerateApiKeysDto {

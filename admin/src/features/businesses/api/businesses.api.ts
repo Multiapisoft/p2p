@@ -37,6 +37,8 @@ export const businessesApi = {
       depositsEnabled: boolean;
       withdrawalsEnabled: boolean;
       b2bMatchingEnabled: boolean;
+      allowPartialPay: boolean;
+      allowMobileNumberUpi: boolean;
     }>,
   ) => apiPatch<Business>(`/business/${id}`, body),
 };

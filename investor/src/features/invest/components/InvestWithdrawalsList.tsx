@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { fulfillApi, type AvailableWithdrawal } from '@/features/fulfill/api/fulfill.api';
 import { investorApi } from '@/features/investor/api/investor.api';
@@ -28,6 +28,19 @@ function readStoredMatchAmount() {
   if (typeof window === 'undefined') return null;
   const n = Number(sessionStorage.getItem(MATCH_AMOUNT_KEY));
   return Number.isFinite(n) && n >= 1 ? n : null;
+}
+
+function notifyMatchReady(amount: number) {
+  if (typeof window === 'undefined' || typeof Notification === 'undefined') return;
+  const title = 'Investment match ready';
+  const body = `Withdrawal available for ₹${amount.toLocaleString('en-IN')}. Open Invest to pay.`;
+  if (Notification.permission === 'granted') {
+    try {
+      new Notification(title, { body, tag: 'invest-deposit-match' });
+    } catch {
+      /* ignore */
+    }
+  }
 }
 
 type SortKey = 'amount_desc' | 'amount_asc' | 'remaining_desc' | 'remaining_asc' | 'newest' | 'oldest';
@@ -236,6 +249,8 @@ export function InvestWithdrawalsList() {
     return stored != null ? String(stored) : '';
   });
   const [amountModalOpen, setAmountModalOpen] = useState(false);
+  const [matchReadyOpen, setMatchReadyOpen] = useState(false);
+  const wasWaitingRef = useRef(false);
   const qc = useQueryClient();
 
   useEffect(() => {
@@ -273,8 +288,19 @@ export function InvestWithdrawalsList() {
   const { data, isLoading, isFetching, isError, error, refetch } = useQuery({
     queryKey: ['invest-withdrawals', listQuery],
     queryFn: () => fulfillApi.getAvailable(listQuery),
-    refetchInterval: 30_000,
+    refetchInterval: 10_000,
   });
+
+  useEffect(() => {
+    if (matchAmount == null || !data) return;
+    const waiting = !!data.waitingForMatch || (data.items?.length ?? 0) === 0;
+    const hasItems = (data.items?.length ?? 0) > 0;
+    if (wasWaitingRef.current && hasItems) {
+      setMatchReadyOpen(true);
+      notifyMatchReady(matchAmount);
+    }
+    wasWaitingRef.current = waiting;
+  }, [data, matchAmount]);
 
   const { data: platformSettings } = useQuery({
     queryKey: ['platform-settings'],
@@ -444,6 +470,9 @@ export function InvestWithdrawalsList() {
     setPage(1);
     setAmountModalOpen(false);
     sessionStorage.setItem(MATCH_AMOUNT_KEY, String(amount));
+    if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
+      void Notification.requestPermission();
+    }
   };
 
   useEffect(() => {
@@ -482,6 +511,22 @@ export function InvestWithdrawalsList() {
         onClose={() => setAmountModalOpen(false)}
         onApply={applyMatchAmount}
       />
+      <Modal
+        open={matchReadyOpen}
+        onClose={() => setMatchReadyOpen(false)}
+        title="Withdrawal ready"
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-on-surface-variant">
+            A matching withdrawal is available for your invest amount of{' '}
+            {matchAmount != null ? formatCurrency(matchAmount) : 'your amount'}. Pay now to
+            settle and unlock investment credit.
+          </p>
+          <Button type="button" className="w-full" onClick={() => setMatchReadyOpen(false)}>
+            View payment details
+          </Button>
+        </div>
+      </Modal>
       {formError && !target && (
         <div className="rounded-lg bg-error-container px-3 py-2 text-xs text-on-error-container">
           {formError}
@@ -515,8 +560,8 @@ export function InvestWithdrawalsList() {
               </p>
               <p className="mt-0.5 text-xs text-on-surface-variant">
                 {matchAmount != null
-                  ? `Showing matches for ${formatCurrency(matchAmount)}`
-                  : 'Confirm the amount to see the matching list'}
+                  ? `Showing payment details for ${formatCurrency(matchAmount)}`
+                  : 'Confirm the amount to see payment details'}
               </p>
             </div>
             <Button
@@ -650,7 +695,7 @@ export function InvestWithdrawalsList() {
         ) : needsAmount && !items.length ? (
           <div className="p-6">
             <EmptyState
-              message="Enter how much you want to pay to see matching withdrawals."
+              message="Enter how much you want to pay to see payment details."
               icon="payments"
             />
           </div>
@@ -661,8 +706,8 @@ export function InvestWithdrawalsList() {
                 search || method !== 'all'
                   ? 'No requests match your filters'
                   : matchAmount
-                    ? `No matching requests for ${formatCurrency(matchAmount)}`
-                    : 'No matching withdrawals right now. Waiting — this list refreshes every 30 seconds.'
+                    ? `No payment details for ${formatCurrency(matchAmount)}`
+                    : 'No payment details right now. Waiting — this list refreshes every 10 seconds.'
               }
               icon="payments"
             />

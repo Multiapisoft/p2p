@@ -1,68 +1,21 @@
-Haan. Document ke according **jo items abhi missing / failed / partially incomplete hain**, unki list:
+Noida (6) — code-verified status after 2026-08-27 fix pass
 
-### 🔴 Missing / Failed
+### Fixed / implemented this pass
+* #12/#13 — Admin "Partial payments" tab defaults to partial-only; payType filter (partial/full/all); server-side filter
+* #1 — Invite/user-app defaults → dev.app.paysecure247.com + Caddy reverse_proxy for user Vercel; CORS updated
+* #57/#69 — Mobile required for business register; unique phone on create + claim/reuse update
+* #33 — Investor match-ready popup + Notification when WD appears
+* #35 — Admin Deposits → "Make deposit" amount-first FIFO panel
+* #63/#71/#72/#76 — Deposit copy: SUBMIT, Amount, Available Details for Payment, payment details wording
+* #28 — Deposit/invest list refresh → 10s (user/business/investor/admin pay panels)
+* #37/#53 — Per-business allowPartialPay + allowMobileNumberUpi on Txn flags (override platform)
 
-1. **Different Business URL Routing** — Item #1
-   Different business ke users ko `Paysecure247.com` par route karna hai; current URL issue noted hai. 
+### Still external / not in this pass
+* #18/#44 — Bank account-name verify API (needs provider)
+* #42 — WhatsApp payment confirmations (needs provider + KYC/GST)
+* #52 — Super-admin period purge of business data (audit read-only; reset-txn exists entity-wide)
+* #1 DNS — Point DNS A/CNAME for dev.app.paysecure247.com to VPS; set USER_APP_URL on server
+* #75 — Pay-limit block: logic looks correct; needs live repro if still failing
 
-2. **Different Website Designs/Home Pages** — Item #2
-   3 domains ke liye completely different design + homepage content required hai. Status document me clear pass/fixed nahi hai. 
-
-3. **Split Payment Section Remove** — Item #6
-   Full payment **Split Payment** ke andar show ho raha hai; split section remove/fix karna hai. 
-
-4. **UPI ID Validation** — Item #7
-   UPI validation **not applicable → Fail**. 
-
-5. **Forgot Password / Reset Password** — Item #11
-   Forgot/Reset Password available nahi hai. 
-
-6. **Business Deposit – New Withdrawal Popup** — Item #15
-   New withdrawal available hone par business ko popup notification nahi mil raha. 
-
-7. **Admin Deposit – New Withdrawal Popup** — Item #16
-   New withdrawal available hone par Admin ko popup notification nahi mil raha. 
-
-8. **Investor Referral Plan/Scheme** — Item #20
-   Investor ke liye Referral Plan/Scheme **missing** hai. 
-
-9. **Business Withdrawal Priority** — Item #24
-   Priority withdrawal functionality **missing/partially fixed** hai. Priority transaction ko FIFO override karna required hai. 
-
-10. **CDM Deposit Option** — Item #26
-    CDM withdrawal available hai, lekin **CDM Deposit missing** hai. 
-
-11. **Support Ticket Notification** — Item #33
-    Ticket Support section me visible hai, lekin **Admin/Business ko notification nahi mil raha**. 
-
-12. **Admin Panel Deposits Visibility** — Item #39
-    **User aur Investor deposits Admin panel me visible nahi hain**. Business panel me deposits visible hain. 
-
-13. **Reset Transaction Data** — Item #40
-    Investor/User/Business ki transaction data reset karne ka option **Not Fixed / Fail** hai. 
-
-### Short Priority List
-
-**Done (this pass):**
-
-* #11 Forgot/Reset Password
-* #16 Admin new-withdrawal popup
-* #24 Withdrawal Priority
-* #26 CDM Deposit
-
-**Still open / partial:**
-
-* #7 UPI validation
-* #15 Business popup (already done earlier — verify)
-* #20 Investor Referral (already done earlier — verify)
-* #33 Support Notifications (already done earlier — verify)
-* #39 Admin Deposits (already done earlier — verify)
-* #40 Transaction Reset (already done earlier — verify)
-
-**Also verify:**
-
-* #1 Business URL routing
-* #2 Different website designs
-* #6 Split Payment section remove
-
-**Total: 13 items** currently missing/failed/incomplete based on the document.
+### Already done earlier (verified present)
+Forgot password, admin/business WD popups, priority highlight, CDM deposit, referral, ledger, CSV/PDF, 2FA, min ₹300, B2B toggle, CDM hold, proof upload files+camera, UPI app links, support notifs, reset txn data, separate deposit/WD commission rules, etc.

@@ -69,7 +69,7 @@ export function AdminNewWithdrawalPopup() {
         status: 'pending',
         sort: 'newest',
       }),
-    refetchInterval: 20_000,
+    refetchInterval: 10_000,
   });
 
   useEffect(() => {

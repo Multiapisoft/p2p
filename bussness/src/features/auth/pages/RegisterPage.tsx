@@ -39,7 +39,7 @@ export function RegisterPage() {
         name,
         email: normalizeEmail(email),
         password,
-        phone: phone.trim() ? normalizePhone(phone) : undefined,
+        phone: normalizePhone(phone),
         businessName: businessName.trim() || name.trim(),
       }),
     onSuccess: (data) => {
@@ -50,7 +50,17 @@ export function RegisterPage() {
       // Dashboard shows referral/business code immediately — no partner URL setup required
       router.replace('/home?registered=1');
     },
-    onError: () => setError('Registration failed. Email may already be in use.'),
+    onError: (err: unknown) => {
+      const msg =
+        err && typeof err === 'object' && 'message' in err
+          ? String((err as { message?: unknown }).message)
+          : '';
+      setError(
+        msg.includes('Mobile') || msg.includes('phone') || msg.includes('Phone')
+          ? msg
+          : 'Registration failed. Email or mobile may already be in use.',
+      );
+    },
   });
 
   const handleSubmit = (e: FormEvent) => {
@@ -65,7 +75,7 @@ export function RegisterPage() {
       setError(eMsg);
       return;
     }
-    const pMsg = phoneError(phone, false);
+    const pMsg = phoneError(phone, true);
     if (pMsg) {
       setError(pMsg);
       return;
@@ -137,10 +147,11 @@ export function RegisterPage() {
               required
             />
             <Input
-              label="Phone (optional)"
+              label="Mobile number"
               icon="phone"
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
+              required
             />
             <Input
               label="Password"

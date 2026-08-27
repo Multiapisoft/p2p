@@ -83,7 +83,11 @@ import {
 const VERIFICATION_WINDOW_MS = 24 * 60 * 60 * 1000;
 const CLAIM_REDIS_PREFIX = 'withdrawal-claim:';
 
-export type WithdrawalPaymentListOpts = ListQueryOpts & { method?: string; amount?: number };
+export type WithdrawalPaymentListOpts = ListQueryOpts & {
+  method?: string;
+  amount?: number;
+  payType?: 'all' | 'partial' | 'full';
+};
 
 @Injectable()
 export class WithdrawalPaymentService {
@@ -225,7 +229,11 @@ export class WithdrawalPaymentService {
     }
 
     if (withdrawalRemaining != null) {
-      const allowPartial = await this.platformSettingsService.allowPartialPay();
+      const platformPartial = await this.platformSettingsService.allowPartialPay();
+      const allowPartial = await this.businessService.resolveAllowPartialPay(
+        platformPartial,
+        businessId,
+      );
       const partialErr = partialPayError({
         amount,
         remaining: withdrawalRemaining,
@@ -1179,7 +1187,11 @@ export class WithdrawalPaymentService {
     }
 
     if (!isAdminPayer) {
-      const allowPartial = await this.platformSettingsService.allowPartialPay();
+      const platformPartial = await this.platformSettingsService.allowPartialPay();
+      const allowPartial = await this.businessService.resolveAllowPartialPay(
+        platformPartial,
+        businessId,
+      );
       const partialErr = partialPayError({
         amount: dto.amount,
         remaining,
@@ -1667,6 +1679,29 @@ export class WithdrawalPaymentService {
       and.push({
         withdrawalId: { $in: matchingWithdrawals.map((w) => w._id) },
       });
+    }
+    if (opts.payType === 'partial' || opts.payType === 'full') {
+      const payTypeIds = await this.paymentModel
+        .aggregate<{ _id: Types.ObjectId }>([
+          {
+            $lookup: {
+              from: 'withdrawals',
+              localField: 'withdrawalId',
+              foreignField: '_id',
+              as: 'wd',
+            },
+          },
+          { $unwind: '$wd' },
+          {
+            $match:
+              opts.payType === 'partial'
+                ? { $expr: { $lt: ['$amount', '$wd.amount'] } }
+                : { $expr: { $gte: ['$amount', '$wd.amount'] } },
+          },
+          { $project: { _id: 1 } },
+        ])
+        .exec();
+      and.push({ _id: { $in: payTypeIds.map((r) => r._id) } });
     }
     if (search) {
       and.push({

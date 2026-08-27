@@ -9,3 +9,10 @@ dev.paysecure247.com {
 		header_up Host p2p-business-dev.vercel.app
 	}
 }
+
+dev.app.paysecure247.com {
+	encode gzip
+	reverse_proxy https://p2p-user-dev.vercel.app {
+		header_up Host p2p-user-dev.vercel.app
+	}
+}

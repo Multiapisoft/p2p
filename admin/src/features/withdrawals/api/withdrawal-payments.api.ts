@@ -60,6 +60,8 @@ export type WithdrawalPaymentListQuery = {
   status?: string;
   sort?: string;
   method?: string;
+  /** partial = amount < WD total; full = amount >= WD total */
+  payType?: 'all' | 'partial' | 'full';
 };
 
 function cleanQuery(query: WithdrawalPaymentListQuery = {}) {
@@ -70,6 +72,7 @@ function cleanQuery(query: WithdrawalPaymentListQuery = {}) {
     status: query.status && query.status !== 'all' ? query.status : undefined,
     sort: query.sort || 'newest',
     method: query.method && query.method !== 'all' ? query.method : undefined,
+    payType: query.payType && query.payType !== 'all' ? query.payType : undefined,
   };
 }
 

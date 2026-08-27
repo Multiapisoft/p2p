@@ -11,8 +11,8 @@ export function DepositAmountModal({
   initialValue,
   cap,
   title = 'Enter deposit amount',
-  description = 'Enter an amount first — matching withdrawal requests will appear after that.',
-  submitLabel = 'Show matching list',
+  description = 'Enter an amount first — payment details will appear after that.',
+  submitLabel = 'SUBMIT',
   onClose,
   onApply,
 }: {
@@ -51,7 +51,7 @@ export function DepositAmountModal({
       <form className="space-y-4" onSubmit={submit}>
         <p className="text-sm text-on-surface-variant">{description}</p>
         <Input
-          label="Amount (INR)"
+          label="Amount"
           type="number"
           min={1}
           step="1"

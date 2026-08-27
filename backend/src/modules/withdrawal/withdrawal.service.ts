@@ -83,8 +83,6 @@ export class WithdrawalService {
   ) {}
 
   async create(userId: string, dto: CreateWithdrawalDto) {
-    await this.validateDestination(dto);
-
     if (dto.integrationToken) {
       const session = await this.integrationRedirectService.findValidSession(dto.integrationToken);
       if (session.userId.toString() !== userId) {
@@ -97,13 +95,14 @@ export class WithdrawalService {
 
     const user = await this.userModel.findById(userId).exec();
     if (!user) throw new NotFoundException('User not found');
+    const businessId = await this.businessService.findBusinessIdForUser(user);
+    await this.validateDestination(dto, businessId);
     if (dto.method !== PaymentMethod.USDT) {
       const minAmt = await this.platformSettingsService.getMinTransactionAmount();
       if (dto.amount < minAmt) {
         throw new BadRequestException(`Minimum withdrawal is ₹${minAmt}`);
       }
     }
-    const businessId = await this.businessService.findBusinessIdForUser(user);
     if (businessId) {
       await this.businessService.assertWithdrawalsEnabled(businessId);
     }
@@ -271,13 +270,13 @@ export class WithdrawalService {
 
   /** Business owner opens a P2P withdrawal against remaining pay limit. Admin must verify. */
   async createForBusiness(ownerUserId: string, dto: CreateWithdrawalDto) {
-    await this.validateDestination(dto);
     if (dto.integrationToken) {
       throw new BadRequestException('Integration token is not valid for business withdrawals');
     }
 
     const business = await this.businessService.findForActor(ownerUserId);
     const businessId = business._id.toString();
+    await this.validateDestination(dto, businessId);
     await this.businessService.assertWithdrawalsEnabled(businessId);
     const walletOwnerId = business.ownerId.toString();
     if (dto.method !== PaymentMethod.USDT) {
@@ -1127,13 +1126,16 @@ export class WithdrawalService {
     if (!withdrawal) throw new NotFoundException('Withdrawal not found');
     await this.assertUserCanMutateDestination(withdrawal, userId, 'edit');
 
-    await this.validateDestination({
-      method: withdrawal.method,
-      upiDetails: dto.upiDetails,
-      bankDetails: dto.bankDetails,
-      usdtDetails: dto.usdtDetails,
-      cdmDetails: dto.cdmDetails,
-    });
+    await this.validateDestination(
+      {
+        method: withdrawal.method,
+        upiDetails: dto.upiDetails,
+        bankDetails: dto.bankDetails,
+        usdtDetails: dto.usdtDetails,
+        cdmDetails: dto.cdmDetails,
+      },
+      withdrawal.businessId?.toString(),
+    );
 
     if (withdrawal.method === PaymentMethod.UPI) {
       withdrawal.upiDetails = {
@@ -1638,16 +1640,23 @@ export class WithdrawalService {
     });
   }
 
-  private async validateDestination(dto: {
-    method: PaymentMethod | string;
-    upiDetails?: CreateWithdrawalDto['upiDetails'];
-    bankDetails?: CreateWithdrawalDto['bankDetails'];
-    usdtDetails?: CreateWithdrawalDto['usdtDetails'];
-    cdmDetails?: CreateWithdrawalDto['cdmDetails'];
-  }) {
+  private async validateDestination(
+    dto: {
+      method: PaymentMethod | string;
+      upiDetails?: CreateWithdrawalDto['upiDetails'];
+      bankDetails?: CreateWithdrawalDto['bankDetails'];
+      usdtDetails?: CreateWithdrawalDto['usdtDetails'];
+      cdmDetails?: CreateWithdrawalDto['cdmDetails'];
+    },
+    businessId?: string | null,
+  ) {
     const settings = await this.platformSettingsService.get();
+    const allowMobileNumber = await this.businessService.resolveAllowMobileNumberUpi(
+      !!settings.allowMobileNumberUpi,
+      businessId,
+    );
     assertValidWithdrawalDestination(dto, {
-      allowMobileNumber: !!settings.allowMobileNumberUpi,
+      allowMobileNumber,
     });
   }
 }

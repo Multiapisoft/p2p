@@ -1,12 +1,13 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  p2pPayApi,
+  adminDepositPayApi,
   type AvailableWithdrawal,
-} from '@/features/deposits/api/p2p-pay.api';
-import { ProofUpload } from '@/shared/components/ProofUpload';
+} from '@/features/deposits/api/admin-deposit-pay.api';
+import { DepositAmountModal } from '@/features/deposits/components/DepositAmountModal';
+import { ProofUpload } from '@/features/deposits/components/ProofUpload';
 import { AddressQr } from '@/shared/components/AddressQr';
 import { Card } from '@/shared/components/ui/Card';
 import { Button } from '@/shared/components/ui/Button';
@@ -15,15 +16,19 @@ import { StatusBadge } from '@/shared/components/ui/Badge';
 import { Modal } from '@/shared/components/ui/Modal';
 import { Pagination } from '@/shared/components/ui/Pagination';
 import { LoadingScreen, EmptyState } from '@/shared/components/ui/Icon';
-import { apiErrorMessage, formatCurrency, formatDate } from '@/shared/lib/utils';
-import { normalizeUtr, normalizeTxHash, paymentRefErrorForMethod } from '@/shared/lib/validation';
+import { getApiErrorMessage } from '@/shared/lib/api-error';
+import { formatCurrency, formatDate } from '@/shared/lib/utils';
+import {
+  normalizeUtr,
+  normalizeTxHash,
+  paymentRefErrorForMethod,
+} from '@/shared/lib/validation';
 import { buildUpiPayUri, buildUpiAppLinks, formatSecondsMmSs } from '@/shared/lib/upi-qr';
 import { minPartialAmount, partialPayError } from '@/shared/lib/partial-pay';
-import { DepositAmountModal } from '@/features/deposits/components/DepositAmountModal';
 import type { PaymentMethod } from '@/shared/types/api.types';
 
 const PAGE_SIZES = [5, 10, 20];
-const MATCH_AMOUNT_KEY = 'p2p-match-amount';
+const MATCH_AMOUNT_KEY = 'admin-deposit-match-amount';
 
 function readStoredMatchAmount() {
   if (typeof window === 'undefined') return null;
@@ -58,6 +63,19 @@ function CopyBtn({ text }: { text: string }) {
       {copied ? 'Copied' : 'Copy'}
     </button>
   );
+}
+
+function notifyMatchReady(amount: number) {
+  if (typeof window === 'undefined' || typeof Notification === 'undefined') return;
+  const title = 'Deposit match ready';
+  const body = `Withdrawal available for ₹${amount.toLocaleString('en-IN')}. Open Deposits to pay.`;
+  if (Notification.permission === 'granted') {
+    try {
+      new Notification(title, { body, tag: 'admin-deposit-match' });
+    } catch {
+      /* ignore */
+    }
+  }
 }
 
 function PaymentDetails({
@@ -128,7 +146,9 @@ function PaymentDetails({
             <span className="text-on-surface-variant">Account</span>
             <span className="flex items-center gap-1 font-medium">
               {w.bankDetails?.accountNumber}
-              {w.bankDetails?.accountNumber && <CopyBtn text={w.bankDetails.accountNumber} />}
+              {w.bankDetails?.accountNumber && (
+                <CopyBtn text={w.bankDetails.accountNumber} />
+              )}
             </span>
           </div>
           <div className="flex justify-between gap-2">
@@ -154,7 +174,9 @@ function PaymentDetails({
             <span className="text-on-surface-variant">Address</span>
             <span className="flex max-w-[70%] items-center gap-1 break-all font-medium">
               {w.usdtDetails?.walletAddress}
-              {w.usdtDetails?.walletAddress && <CopyBtn text={w.usdtDetails.walletAddress} />}
+              {w.usdtDetails?.walletAddress && (
+                <CopyBtn text={w.usdtDetails.walletAddress} />
+              )}
             </span>
           </div>
           {w.usdtDetails?.walletAddress && (
@@ -169,11 +191,7 @@ function PaymentDetails({
   );
 }
 
-export function AvailableWithdrawalsPanel({
-  preferredAmount,
-}: {
-  preferredAmount?: number;
-}) {
+export function AdminDepositPayPanel() {
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
   const [searchInput, setSearchInput] = useState('');
@@ -192,6 +210,8 @@ export function AvailableWithdrawalsPanel({
   const [matchAmount, setMatchAmount] = useState<number | null>(null);
   const [matchInput, setMatchInput] = useState('');
   const [amountModalOpen, setAmountModalOpen] = useState(false);
+  const [matchReadyOpen, setMatchReadyOpen] = useState(false);
+  const wasWaitingRef = useRef(false);
   const qc = useQueryClient();
 
   const applyMatchAmount = (n: number) => {
@@ -200,19 +220,20 @@ export function AvailableWithdrawalsPanel({
     setPage(1);
     setAmountModalOpen(false);
     sessionStorage.setItem(MATCH_AMOUNT_KEY, String(n));
+    if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
+      void Notification.requestPermission();
+    }
   };
 
   useEffect(() => {
-    const fromUrl =
-      preferredAmount && preferredAmount >= 1 ? preferredAmount : null;
-    if (fromUrl) {
-      applyMatchAmount(fromUrl);
-      return;
-    }
     const stored = readStoredMatchAmount();
-    if (stored) setMatchInput(String(stored));
-    setAmountModalOpen(true);
-  }, [preferredAmount]);
+    if (stored) {
+      setMatchAmount(stored);
+      setMatchInput(String(stored));
+    } else {
+      setAmountModalOpen(true);
+    }
+  }, []);
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -235,20 +256,32 @@ export function AvailableWithdrawalsPanel({
 
   const payAmountNum = Number(payAmount);
   const { data: creditPreview, isFetching: previewLoading } = useQuery({
-    queryKey: ['deposit-credit-preview', target?._id, payAmountNum],
-    queryFn: () => p2pPayApi.previewCredit(payAmountNum, target!._id),
+    queryKey: ['admin-deposit-credit-preview', target?._id, payAmountNum],
+    queryFn: () => adminDepositPayApi.previewCredit(payAmountNum, target!._id),
     enabled: !!target && Number.isFinite(payAmountNum) && payAmountNum >= 1,
   });
 
   const { data, isLoading, isFetching, isError, error, refetch } = useQuery({
     queryKey: ['available-withdrawals', listQuery],
-    queryFn: () => p2pPayApi.getAvailable(listQuery),
+    queryFn: () => adminDepositPayApi.getAvailable(listQuery),
     refetchInterval: 10_000,
+    enabled: matchAmount != null,
   });
+
+  useEffect(() => {
+    if (matchAmount == null || !data) return;
+    const waiting = !!data.waitingForMatch || (data.items?.length ?? 0) === 0;
+    const hasItems = (data.items?.length ?? 0) > 0;
+    if (wasWaitingRef.current && hasItems) {
+      setMatchReadyOpen(true);
+      notifyMatchReady(matchAmount);
+    }
+    wasWaitingRef.current = waiting;
+  }, [data, matchAmount]);
 
   const submit = useMutation({
     mutationFn: () =>
-      p2pPayApi.submitPayment(target!._id, {
+      adminDepositPayApi.submitPayment(target!._id, {
         amount: Number(payAmount),
         utr: utr.trim()
           ? moneyCurrency(target!) === 'USDT'
@@ -258,37 +291,14 @@ export function AvailableWithdrawalsPanel({
         proofImageKey: proofKey || undefined,
         proofImageUrl: proofUrl || undefined,
       }),
-    onSuccess: (payment) => {
+    onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['available-withdrawals'] });
-      qc.invalidateQueries({ queryKey: ['my-p2p-payments'] });
-      qc.invalidateQueries({ queryKey: ['wallet-balance'] });
+      qc.invalidateQueries({ queryKey: ['admin-deposit-my-payments'] });
+      qc.invalidateQueries({ queryKey: ['business-platform-payments'] });
       closePay();
-
-      try {
-        const raw = sessionStorage.getItem('partner_deposit_ctx');
-        if (raw) {
-          const ctx = JSON.parse(raw) as {
-            returnUrl?: string;
-            externalRef?: string;
-          };
-          sessionStorage.removeItem('partner_deposit_ctx');
-          if (ctx.returnUrl) {
-            const url = new URL(ctx.returnUrl);
-            url.searchParams.set('status', payment.status || 'pending');
-            url.searchParams.set('type', 'deposit');
-            url.searchParams.set('referenceId', payment.referenceId || '');
-            url.searchParams.set('amount', String(payment.amount ?? ''));
-            if (ctx.externalRef) url.searchParams.set('externalRef', ctx.externalRef);
-            window.location.href = url.toString();
-            return;
-          }
-        }
-      } catch {
-        /* stay on FinGuard */
-      }
     },
     onError: (err: unknown) => {
-      setFormError(apiErrorMessage(err, 'Payment submit failed'));
+      setFormError(getApiErrorMessage(err, 'Payment submit failed'));
     },
   });
 
@@ -318,16 +328,11 @@ export function AvailableWithdrawalsPanel({
           w.maxPayable != null
             ? Math.min(w.maxPayable, w.remainingAmount)
             : w.remainingAmount;
-        const pref =
-          preferredAmount && preferredAmount >= 1
-            ? preferredAmount
-            : matchAmount && matchAmount >= 1
-              ? matchAmount
-              : maxPay;
+        const pref = matchAmount && matchAmount >= 1 ? matchAmount : maxPay;
         setPayAmount(String(Math.min(pref, maxPay) > 0 ? Math.min(pref, maxPay) : maxPay));
         return;
       }
-      const claimed = await p2pPayApi.claimWithdrawal(w._id);
+      const claimed = await adminDepositPayApi.claimWithdrawal(w._id);
       setTarget({ ...w, ...claimed });
       setClaimPayDeadline(claimed.claimPayDeadline);
       resetForm();
@@ -335,16 +340,11 @@ export function AvailableWithdrawalsPanel({
         claimed.maxPayable != null
           ? Math.min(claimed.maxPayable, claimed.remainingAmount)
           : claimed.remainingAmount;
-      const pref =
-        (preferredAmount && preferredAmount >= 1
-          ? preferredAmount
-          : matchAmount && matchAmount >= 1
-            ? matchAmount
-            : maxPay);
+      const pref = matchAmount && matchAmount >= 1 ? matchAmount : maxPay;
       setPayAmount(String(Math.min(pref, maxPay) > 0 ? Math.min(pref, maxPay) : maxPay));
       qc.invalidateQueries({ queryKey: ['available-withdrawals'] });
     } catch (err: unknown) {
-      setFormError(apiErrorMessage(err, 'Could not claim this withdrawal'));
+      setFormError(getApiErrorMessage(err, 'Could not claim this withdrawal'));
     } finally {
       setClaimingId(null);
     }
@@ -408,6 +408,8 @@ export function AvailableWithdrawalsPanel({
   const total = data?.total ?? 0;
   const totalPages = data?.totalPages ?? 1;
   const needsAmount = !matchAmount || !!data?.needsAmount;
+  const waitingForMatch =
+    !!matchAmount && (!!data?.waitingForMatch || (!isLoading && items.length === 0));
   const claimLockMinutes = data?.claimLockMinutes ?? 7;
   const paySecondsLeft = claimPayDeadline
     ? Math.max(0, Math.ceil((new Date(claimPayDeadline).getTime() - now) / 1000))
@@ -428,6 +430,23 @@ export function AvailableWithdrawalsPanel({
         onClose={() => setAmountModalOpen(false)}
         onApply={applyMatchAmount}
       />
+      <Modal
+        open={matchReadyOpen}
+        onClose={() => setMatchReadyOpen(false)}
+        title="Withdrawal ready"
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-on-surface-variant">
+            A matching withdrawal is available for your deposit of{' '}
+            {matchAmount != null ? formatCurrency(matchAmount) : 'your amount'}. Pay now to
+            settle and credit your platform wallet.
+          </p>
+          <Button type="button" className="w-full" onClick={() => setMatchReadyOpen(false)}>
+            View payment details
+          </Button>
+        </div>
+      </Modal>
+
       <Card>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -437,21 +456,21 @@ export function AvailableWithdrawalsPanel({
             <p className="text-lg font-bold text-secondary">
               {matchAmount != null ? formatCurrency(matchAmount) : 'Enter amount first'}
             </p>
-            {matchAmount != null ? (
-              <p className="mt-0.5 text-xs text-on-surface-variant">
-                Showing payment details for {formatCurrency(matchAmount)}
-              </p>
-            ) : (
-              <p className="mt-0.5 text-xs text-on-surface-variant">
-                Confirm the amount to see payment details
-              </p>
-            )}
+            <p className="mt-0.5 text-xs text-on-surface-variant">
+              Settlement priority: business users first, then investors
+            </p>
           </div>
-          <Button type="button" size="sm" variant={matchAmount ? 'outline' : 'primary'} onClick={() => setAmountModalOpen(true)}>
+          <Button
+            type="button"
+            size="sm"
+            variant={matchAmount ? 'outline' : 'primary'}
+            onClick={() => setAmountModalOpen(true)}
+          >
             {matchAmount != null ? 'Change amount' : 'Enter amount'}
           </Button>
         </div>
       </Card>
+
       <Card title="Available Details for Payment">
         <div className="mb-3 space-y-2">
           <Input
@@ -469,8 +488,8 @@ export function AvailableWithdrawalsPanel({
               }}
               className="rounded-lg border border-outline-variant bg-surface-container-lowest px-2.5 py-2 text-sm"
             >
-              <option value="newest">Newest</option>
               <option value="oldest">Oldest</option>
+              <option value="newest">Newest</option>
               <option value="amount_desc">Amount high–low</option>
               <option value="amount_asc">Amount low–high</option>
             </select>
@@ -492,8 +511,8 @@ export function AvailableWithdrawalsPanel({
               Refresh
             </Button>
           </div>
-          <div className="chip-scroll">
-            {(['all', 'upi', 'bank', 'usdt', 'cdm'] as const).map((m) => (
+          <div className="chip-scroll flex flex-wrap gap-2">
+            {(['all', 'upi', 'bank', 'usdt'] as const).map((m) => (
               <button
                 key={m}
                 type="button"
@@ -513,34 +532,36 @@ export function AvailableWithdrawalsPanel({
           </div>
         </div>
 
-        {isLoading ? (
+        {needsAmount ? (
+          <EmptyState
+            message="Enter a deposit amount first to see matching UPI / bank / USDT details."
+            icon="payments"
+          />
+        ) : isLoading ? (
           <LoadingScreen />
         ) : isError ? (
           <div className="rounded-xl border border-error/30 bg-error-container/40 px-4 py-6 text-center">
-            <p className="text-sm">{apiErrorMessage(error, 'Could not load withdrawal requests')}</p>
-            <p className="mt-1 text-xs text-on-surface-variant">
-              Make sure the backend is running on port 9091, then retry.
+            <p className="text-sm">
+              {getApiErrorMessage(error, 'Could not load withdrawal requests')}
             </p>
             <Button type="button" className="mt-3" size="sm" onClick={() => refetch()}>
               Retry
             </Button>
           </div>
-        ) : needsAmount && !items.length ? (
-          <EmptyState
-            message="Enter a deposit amount first to see payment details."
-            icon="payments"
-          />
-        ) : !items.length ? (
-          <EmptyState
-            message={
-              search || method !== 'all'
-                ? 'No requests match your filters'
-                : matchAmount
-                  ? `No payment details for ${formatCurrency(matchAmount)}`
-                  : 'No approved Platform Payment requests yet. Withdrawals appear here only after business or admin approval.'
-            }
-            icon="payments"
-          />
+        ) : waitingForMatch ? (
+          <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-6 text-center">
+            <span className="material-symbols-outlined text-3xl text-amber-700">hourglass_top</span>
+            <p className="mt-2 text-sm font-semibold text-on-surface">
+              No matching withdrawal right now
+            </p>
+            <p className="mt-1 text-xs text-on-surface-variant">
+              Wait for a user or investor withdrawal. We will notify you on this device as soon as
+              one matches {formatCurrency(matchAmount!)}.
+            </p>
+            <Button type="button" className="mt-3" size="sm" variant="outline" onClick={() => refetch()}>
+              Check again
+            </Button>
+          </div>
         ) : (
           <div className={`space-y-3 ${isFetching ? 'opacity-70' : ''}`}>
             {items.map((w) => (
@@ -554,48 +575,41 @@ export function AvailableWithdrawalsPanel({
                       <span className="material-symbols-outlined text-lg text-secondary">
                         {METHOD_META[w.method].icon}
                       </span>
-                      <p className="text-base font-bold">{formatCurrency(w.amount, moneyCurrency(w))}</p>
+                      <p className="text-base font-bold">
+                        {formatCurrency(w.amount, moneyCurrency(w))}
+                      </p>
                       <StatusBadge status={w.status} />
-                      {w.priority ? (
-                        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-900">
-                          Highlighted
-                        </span>
-                      ) : null}
                       <span className="rounded-full bg-surface-container-high px-2 py-0.5 text-[10px] font-semibold uppercase">
                         {METHOD_META[w.method].label}
                       </span>
-                      {w.origin === 'business' ? (
-                        <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
-                          Business
-                        </span>
-                      ) : null}
-                      {w.assignedToMe ? (
+                      {w.origin === 'investor' ? (
                         <span className="rounded-full bg-secondary/15 px-2 py-0.5 text-[10px] font-semibold text-secondary">
-                          Assigned to you
+                          Investor
                         </span>
-                      ) : null}
+                      ) : (
+                        <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
+                          User
+                        </span>
+                      )}
                     </div>
                     <p className="mt-0.5 break-all font-mono text-[11px] text-on-surface-variant">
                       {w.referenceId} · {formatDate(w.createdAt)}
                     </p>
                     <p className="mt-1 text-xs text-secondary">
                       Open {formatCurrency(w.remainingAmount, moneyCurrency(w))}
-                      {(w.reservedAmount || 0) > 0
-                        ? ` · Locked ${formatCurrency(w.reservedAmount!, moneyCurrency(w))}`
-                        : ''}
                     </p>
                     {w.creditIfPayFull && w.remainingAmount > 0 && (
                       <p className="mt-1 text-[11px] font-semibold text-secondary">
-                        Credit if you pay full ≈{' '}
+                        Wallet credit ≈{' '}
                         {formatCurrency(
                           w.creditIfPayFull.netCredited,
                           w.creditIfPayFull.creditCurrency || 'INR',
                         )}
-                        {w.creditIfPayFull.bonusAmount > 0
-                          ? ` (+${formatCurrency(w.creditIfPayFull.bonusAmount)} bonus)`
-                          : ''}
                       </p>
                     )}
+                    <div className="mt-2">
+                      <PaymentDetails w={w} payAmount={matchAmount ?? undefined} />
+                    </div>
                   </div>
                   <Button
                     size="sm"
@@ -609,67 +623,41 @@ export function AvailableWithdrawalsPanel({
                 </div>
               </div>
             ))}
-            <Pagination page={page} totalPages={totalPages} total={total} limit={limit} onPageChange={setPage} />
+            <Pagination
+              page={page}
+              totalPages={totalPages}
+              total={total}
+              limit={limit}
+              onPageChange={setPage}
+            />
           </div>
         )}
       </Card>
 
-      <Modal open={!!target} onClose={closePay} title="Pay withdrawal request" className="sm:max-w-md">
+      <Modal
+        open={!!target}
+        onClose={closePay}
+        title="Pay withdrawal — deposit to wallet"
+        className="sm:max-w-md"
+      >
         {target && (
           <form onSubmit={handleSubmit} className="space-y-3">
-            {target.assignedToMe ? (
-            <div className="rounded-xl border border-secondary/30 bg-secondary-container/30 px-3 py-2.5">
-              <p className="text-xs font-bold uppercase tracking-wide text-secondary">
-                Assigned to you
-              </p>
-              <p className="mt-1 text-[11px] font-medium text-on-surface">
-                This request is assigned to you. Upload a UTR or payment proof to pay.
-              </p>
-            </div>
-            ) : (
-            <div
-              className={`rounded-xl border px-3 py-2.5 ${
-                payExpired
-                  ? 'border-error/40 bg-error-container/40'
-                  : 'border-amber-500/40 bg-amber-500/10'
-              }`}
-            >
-              <p className="text-xs font-bold uppercase tracking-wide">
-                Submit within {formatSecondsMmSs(paySecondsLeft)}
-              </p>
-              <p className="mt-1 text-[11px] font-medium text-on-surface">
-                If you submit after time ends, payment will not be accepted
-              </p>
-              <p className="mt-1 text-[10px] text-on-surface-variant">
-                This withdrawal stays locked for others for {claimLockMinutes} min
-                (claim lock).
-              </p>
-            </div>
+            {!target.assignedToMe && (
+              <div
+                className={`rounded-xl border px-3 py-2.5 ${
+                  payExpired
+                    ? 'border-error/40 bg-error-container/40'
+                    : 'border-amber-500/40 bg-amber-500/10'
+                }`}
+              >
+                <p className="text-xs font-bold uppercase tracking-wide">
+                  Submit within {formatSecondsMmSs(paySecondsLeft)}
+                </p>
+                <p className="mt-1 text-[10px] text-on-surface-variant">
+                  Claim lock for others: {claimLockMinutes} min
+                </p>
+              </div>
             )}
-
-            <div className="grid grid-cols-3 gap-2 rounded-xl bg-surface-container-low p-2.5 text-center text-xs">
-              <div>
-                <p className="text-on-surface-variant">Total</p>
-                <p className="font-bold">{formatCurrency(target.amount, moneyCurrency(target))}</p>
-              </div>
-              <div>
-                <p className="text-on-surface-variant">Locked</p>
-                <p className="font-bold">
-                  {formatCurrency(target.reservedAmount ?? 0, moneyCurrency(target))}
-                </p>
-              </div>
-              <div>
-                <p className="text-secondary">Pay up to</p>
-                <p className="font-bold text-secondary">
-                  {formatCurrency(
-                    target.maxPayable != null
-                      ? Math.min(target.maxPayable, target.remainingAmount)
-                      : target.remainingAmount,
-                    moneyCurrency(target),
-                  )}
-                </p>
-              </div>
-            </div>
 
             <PaymentDetails
               w={target}
@@ -707,7 +695,7 @@ export function AvailableWithdrawalsPanel({
                     minPartialAmount(target.method, target.currency),
                     moneyCurrency(target),
                   )}
-                  . Smaller leftover only as full pay.
+                  .
                 </p>
               );
             })()}
@@ -718,15 +706,15 @@ export function AvailableWithdrawalsPanel({
                   previewLoading ? 'opacity-70' : ''
                 }`}
               >
-                <p className="text-xs font-bold uppercase text-secondary">After verify you get</p>
-                <p className="mt-1 font-bold text-secondary">
-                  {formatCurrency(creditPreview.netCredited, creditPreview.creditCurrency || 'INR')}
+                <p className="text-xs font-bold uppercase text-secondary">
+                  After verify you get
                 </p>
-                {creditPreview.bonusAmount > 0 && (
-                  <p className="text-xs text-on-surface-variant">
-                    incl. bonus +{formatCurrency(creditPreview.bonusAmount)}
-                  </p>
-                )}
+                <p className="mt-1 font-bold text-secondary">
+                  {formatCurrency(
+                    creditPreview.netCredited,
+                    creditPreview.creditCurrency || 'INR',
+                  )}
+                </p>
               </div>
             )}
 
@@ -748,69 +736,17 @@ export function AvailableWithdrawalsPanel({
               </p>
             )}
 
-            <Button type="submit" className="w-full" loading={submit.isPending} disabled={payExpired}>
+            <Button
+              type="submit"
+              className="w-full"
+              loading={submit.isPending}
+              disabled={payExpired}
+            >
               {payExpired ? 'Time expired' : 'Submit payment'}
             </Button>
           </form>
         )}
       </Modal>
     </>
-  );
-}
-
-export function MyP2pPaymentsPanel() {
-  const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(10);
-
-  const { data, isLoading, isFetching, isError, error, refetch } = useQuery({
-    queryKey: ['my-p2p-payments', page, limit],
-    queryFn: () => p2pPayApi.getMyPayments({ page, limit }),
-  });
-
-  const items = data?.items ?? [];
-  const total = data?.total ?? 0;
-  const totalPages = data?.totalPages ?? 1;
-
-  return (
-    <Card title="My Platform payments">
-      {isLoading ? (
-        <LoadingScreen />
-      ) : isError ? (
-        <div className="rounded-xl border border-error/30 bg-error-container/40 px-4 py-6 text-center">
-          <p className="text-sm">{apiErrorMessage(error, 'Could not load payments')}</p>
-          <Button type="button" className="mt-3" size="sm" onClick={() => refetch()}>
-            Retry
-          </Button>
-        </div>
-      ) : !items.length ? (
-        <EmptyState message="No Platform payments yet" icon="receipt_long" />
-      ) : (
-        <div className={`space-y-2 ${isFetching ? 'opacity-70' : ''}`}>
-          {items.map((p) => (
-            <div
-              key={p._id}
-              className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-outline-variant p-3"
-            >
-              <div className="min-w-0">
-                <p className="font-semibold">{formatCurrency(p.amount, p.currency)}</p>
-                <p className="break-all text-[11px] text-on-surface-variant">
-                  {p.referenceId} · UTR {p.utr} · {formatDate(p.createdAt)}
-                </p>
-                {p.netCreditedAmount != null && p.status === 'completed' && (
-                  <p className="mt-0.5 text-[11px] text-secondary">
-                    Credited {formatCurrency(p.netCreditedAmount)}
-                  </p>
-                )}
-                {p.rejectionReason && (
-                  <p className="mt-0.5 text-[11px] text-error">{p.rejectionReason}</p>
-                )}
-              </div>
-              <StatusBadge status={p.status} />
-            </div>
-          ))}
-          <Pagination page={page} totalPages={totalPages} total={total} limit={limit} onPageChange={setPage} />
-        </div>
-      )}
-    </Card>
   );
 }

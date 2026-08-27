@@ -238,6 +238,8 @@ export class BusinessService {
       depositsEnabled: _d,
       withdrawalsEnabled: _w,
       b2bMatchingEnabled: _b,
+      allowPartialPay: _p,
+      allowMobileNumberUpi: _m,
       ...rest
     } = dto;
     Object.assign(business, rest);
@@ -284,6 +286,38 @@ export class BusinessService {
         `Deposits are disabled for ${business.name}. Contact platform admin.`,
       );
     }
+  }
+
+  /** Platform default, overridden when business has an explicit boolean (Noida #53). */
+  async resolveAllowPartialPay(
+    platformAllow: boolean,
+    businessId?: string | null,
+  ): Promise<boolean> {
+    if (!businessId) return platformAllow;
+    const business = await this.businessModel
+      .findById(businessId)
+      .select('allowPartialPay')
+      .lean()
+      .exec();
+    if (!business || typeof business.allowPartialPay !== 'boolean') return platformAllow;
+    return business.allowPartialPay;
+  }
+
+  /** Platform default, overridden when business has an explicit boolean (Noida #37). */
+  async resolveAllowMobileNumberUpi(
+    platformAllow: boolean,
+    businessId?: string | null,
+  ): Promise<boolean> {
+    if (!businessId) return platformAllow;
+    const business = await this.businessModel
+      .findById(businessId)
+      .select('allowMobileNumberUpi')
+      .lean()
+      .exec();
+    if (!business || typeof business.allowMobileNumberUpi !== 'boolean') {
+      return platformAllow;
+    }
+    return business.allowMobileNumberUpi;
   }
 
   async updateIntegrationUrls(

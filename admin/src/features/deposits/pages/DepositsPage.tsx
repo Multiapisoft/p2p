@@ -20,6 +20,7 @@ import { CsvDownloadButton } from '@/shared/components/CsvDownloadButton';
 import { PersonDetails } from '@/shared/components/PersonDetails';
 import { InvestmentsTab } from '../components/InvestmentsTab';
 import { AdminNewWithdrawalPopup } from '../components/AdminNewWithdrawalPopup';
+import { AdminDepositPayPanel } from '../components/AdminDepositPayPanel';
 import type { Deposit } from '@/shared/types/api.types';
 
 const STATUS_FILTERS = [
@@ -123,7 +124,7 @@ function DepositsEmptyPanel({
 }
 
 export function DepositsPage() {
-  const [tab, setTab] = useState<'deposits' | 'p2p' | 'investments'>('p2p');
+  const [tab, setTab] = useState<'deposits' | 'p2p' | 'investments' | 'pay'>('p2p');
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(20);
   const [status, setStatus] = useState('all');
@@ -280,6 +281,7 @@ export function DepositsPage() {
       <div className="chip-scroll">
         {(
           [
+            { id: 'pay', label: 'Make deposit' },
             { id: 'p2p', label: `P2P payments${p2pTotal ? ` (${p2pTotal})` : ''}` },
             { id: 'deposits', label: 'Classic deposits' },
             { id: 'investments', label: 'Investments' },
@@ -298,7 +300,9 @@ export function DepositsPage() {
         ))}
       </div>
 
-      {tab === 'investments' ? (
+      {tab === 'pay' ? (
+        <AdminDepositPayPanel />
+      ) : tab === 'investments' ? (
         <InvestmentsTab />
       ) : tab === 'p2p' ? (
         <SplitPaymentsTab />

@@ -65,8 +65,20 @@ export class UsersService {
     if (existing) throw new ConflictException('Email already registered');
 
     const role = dto.role || UserRole.USER;
-    if ((role === UserRole.USER || role === UserRole.INVESTOR) && !dto.phone) {
+    if (
+      (role === UserRole.USER ||
+        role === UserRole.INVESTOR ||
+        role === UserRole.BUSINESS) &&
+      !dto.phone?.trim()
+    ) {
       throw new BadRequestException('Mobile number is required');
+    }
+
+    if (dto.phone?.trim()) {
+      const phoneTaken = await this.usersRepo.findByPhone(dto.phone.trim());
+      if (phoneTaken) {
+        throw new ConflictException('Mobile number already registered');
+      }
     }
 
     const hashedPassword = await bcrypt.hash(dto.password, 12);
@@ -203,6 +215,10 @@ export class UsersService {
       updates.name = patch.name.trim();
     }
     if (patch.phone?.trim() && patch.phone.trim() !== existing.phone) {
+      const phoneTaken = await this.usersRepo.findByPhone(patch.phone.trim());
+      if (phoneTaken && phoneTaken._id.toString() !== existing._id.toString()) {
+        throw new ConflictException('Mobile number already registered');
+      }
       updates.phone = patch.phone.trim();
     }
 

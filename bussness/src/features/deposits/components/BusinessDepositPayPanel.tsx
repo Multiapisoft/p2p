@@ -264,7 +264,7 @@ export function BusinessDepositPayPanel() {
   const { data, isLoading, isFetching, isError, error, refetch } = useQuery({
     queryKey: ['available-withdrawals', listQuery],
     queryFn: () => businessDepositPayApi.getAvailable(listQuery),
-    refetchInterval: 30_000,
+    refetchInterval: 10_000,
     enabled: matchAmount != null,
   });
 
@@ -442,7 +442,7 @@ export function BusinessDepositPayPanel() {
             settle and credit your platform wallet.
           </p>
           <Button type="button" className="w-full" onClick={() => setMatchReadyOpen(false)}>
-            View matching list
+            View payment details
           </Button>
         </div>
       </Modal>
@@ -471,7 +471,7 @@ export function BusinessDepositPayPanel() {
         </div>
       </Card>
 
-      <Card title="Matching withdrawal requests">
+      <Card title="Available Details for Payment">
         <div className="mb-3 space-y-2">
           <Input
             icon="search"

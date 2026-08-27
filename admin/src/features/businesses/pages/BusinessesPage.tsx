@@ -173,6 +173,8 @@ export function BusinessesPage() {
       depositsEnabled: boolean;
       withdrawalsEnabled: boolean;
       b2bMatchingEnabled: boolean;
+      allowPartialPay: boolean;
+      allowMobileNumberUpi: boolean;
     }) => businessesApi.update(txnFlagsTarget!._id, body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['businesses'] });
@@ -731,13 +733,16 @@ export function BusinessesPage() {
           <div className="space-y-4">
             <p className="text-sm text-on-surface-variant">
               Enable / disable deposit & withdrawal for this business (Noida #49). B2B matching
-              prefers this business when platform B2B-first is on (#50).
+              prefers this business when platform B2B-first is on (#50). Partial pay and
+              mobile-as-UPI can override platform defaults (#37 / #53).
             </p>
             {(
               [
                 ['depositsEnabled', 'Deposits enabled'],
                 ['withdrawalsEnabled', 'Withdrawals enabled'],
                 ['b2bMatchingEnabled', 'B2B matching enabled'],
+                ['allowPartialPay', 'Allow partial payments'],
+                ['allowMobileNumberUpi', 'Allow mobile number as UPI'],
               ] as const
             ).map(([key, label]) => (
               <label key={key} className="flex items-center gap-2 text-sm">
@@ -763,6 +768,8 @@ export function BusinessesPage() {
                     depositsEnabled: txnFlagsTarget.depositsEnabled !== false,
                     withdrawalsEnabled: txnFlagsTarget.withdrawalsEnabled !== false,
                     b2bMatchingEnabled: txnFlagsTarget.b2bMatchingEnabled !== false,
+                    allowPartialPay: txnFlagsTarget.allowPartialPay !== false,
+                    allowMobileNumberUpi: txnFlagsTarget.allowMobileNumberUpi !== false,
                   })
                 }
               >

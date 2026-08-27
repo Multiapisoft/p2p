@@ -327,13 +327,17 @@ export function WithdrawalsPage() {
               tab === t ? 'bg-primary text-on-primary' : 'border border-outline-variant'
             }`}
           >
-            {t === 'split' ? 'Split Payments' : t === 'redemptions' ? 'Redemptions' : t}
+            {t === 'split'
+              ? 'Partial payments'
+              : t === 'redemptions'
+                ? 'Redemptions'
+                : t}
           </button>
         ))}
       </div>
 
       {tab === 'split' ? (
-        <SplitPaymentsTab />
+        <SplitPaymentsTab defaultPayType="partial" />
       ) : tab === 'redemptions' ? (
         <RedemptionsTab />
       ) : (
