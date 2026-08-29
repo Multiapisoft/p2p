@@ -20,6 +20,7 @@ COPY package.json pnpm-lock.yaml ./
 RUN pnpm install --prod --frozen-lockfile --config.dangerouslyAllowAllBuilds=true \
   && chown -R app:app /app
 COPY --from=build --chown=app:app /app/dist ./dist
+COPY --from=build --chown=app:app /app/scripts ./scripts
 USER app
 EXPOSE 9091
 CMD ["node", "dist/main.js"]

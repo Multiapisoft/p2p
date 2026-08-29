@@ -9,7 +9,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { BusinessService } from './business.service';
-import { BusinessListQueryDto, CreateBusinessDto, UpdateBusinessDto, SetP2pPayLimitDto, SetHighlightLimitDto } from './dto/business.dto';
+import { BusinessListQueryDto, CreateBusinessDto, UpdateBusinessDto, UpdateBusinessTxnFlagsDto, SetP2pPayLimitDto, SetHighlightLimitDto } from './dto/business.dto';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { UserRole } from '../../common/enums/role.enum';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -205,8 +205,14 @@ export class BusinessController {
     return this.businessService.setHighlightLimitPerMonth(id, dto.highlightLimitPerMonth);
   }
 
+  @Patch(':id/txn-flags')
+  @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN)
+  updateTxnFlags(@Param('id') id: string, @Body() dto: UpdateBusinessTxnFlagsDto) {
+    return this.businessService.updateTxnFlags(id, dto);
+  }
+
   @Patch(':id')
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN)
   updateByAdmin(@Param('id') id: string, @Body() dto: UpdateBusinessDto) {
     return this.businessService.updateByAdmin(id, dto);
   }

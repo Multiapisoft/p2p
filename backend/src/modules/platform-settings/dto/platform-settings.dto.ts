@@ -1,4 +1,5 @@
-import { IsArray, IsBoolean, IsNumber, IsOptional, Min, ArrayMinSize } from 'class-validator';
+import { IsArray, IsBoolean, IsNumber, IsOptional, Min, ArrayMinSize, IsEnum } from 'class-validator';
+import { PaymentMethod } from '../../../common/enums/payment-method.enum';
 
 export class UpdatePlatformSettingsDto {
   @IsOptional()
@@ -31,6 +32,11 @@ export class UpdatePlatformSettingsDto {
   @IsOptional()
   @IsBoolean()
   allowMobileNumberUpi?: boolean;
+
+  @IsOptional()
+  @IsArray()
+  @IsEnum(PaymentMethod, { each: true })
+  investorAllowedWithdrawalMethods?: PaymentMethod[];
 
   @IsOptional()
   @IsBoolean()

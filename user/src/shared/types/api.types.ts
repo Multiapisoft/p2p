@@ -20,6 +20,8 @@ export interface User {
     _id: string;
     name: string;
     referralCode?: string;
+    allowedDepositMethods?: PaymentMethod[];
+    allowedWithdrawalMethods?: PaymentMethod[];
   };
   businessUserCode?: string;
   savedWithdrawalMethods?: SavedWithdrawalMethod[];

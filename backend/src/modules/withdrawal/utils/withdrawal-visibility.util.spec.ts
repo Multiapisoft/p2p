@@ -54,12 +54,8 @@ describe('withdrawal-visibility.util (#8 #24)', () => {
     it('isOpenOnPayList true only when listed and still open', () => {
       expect(isOpenOnPayList({ p2pListStatus: 'listed', status: 'pending' })).toBe(true);
       expect(isOpenOnPayList({ p2pListStatus: 'awaiting', status: 'pending' })).toBe(false);
-      expect(isOpenOnPayList({ p2pListStatus: 'listed', origin: 'business' } as { p2pListStatus: string })).toBe(
-        true,
-      );
-      expect(isOpenOnPayList({ p2pListStatus: 'awaiting', origin: 'business', status: 'pending' })).toBe(
-        false,
-      );
+      expect(isOpenOnPayList({ p2pListStatus: 'listed' })).toBe(true);
+      expect(isOpenOnPayList({ p2pListStatus: 'awaiting', status: 'pending' })).toBe(false);
       expect(isOpenOnPayList({ p2pListStatus: 'listed', status: 'completed' })).toBe(false);
     });
   });

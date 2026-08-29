@@ -131,9 +131,6 @@ export class DepositService {
       businessId = session.businessId.toString();
     } else if (businessFromApi) {
       businessId = businessFromApi._id.toString();
-      if (!businessFromApi.allowedPaymentMethods.includes(dto.method)) {
-        throw new BadRequestException('Payment method not allowed for this business');
-      }
       const user = await this.userModel.findById(userId).exec();
       if (!user) throw new NotFoundException('User not found');
       if (user.referredByBusiness?.toString() !== businessId) {
@@ -151,6 +148,7 @@ export class DepositService {
 
     if (businessId) {
       await this.businessService.assertDepositsEnabled(businessId);
+      await this.businessService.assertDepositMethodAllowed(businessId, dto.method);
     }
 
     const currency =

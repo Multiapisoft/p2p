@@ -24,6 +24,13 @@ export class PlatformSettings {
   @Prop({ default: false })
   allowMobileNumberUpi!: boolean;
 
+  /**
+   * Withdrawal methods investors may use.
+   * Empty / missing = all methods enabled.
+   */
+  @Prop({ type: [String], default: ['upi', 'bank', 'usdt', 'cdm'] })
+  investorAllowedWithdrawalMethods!: string[];
+
   /** When false, investor pay-list / claim UI hides bonus (credit still applied). */
   @Prop({ default: true })
   showCommissionToInvestor!: boolean;

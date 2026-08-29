@@ -178,7 +178,8 @@ export class WithdrawalPaymentService {
 
     let method: PaymentMethod | undefined;
     let payCurrency = Currency.INR;
-    let businessId = await this.businessService.findBusinessIdForUser(payer);
+    const payerBusinessId = await this.businessService.findBusinessIdForUser(payer);
+    let wdBusinessId = payerBusinessId;
     let withdrawalRemaining: number | null = null;
     let isBusinessOrigin = false;
     if (withdrawalId) {
@@ -187,7 +188,7 @@ export class WithdrawalPaymentService {
       method = withdrawal.method;
       payCurrency = (withdrawal.currency as Currency) || Currency.INR;
       if (withdrawal.businessId) {
-        businessId = withdrawal.businessId.toString();
+        wdBusinessId = withdrawal.businessId.toString();
       }
       isBusinessOrigin = withdrawal.origin === 'business';
       withdrawalRemaining = this.getRemaining(withdrawal);
@@ -202,7 +203,7 @@ export class WithdrawalPaymentService {
     const { maxPayable: businessMax, p2pPayRemainingInr } = isBusinessOrigin
       ? { maxPayable: withdrawalRemaining ?? amount, p2pPayRemainingInr: null }
       : await this.businessService.getMaxPayableAmount(
-          businessId,
+          wdBusinessId,
           withdrawalRemaining ?? amount,
           payCurrency,
           method,
@@ -232,7 +233,7 @@ export class WithdrawalPaymentService {
       const platformPartial = await this.platformSettingsService.allowPartialPay();
       const allowPartial = await this.businessService.resolveAllowPartialPay(
         platformPartial,
-        businessId,
+        wdBusinessId,
       );
       const partialErr = partialPayError({
         amount,
@@ -247,7 +248,10 @@ export class WithdrawalPaymentService {
 
     const breakdown = await this.computeCreditBreakdown(
       amount,
-      businessId,
+      wdBusinessId,
+      payer.role === UserRole.BUSINESS || payer.role === UserRole.USER
+        ? payerBusinessId
+        : undefined,
       method,
       isInvestor,
       payCurrency,
@@ -289,44 +293,49 @@ export class WithdrawalPaymentService {
 
   private async computeCreditBreakdown(
     amount: number,
-    businessId: string | undefined,
+    wdBusinessId: string | undefined,
+    payerBusinessId: string | undefined,
     method: PaymentMethod | undefined,
     isInvestor: boolean,
     payCurrency: string = Currency.INR,
   ) {
-    let businessCommission = 0;
-    let platformCommission = 0;
+    let withdrawalFee = 0;
+    let depositFee = 0;
     let investorBonus = 0;
 
-    if (businessId) {
-      const take = await this.commissionService.calculate(
+    // WD fee from withdrawal-owner business (admin "Withdrawal / P2P" rate).
+    if (wdBusinessId) {
+      const wdTake = await this.commissionService.calculate(
         amount,
         CommissionTarget.BUSINESS,
-        businessId,
+        wdBusinessId,
         method,
         'withdrawal',
       );
-      businessCommission = take.amount;
+      withdrawalFee = wdTake.amount;
     }
 
-    const platformFee = await this.commissionService.calculate(
-      amount,
-      CommissionTarget.PLATFORM,
-      businessId,
-      method,
-      'withdrawal',
-    );
-    platformCommission = platformFee.amount;
+    // Deposit fee from payer's business (admin "Deposit" rate). Investors have no business.
+    if (payerBusinessId) {
+      const depTake = await this.commissionService.calculate(
+        amount,
+        CommissionTarget.BUSINESS,
+        payerBusinessId,
+        method,
+        'deposit',
+      );
+      depositFee = depTake.amount;
+    }
 
-    // Fee is tracked for business/admin only — NEVER deducted from payer/investor wallet.
-    let commissionAmount = Math.round((businessCommission + platformCommission) * 100) / 100;
+    // Fees tracked for admin/business only — NEVER deducted from payer/investor wallet.
+    let commissionAmount = Math.round((withdrawalFee + depositFee) * 100) / 100;
     let principalCredit = Math.round(amount * 100) / 100;
 
-    if (isInvestor && businessId) {
+    if (isInvestor && wdBusinessId) {
       const bonus = await this.commissionService.calculate(
         amount,
         CommissionTarget.INVESTOR_BONUS,
-        businessId,
+        wdBusinessId,
         method,
       );
       investorBonus = bonus.amount;
@@ -334,7 +343,6 @@ export class WithdrawalPaymentService {
 
     const payIsUsdt =
       (payCurrency || '').toUpperCase() === Currency.USDT || method === PaymentMethod.USDT;
-    // Investor points / wallet credit are always INR.
     let creditCurrency: Currency = Currency.INR;
     let exchangeRate: number | null = null;
     let payAmountInr = principalCredit;
@@ -345,12 +353,17 @@ export class WithdrawalPaymentService {
       principalCredit = this.exchangeRateService.usdtToInr(amount);
       investorBonus = this.exchangeRateService.usdtToInr(bonusInPayCurrency);
       commissionAmount = this.exchangeRateService.usdtToInr(commissionAmount);
-      businessCommission = this.exchangeRateService.usdtToInr(businessCommission);
-      platformCommission = this.exchangeRateService.usdtToInr(platformCommission);
+      withdrawalFee = this.exchangeRateService.usdtToInr(withdrawalFee);
+      depositFee = this.exchangeRateService.usdtToInr(depositFee);
       payAmountInr = principalCredit;
       creditCurrency = Currency.INR;
     } else if (!isInvestor && payIsUsdt) {
       creditCurrency = Currency.USDT;
+      exchangeRate = this.exchangeRateService.getUsdtInrRate();
+      payAmountInr = this.exchangeRateService.usdtToInr(amount);
+      withdrawalFee = this.exchangeRateService.usdtToInr(withdrawalFee);
+      depositFee = this.exchangeRateService.usdtToInr(depositFee);
+      commissionAmount = Math.round((withdrawalFee + depositFee) * 100) / 100;
     }
 
     const netCredited = Math.round((principalCredit + investorBonus) * 100) / 100;
@@ -360,8 +373,12 @@ export class WithdrawalPaymentService {
       payCurrency: payIsUsdt ? Currency.USDT : Currency.INR,
       payAmountInr,
       commissionAmount,
-      businessCommission,
-      platformCommission,
+      /** @deprecated alias — WD-owner withdrawal fee */
+      businessCommission: withdrawalFee,
+      /** @deprecated unused — deposit fee is separate */
+      platformCommission: depositFee,
+      withdrawalFee,
+      depositFee,
       principalCredit: Math.max(0, principalCredit),
       bonusAmount: Math.max(0, Math.round(investorBonus * 100) / 100),
       bonusInPayCurrency: Math.max(0, Math.round(bonusInPayCurrency * 100) / 100),
@@ -369,7 +386,8 @@ export class WithdrawalPaymentService {
       creditCurrency,
       exchangeRate,
       isInvestor,
-      businessId: businessId || null,
+      businessId: wdBusinessId || null,
+      payerBusinessId: payerBusinessId || null,
     };
   }
 
@@ -755,6 +773,7 @@ export class WithdrawalPaymentService {
         const credit = await this.computeCreditBreakdown(
           maxPayable,
           businessId,
+          isInvestor ? undefined : payerBusinessId,
           w.method,
           !!isInvestor,
           w.currency,
@@ -1206,6 +1225,7 @@ export class WithdrawalPaymentService {
     const estimate = await this.computeCreditBreakdown(
       dto.amount,
       businessId,
+      isInvestor ? undefined : payerBusinessId,
       withdrawal.method,
       !!isInvestor,
       withdrawal.currency,
@@ -1214,25 +1234,10 @@ export class WithdrawalPaymentService {
     // Business P2P limit is INR — convert USDT pays to INR for limit accounting
     const limitConsumeAmount = Math.round(estimate.payAmountInr * 100) / 100;
 
-    if (businessId && !isBusinessOrigin && !skipP2pPayQuota) {
-      await this.businessService.reserveP2pPay(businessId, limitConsumeAmount, {
-        referenceType: 'withdrawal',
-        referenceId: withdrawal._id.toString(),
-      });
-    }
-
+    // Quota for the WD was reserved at list-for-P2P time — do not reserve again on submit.
+    // Investor plan limit is still consumed here.
     if (isInvestor) {
-      try {
-        await this.usersService.consumeInvestorLimit(payerUserId, limitConsumeAmount);
-      } catch (err) {
-        if (businessId && !isBusinessOrigin && !skipP2pPayQuota) {
-          await this.businessService.releaseP2pPay(businessId, limitConsumeAmount, {
-            referenceType: 'withdrawal',
-            referenceId: withdrawal._id.toString(),
-          });
-        }
-        throw err;
-      }
+      await this.usersService.consumeInvestorLimit(payerUserId, limitConsumeAmount);
     }
 
     const referenceId = `WDP-${Date.now()}-${uuidv4().slice(0, 8).toUpperCase()}`;
@@ -1260,12 +1265,6 @@ export class WithdrawalPaymentService {
         estimatedNetCredited: estimate.netCredited,
       });
     } catch (err) {
-      if (businessId && !isBusinessOrigin && !skipP2pPayQuota) {
-        await this.businessService.releaseP2pPay(businessId, limitConsumeAmount, {
-          referenceType: 'withdrawal',
-          referenceId: withdrawal._id.toString(),
-        });
-      }
       if (isInvestor) {
         await this.usersService.restoreInvestorLimit(payerUserId, limitConsumeAmount);
       }
@@ -1787,12 +1786,19 @@ export class WithdrawalPaymentService {
     const breakdown = await this.computeCreditBreakdown(
       payment.amount,
       payment.businessId?.toString(),
+      isInvestor
+        ? undefined
+        : payment.payerBusinessId?.toString() ||
+            (await this.businessService.findBusinessIdForUser(payer)) ||
+            undefined,
       withdrawal.method,
       !!isInvestor,
       payment.currency || withdrawal.currency,
     );
 
-    const businessCommission = breakdown.businessCommission;
+    const withdrawalFee = breakdown.withdrawalFee || breakdown.businessCommission || 0;
+    const depositFee = breakdown.depositFee || breakdown.platformCommission || 0;
+    const businessCommission = withdrawalFee;
     const totalCommission = breakdown.commissionAmount;
     const investorBonus = breakdown.bonusAmount;
     const principalCredit = breakdown.principalCredit;
@@ -1813,18 +1819,7 @@ export class WithdrawalPaymentService {
     // Business deposit-as-payer never consumes / restores P2P pay quota.
     const skipP2pPayQuota = isBusinessPayer;
 
-    if (
-      payment.disputedAt &&
-      payment.businessId &&
-      withdrawal.origin !== 'business' &&
-      !skipP2pPayQuota
-    ) {
-      await this.businessService.reserveP2pPay(
-        payment.businessId.toString(),
-        this.paymentLimitInr(payment),
-        { referenceType: 'withdrawal_payment', referenceId: payment._id.toString() },
-      );
-    }
+    // Dispute no longer releases list-quota — nothing to re-reserve on approve.
     if (payment.disputedAt && isInvestor) {
       try {
         await this.usersService.consumeInvestorLimit(
@@ -1832,17 +1827,6 @@ export class WithdrawalPaymentService {
           this.paymentLimitInr(payment),
         );
       } catch (err) {
-        if (
-          payment.businessId &&
-          withdrawal.origin !== 'business' &&
-          !skipP2pPayQuota
-        ) {
-          await this.businessService.releaseP2pPay(
-            payment.businessId.toString(),
-            this.paymentLimitInr(payment),
-            { referenceType: 'withdrawal_payment', referenceId: payment._id.toString() },
-          );
-        }
         throw err;
       }
     }
@@ -1866,16 +1850,32 @@ export class WithdrawalPaymentService {
       payment.payerBusinessId?.toString() ||
       payerBizIdEarly ||
       (await this.businessService.findBusinessIdForUser(payer));
-    if (payerBizId && !skipP2pPayQuota) {
-      if (!payment.payerBusinessId) {
-        payment.payerBusinessId = new Types.ObjectId(payerBizId);
-      }
-      await this.businessService.creditP2pPayQuota(payerBizId, breakdown.payAmountInr, {
+    if (payerBizId && !payment.payerBusinessId) {
+      payment.payerBusinessId = new Types.ObjectId(payerBizId);
+    }
+
+    const wdBizId = payment.businessId?.toString();
+    const payInr = breakdown.payAmountInr;
+
+    // Limit math:
+    // 1) Always release principal from WD-owner list reserve (any payer type)
+    // 2) If payer business ≠ WD owner → earned +pay on payer (skip business-as-payer)
+    // 3) Fees consume from respective businesses' limits (below)
+    if (wdBizId && withdrawal.origin !== 'business') {
+      await this.businessService.releaseP2pPay(wdBizId, payInr, {
         referenceType: 'withdrawal_payment',
         referenceId: payment._id.toString(),
       });
-    } else if (payerBizId && !payment.payerBusinessId) {
-      payment.payerBusinessId = new Types.ObjectId(payerBizId);
+    }
+    if (
+      payerBizId &&
+      !skipP2pPayQuota &&
+      (!wdBizId || payerBizId !== wdBizId)
+    ) {
+      await this.businessService.creditP2pPayQuota(payerBizId, payInr, {
+        referenceType: 'withdrawal_payment',
+        referenceId: payment._id.toString(),
+      });
     }
 
     // Regular users (not investors / business): mirror deposit onto partner site when configured.
@@ -1926,22 +1926,44 @@ export class WithdrawalPaymentService {
       toParty: payer ? `${payer.name} wallet` : undefined,
     });
 
-    // 2) Platform + business fees: debit business wallet → credit admin.
-    //    Investor bonus / referral separately debit admin wallet.
-    const platformFeeAmount = breakdown.platformCommission || 0;
-    if (platformFeeAmount > 0 || businessCommission > 0) {
+    // 2) Fees: WD fee from owner business; deposit fee from payer business.
+    //    Debit business wallet → credit admin, and deduct same from P2P pay limit.
+    const feeCommon = {
+      currency: Currency.INR,
+      fromUserId: payment.payerUserId.toString(),
+      fromName: payer?.name || 'Payer',
+      fromRole: payer?.role,
+      referenceType: 'withdrawal_payment',
+      referenceId: payment._id.toString(),
+      referenceLabel: payment.referenceId || withdrawal.referenceId,
+    };
+    if (withdrawalFee > 0 && wdBizId) {
       await this.platformCommissionService.creditCollectedFees({
-        platformAmount: platformFeeAmount,
-        businessAmount: businessCommission,
-        currency: creditCurrency,
-        fromUserId: payment.payerUserId.toString(),
-        fromName: payer?.name || 'Payer',
-        fromRole: payer?.role,
-        referenceType: 'withdrawal_payment',
-        referenceId: payment._id.toString(),
-        referenceLabel: payment.referenceId || withdrawal.referenceId,
-        businessId: payment.businessId?.toString(),
+        ...feeCommon,
+        platformAmount: 0,
+        businessAmount: withdrawalFee,
+        businessId: wdBizId,
       });
+      if (withdrawal.origin !== 'business') {
+        await this.businessService.consumeP2pPay(wdBizId, withdrawalFee, {
+          referenceType: 'withdrawal_payment_fee',
+          referenceId: payment._id.toString(),
+        });
+      }
+    }
+    if (depositFee > 0 && payerBizId) {
+      await this.platformCommissionService.creditCollectedFees({
+        ...feeCommon,
+        platformAmount: depositFee,
+        businessAmount: 0,
+        businessId: payerBizId,
+      });
+      if (!skipP2pPayQuota) {
+        await this.businessService.consumeP2pPay(payerBizId, depositFee, {
+          referenceType: 'withdrawal_payment_deposit_fee',
+          referenceId: payment._id.toString(),
+        });
+      }
     }
 
     // 3) Investor bonus only after plan target is met (admin-controlled rates).
@@ -2325,15 +2347,8 @@ export class WithdrawalPaymentService {
     payment.notes = `Dispute raised — ticket ${ticket.ticketId}. ${userReason}`;
     await payment.save();
 
-    // Free withdrawal open slot AND business P2P quota so new pays can proceed
-    // while support resolves the dispute. Re-reserve on approve; skip on reject.
-    if (payment.businessId) {
-      await this.businessService.releaseP2pPay(
-        payment.businessId.toString(),
-        this.paymentLimitInr(payment),
-        { referenceType: 'withdrawal_payment', referenceId: payment._id.toString() },
-      );
-    }
+    // Free withdrawal open slot so new pays can proceed while support resolves.
+    // P2P pay-limit was reserved at list-for-P2P — keep it until approve / unlist.
     await this.restoreInvestorPayLimit(payment.payerUserId.toString(), payment);
 
     withdrawal.reservedAmount = Math.max(
@@ -2415,14 +2430,8 @@ export class WithdrawalPaymentService {
     payment.processedBy = processedBy;
     await payment.save();
 
-    // Disputed pays already released P2P quota + reservedAmount in raiseDispute
-    if (payment.businessId && !wasDisputed) {
-      await this.businessService.releaseP2pPay(
-        payment.businessId.toString(),
-        this.paymentLimitInr(payment),
-        { referenceType: 'withdrawal_payment', referenceId: payment._id.toString() },
-      );
-    }
+    // Disputed pays already freed reservedAmount in raiseDispute.
+    // List-time P2P quota stays until payment approve (release+fees) or unlist.
     if (!wasDisputed) {
       await this.restoreInvestorPayLimit(payment.payerUserId.toString(), payment);
     }

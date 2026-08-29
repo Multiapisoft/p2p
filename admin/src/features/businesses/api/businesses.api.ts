@@ -39,6 +39,8 @@ export const businessesApi = {
       b2bMatchingEnabled: boolean;
       allowPartialPay: boolean;
       allowMobileNumberUpi: boolean;
+      allowedDepositMethods: string[];
+      allowedWithdrawalMethods: string[];
     }>,
-  ) => apiPatch<Business>(`/business/${id}`, body),
+  ) => apiPatch<Business>(`/business/${id}/txn-flags`, body),
 };

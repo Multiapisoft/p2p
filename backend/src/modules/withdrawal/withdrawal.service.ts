@@ -107,6 +107,12 @@ export class WithdrawalService {
       await this.businessService.assertWithdrawalsEnabled(businessId);
     }
     const isInvestor = user.role === UserRole.INVESTOR;
+    if (businessId && !isInvestor) {
+      await this.businessService.assertWithdrawalMethodAllowed(businessId, dto.method);
+    }
+    if (isInvestor) {
+      await this.platformSettingsService.assertInvestorWithdrawalMethodAllowed(dto.method);
+    }
 
     const isUsdtMethod = dto.method === PaymentMethod.USDT;
     if (businessId && !isInvestor) {
@@ -278,6 +284,7 @@ export class WithdrawalService {
     const businessId = business._id.toString();
     await this.validateDestination(dto, businessId);
     await this.businessService.assertWithdrawalsEnabled(businessId);
+    await this.businessService.assertWithdrawalMethodAllowed(businessId, dto.method);
     const walletOwnerId = business.ownerId.toString();
     if (dto.method !== PaymentMethod.USDT) {
       const minAmt = await this.platformSettingsService.getMinTransactionAmount();
@@ -810,6 +817,29 @@ export class WithdrawalService {
     withdrawal.p2pListedBy = actor.email || actor.userId;
     withdrawal.p2pListRejectReason = undefined;
     await withdrawal.save();
+
+    // User/investor WDs: consume P2P pay limit for open amount (Noida fee/limit model).
+    if (withdrawal.businessId && withdrawal.origin !== 'business') {
+      const openInr =
+        withdrawal.method === PaymentMethod.USDT
+          ? this.exchangeRateService.usdtToInr(
+              Math.max(
+                0,
+                withdrawal.amount - (withdrawal.paidAmount || 0) - (withdrawal.reservedAmount || 0),
+              ),
+            )
+          : Math.max(
+              0,
+              withdrawal.amount - (withdrawal.paidAmount || 0) - (withdrawal.reservedAmount || 0),
+            );
+      if (openInr > 0) {
+        await this.businessService.reserveP2pPay(withdrawal.businessId.toString(), openInr, {
+          referenceType: 'withdrawal_list',
+          referenceId: withdrawal._id.toString(),
+        });
+      }
+    }
+
     this.p2pRealtime.emitListChanged('listed', {
       withdrawalId: withdrawal._id.toString(),
     });
@@ -900,6 +930,23 @@ export class WithdrawalService {
     withdrawal.set('assignedBy', undefined);
     withdrawal.set('assignedAt', undefined);
     await withdrawal.save();
+
+    // Release unpaid list-quota on WD-owner business.
+    if (withdrawal.businessId && withdrawal.origin !== 'business') {
+      const openInr =
+        withdrawal.method === PaymentMethod.USDT
+          ? this.exchangeRateService.usdtToInr(
+              Math.max(0, withdrawal.amount - (withdrawal.paidAmount || 0)),
+            )
+          : Math.max(0, withdrawal.amount - (withdrawal.paidAmount || 0));
+      if (openInr > 0) {
+        await this.businessService.releaseP2pPay(withdrawal.businessId.toString(), openInr, {
+          referenceType: 'withdrawal_unlist',
+          referenceId: withdrawal._id.toString(),
+        });
+      }
+    }
+
     this.p2pRealtime.emitListChanged('unlisted', {
       withdrawalId: withdrawal._id.toString(),
     });
@@ -990,6 +1037,31 @@ export class WithdrawalService {
       withdrawal.p2pListedAt = new Date();
       withdrawal.p2pListedBy = actor.email || actor.userId;
       withdrawal.p2pListRejectReason = undefined;
+
+      if (withdrawal.businessId && withdrawal.origin !== 'business') {
+        const openInr =
+          withdrawal.method === PaymentMethod.USDT
+            ? this.exchangeRateService.usdtToInr(
+                Math.max(
+                  0,
+                  withdrawal.amount -
+                    (withdrawal.paidAmount || 0) -
+                    (withdrawal.reservedAmount || 0),
+                ),
+              )
+            : Math.max(
+                0,
+                withdrawal.amount -
+                  (withdrawal.paidAmount || 0) -
+                  (withdrawal.reservedAmount || 0),
+              );
+        if (openInr > 0) {
+          await this.businessService.reserveP2pPay(withdrawal.businessId.toString(), openInr, {
+            referenceType: 'withdrawal_list',
+            referenceId: withdrawal._id.toString(),
+          });
+        }
+      }
     }
 
     withdrawal.assignedTo = new Types.ObjectId(assigneeId);

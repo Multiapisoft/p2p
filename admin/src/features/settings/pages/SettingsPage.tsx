@@ -43,6 +43,12 @@ export function SettingsPage() {
   const [planMultiplier, setPlanMultiplier] = useState('');
   const [planAmountsText, setPlanAmountsText] = useState('25000,50000,75000,100000,200000');
   const [allowMobileUpi, setAllowMobileUpi] = useState(false);
+  const [investorWdMethods, setInvestorWdMethods] = useState<string[]>([
+    'upi',
+    'bank',
+    'usdt',
+    'cdm',
+  ]);
   const [showCommissionToInvestor, setShowCommissionToInvestor] = useState(true);
   const [allowPartialPay, setAllowPartialPay] = useState(true);
   const [preferB2bSettlement, setPreferB2bSettlement] = useState(true);
@@ -68,6 +74,11 @@ export function SettingsPage() {
       ).join(','),
     );
     setAllowMobileUpi(!!settings.allowMobileNumberUpi);
+    setInvestorWdMethods(
+      settings.investorAllowedWithdrawalMethods?.length
+        ? settings.investorAllowedWithdrawalMethods
+        : ['upi', 'bank', 'usdt', 'cdm'],
+    );
     setShowCommissionToInvestor(settings.showCommissionToInvestor !== false);
     setAllowPartialPay(settings.allowPartialPay !== false);
     setPreferB2bSettlement(settings.preferB2bSettlement !== false);
@@ -92,6 +103,9 @@ export function SettingsPage() {
       if (!plans.length) {
         throw new Error('Enter at least one investor plan amount');
       }
+      if (!investorWdMethods.length) {
+        throw new Error('Enable at least one investor withdrawal method');
+      }
       const body: Partial<PlatformSettings> = {
         investorClaimLockMinutes: Number(claimLock),
         investorPaySubmitMinutes: Number(paySubmit),
@@ -99,6 +113,7 @@ export function SettingsPage() {
         investorPlanTargetMultiplier: Number(planMultiplier),
         investorPlanAmounts: plans,
         allowMobileNumberUpi: allowMobileUpi,
+        investorAllowedWithdrawalMethods: investorWdMethods,
         showCommissionToInvestor,
         minTransactionAmount: minAmount,
         allowPartialPay,
@@ -246,6 +261,40 @@ export function SettingsPage() {
                   Allow mobile-number UPI (10 digits + @psp, e.g. 9876543210@paytm)
                 </span>
               </label>
+
+              <div className="space-y-2 rounded-xl border border-outline-variant bg-surface-container-low/40 p-3">
+                <p className="text-sm font-semibold">Investor withdrawal methods</p>
+                <p className="text-xs text-on-surface-variant">
+                  Only checked methods appear for investors when they request a withdrawal.
+                </p>
+                <div className="flex flex-wrap gap-3">
+                  {(
+                    [
+                      ['upi', 'UPI'],
+                      ['bank', 'Bank'],
+                      ['usdt', 'USDT'],
+                      ['cdm', 'CDM'],
+                    ] as const
+                  ).map(([value, label]) => (
+                    <label key={value} className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={investorWdMethods.includes(value)}
+                        onChange={(e) => {
+                          setInvestorWdMethods((prev) => {
+                            if (e.target.checked) {
+                              return prev.includes(value) ? prev : [...prev, value];
+                            }
+                            return prev.filter((m) => m !== value);
+                          });
+                        }}
+                      />
+                      {label}
+                    </label>
+                  ))}
+                </div>
+              </div>
+
               <label className="flex items-start gap-2 text-sm">
                 <input
                   type="checkbox"

@@ -39,11 +39,24 @@ const SORT_OPTIONS = [
 
 const PAGE_SIZES = [5, 10, 20];
 
+const PAYMENT_METHODS: { value: string; label: string }[] = [
+  { value: 'upi', label: 'UPI' },
+  { value: 'bank', label: 'Bank' },
+  { value: 'usdt', label: 'USDT' },
+  { value: 'cdm', label: 'CDM' },
+];
+
+function toggleMethod(list: string[], value: string, checked: boolean) {
+  if (checked) return list.includes(value) ? list : [...list, value];
+  return list.filter((m) => m !== value);
+}
+
 export function BusinessesPage() {
   const [statsTarget, setStatsTarget] = useState<Business | null>(null);
   const [limitTarget, setLimitTarget] = useState<Business | null>(null);
   const [commissionTarget, setCommissionTarget] = useState<Business | null>(null);
   const [txnFlagsTarget, setTxnFlagsTarget] = useState<Business | null>(null);
+  const [txnFlagsError, setTxnFlagsError] = useState('');
   const [businessTakeDeposit, setBusinessTakeDeposit] = useState<CommissionRuleInput[]>([
     emptyRule({ percentage: 2 }),
   ]);
@@ -175,10 +188,16 @@ export function BusinessesPage() {
       b2bMatchingEnabled: boolean;
       allowPartialPay: boolean;
       allowMobileNumberUpi: boolean;
+      allowedDepositMethods: string[];
+      allowedWithdrawalMethods: string[];
     }) => businessesApi.update(txnFlagsTarget!._id, body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['businesses'] });
+      setTxnFlagsError('');
       setTxnFlagsTarget(null);
+    },
+    onError: (err) => {
+      setTxnFlagsError(getApiErrorMessage(err, 'Could not save txn flags'));
     },
   });
 
@@ -716,7 +735,10 @@ export function BusinessesPage() {
 
       <Modal
         open={!!txnFlagsTarget}
-        onClose={() => setTxnFlagsTarget(null)}
+        onClose={() => {
+          setTxnFlagsError('');
+          setTxnFlagsTarget(null);
+        }}
         title={`Txn flags — ${txnFlagsTarget?.name ?? ''}`}
       >
         {txnFlagsTarget ? (
@@ -741,22 +763,111 @@ export function BusinessesPage() {
                 {label}
               </label>
             ))}
+
+            <div className="space-y-2 border-t border-outline-variant pt-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-on-surface-variant">
+                Deposit methods (users)
+              </p>
+              <div className="flex flex-wrap gap-3">
+                {PAYMENT_METHODS.map((m) => {
+                  const list =
+                    txnFlagsTarget.allowedDepositMethods ??
+                    txnFlagsTarget.allowedPaymentMethods ??
+                    PAYMENT_METHODS.map((x) => x.value);
+                  return (
+                    <label key={`dep-${m.value}`} className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={list.includes(m.value)}
+                        onChange={(e) =>
+                          setTxnFlagsTarget({
+                            ...txnFlagsTarget,
+                            allowedDepositMethods: toggleMethod(list, m.value, e.target.checked),
+                          })
+                        }
+                      />
+                      {m.label}
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="space-y-2 border-t border-outline-variant pt-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-on-surface-variant">
+                Withdrawal methods (users)
+              </p>
+              <div className="flex flex-wrap gap-3">
+                {PAYMENT_METHODS.map((m) => {
+                  const list =
+                    txnFlagsTarget.allowedWithdrawalMethods ??
+                    txnFlagsTarget.allowedPaymentMethods ??
+                    PAYMENT_METHODS.map((x) => x.value);
+                  return (
+                    <label key={`wd-${m.value}`} className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={list.includes(m.value)}
+                        onChange={(e) =>
+                          setTxnFlagsTarget({
+                            ...txnFlagsTarget,
+                            allowedWithdrawalMethods: toggleMethod(
+                              list,
+                              m.value,
+                              e.target.checked,
+                            ),
+                          })
+                        }
+                      />
+                      {m.label}
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+
+            {txnFlagsError ? (
+              <p className="text-sm text-on-error-container">{txnFlagsError}</p>
+            ) : null}
+
             <div className="flex justify-end gap-2">
-              <Button type="button" variant="outline" onClick={() => setTxnFlagsTarget(null)}>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setTxnFlagsError('');
+                  setTxnFlagsTarget(null);
+                }}
+              >
                 Cancel
               </Button>
               <Button
                 type="button"
                 loading={saveTxnFlags.isPending}
-                onClick={() =>
+                onClick={() => {
+                  const dep =
+                    txnFlagsTarget.allowedDepositMethods ??
+                    txnFlagsTarget.allowedPaymentMethods ??
+                    PAYMENT_METHODS.map((x) => x.value);
+                  const wd =
+                    txnFlagsTarget.allowedWithdrawalMethods ??
+                    txnFlagsTarget.allowedPaymentMethods ??
+                    PAYMENT_METHODS.map((x) => x.value);
+                  if (!dep.length || !wd.length) {
+                    setTxnFlagsError('Enable at least one deposit and one withdrawal method');
+                    return;
+                  }
+                  setTxnFlagsError('');
                   saveTxnFlags.mutate({
                     depositsEnabled: txnFlagsTarget.depositsEnabled !== false,
                     withdrawalsEnabled: txnFlagsTarget.withdrawalsEnabled !== false,
                     b2bMatchingEnabled: txnFlagsTarget.b2bMatchingEnabled !== false,
                     allowPartialPay: txnFlagsTarget.allowPartialPay !== false,
                     allowMobileNumberUpi: txnFlagsTarget.allowMobileNumberUpi !== false,
-                  })
-                }
+                    allowedDepositMethods: dep,
+                    allowedWithdrawalMethods: wd,
+                  });
+                }}
               >
                 Save
               </Button>

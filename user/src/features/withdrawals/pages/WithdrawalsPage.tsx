@@ -199,6 +199,19 @@ export function WithdrawalsPage() {
   });
   /** Business-code users are capped by remaining pay limit (deposits increase it). */
   const isBusinessLinked = Boolean(profile?.referredByBusiness);
+  const enabledMethods = useMemo(() => {
+    const allowed = profile?.referredBusiness?.allowedWithdrawalMethods;
+    if (allowed?.length) return METHODS.filter((m) => allowed.includes(m.value));
+    return METHODS;
+  }, [profile?.referredBusiness?.allowedWithdrawalMethods]);
+
+  useEffect(() => {
+    if (!enabledMethods.length) return;
+    if (!enabledMethods.some((m) => m.value === method)) {
+      setMethod(enabledMethods[0].value);
+    }
+  }, [enabledMethods, method]);
+
   const { data: savedMethodsData } = useQuery({
     queryKey: ['saved-withdrawal-methods'],
     queryFn: () => profileApi.getWithdrawalMethods(),
@@ -390,7 +403,9 @@ export function WithdrawalsPage() {
     setSelectedSavedMethodId('');
   };
 
-  const savedMethods = savedMethodsData?.items ?? profile?.savedWithdrawalMethods ?? [];
+  const savedMethods = (savedMethodsData?.items ?? profile?.savedWithdrawalMethods ?? []).filter(
+    (m) => enabledMethods.some((em) => em.value === m.method),
+  );
   const applySavedMethod = (saved: SavedWithdrawalMethod) => {
     setSelectedSavedMethodId(saved._id);
     setMethod(saved.method);
@@ -646,7 +661,7 @@ export function WithdrawalsPage() {
         <Card title={editingId ? 'Edit withdrawal details' : 'Request withdrawal'}>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="chip-scroll">
-              {METHODS.map((m) => (
+              {enabledMethods.map((m) => (
                 <button
                   key={m.value}
                   type="button"
@@ -890,7 +905,7 @@ export function WithdrawalsPage() {
                   className="rounded-lg border border-outline-variant bg-surface-container-lowest px-2 py-2 text-sm font-normal focus:border-secondary focus:outline-none focus:ring-2 focus:ring-secondary/20 sm:px-3 sm:py-2.5"
                 >
                   <option value="all">All</option>
-                  {METHODS.map((m) => (
+                  {enabledMethods.map((m) => (
                     <option key={m.value} value={m.value}>
                       {m.label}
                     </option>

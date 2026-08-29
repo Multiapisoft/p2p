@@ -808,11 +808,30 @@ export class UsersService {
 
     const ref = obj.referredByBusiness;
     if (ref && typeof ref === 'object' && ref !== null && '_id' in (ref as object)) {
-      const b = ref as { _id: Types.ObjectId; name?: string; referralCode?: string };
+      const b = ref as {
+        _id: Types.ObjectId;
+        name?: string;
+        referralCode?: string;
+        allowedDepositMethods?: string[];
+        allowedWithdrawalMethods?: string[];
+        allowedPaymentMethods?: string[];
+      };
       obj.referredBusiness = {
         _id: b._id,
         name: b.name,
         referralCode: b.referralCode,
+        allowedDepositMethods:
+          b.allowedDepositMethods?.length
+            ? b.allowedDepositMethods
+            : b.allowedPaymentMethods?.length
+              ? b.allowedPaymentMethods
+              : ['upi', 'bank', 'usdt', 'cdm'],
+        allowedWithdrawalMethods:
+          b.allowedWithdrawalMethods?.length
+            ? b.allowedWithdrawalMethods
+            : b.allowedPaymentMethods?.length
+              ? b.allowedPaymentMethods
+              : ['upi', 'bank', 'usdt', 'cdm'],
       };
       obj.referredByBusiness = b._id;
     }
@@ -839,14 +858,27 @@ export class UsersService {
 
     const biz = await this.businessModel
       .findById(bizId)
-      .select('name referralCode')
+      .select('name referralCode allowedDepositMethods allowedWithdrawalMethods allowedPaymentMethods')
       .lean()
       .exec();
     if (biz) {
+      const all = ['upi', 'bank', 'usdt', 'cdm'];
       obj.referredBusiness = {
         _id: biz._id,
         name: biz.name,
         referralCode: biz.referralCode,
+        allowedDepositMethods:
+          (biz as { allowedDepositMethods?: string[] }).allowedDepositMethods?.length
+            ? (biz as { allowedDepositMethods?: string[] }).allowedDepositMethods
+            : (biz as { allowedPaymentMethods?: string[] }).allowedPaymentMethods?.length
+              ? (biz as { allowedPaymentMethods?: string[] }).allowedPaymentMethods
+              : all,
+        allowedWithdrawalMethods:
+          (biz as { allowedWithdrawalMethods?: string[] }).allowedWithdrawalMethods?.length
+            ? (biz as { allowedWithdrawalMethods?: string[] }).allowedWithdrawalMethods
+            : (biz as { allowedPaymentMethods?: string[] }).allowedPaymentMethods?.length
+              ? (biz as { allowedPaymentMethods?: string[] }).allowedPaymentMethods
+              : all,
       };
     }
     return obj;

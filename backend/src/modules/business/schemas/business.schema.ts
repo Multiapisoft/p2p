@@ -82,6 +82,20 @@ export class Business {
   @Prop({ type: [String], enum: PaymentMethod, default: Object.values(PaymentMethod) })
   allowedPaymentMethods!: PaymentMethod[];
 
+  /**
+   * Deposit methods for this business's users.
+   * Missing → fall back to `allowedPaymentMethods`.
+   */
+  @Prop({ type: [String], enum: PaymentMethod })
+  allowedDepositMethods?: PaymentMethod[];
+
+  /**
+   * Withdrawal methods for this business's users.
+   * Missing → fall back to `allowedPaymentMethods`.
+   */
+  @Prop({ type: [String], enum: PaymentMethod })
+  allowedWithdrawalMethods?: PaymentMethod[];
+
   /** Super-admin: allow this business to create deposits / match pays (Noida #49). */
   @Prop({ default: true })
   depositsEnabled!: boolean;

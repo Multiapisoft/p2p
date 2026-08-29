@@ -143,7 +143,7 @@ export class TransactionService {
           if (
             obj.flow === LedgerFlow.PLATFORM_FEE ||
             (typeof obj.description === 'string' &&
-              /platform fee|business fee|fee cut/i.test(obj.description))
+              /platform fee|business fee|deposit fee|withdrawal fee|fee cut/i.test(obj.description))
           ) {
             return {
               ...obj,

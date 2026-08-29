@@ -93,7 +93,7 @@ describe('PlatformCommissionService', () => {
         toParty: 'Site Admin (admin)',
       }),
     );
-    expect(entry?.description).toContain('Platform fee ₹15 received from Rahul (user)');
+    expect(entry?.description).toContain('Deposit fee ₹15 received from Rahul (user)');
   });
 
   it('credits business fee to admin wallet with matching ledger copy', async () => {
@@ -110,7 +110,7 @@ describe('PlatformCommissionService', () => {
     });
 
     expect(walletService.credit).toHaveBeenCalledWith('admin-wallet', 8, false, undefined);
-    expect(entry?.description).toContain('Business fee ₹8 received from Rahul (user)');
+    expect(entry?.description).toContain('Withdrawal fee ₹8 received from Rahul (user)');
   });
 
   it('without businessId credits platform then business fees to admin only', async () => {
@@ -158,7 +158,7 @@ describe('PlatformCommissionService', () => {
         userId: 'owner-1',
         direction: LedgerDirection.DEBIT,
         amount: 10,
-        description: expect.stringContaining('Platform fee ₹10 paid to'),
+        description: expect.stringContaining('Deposit fee ₹10 paid to'),
       }),
     );
     expect(transactionService.record).toHaveBeenCalledWith(
@@ -240,6 +240,53 @@ describe('PlatformCommissionService', () => {
         counterpartyUserId: 'inv-1',
         fromParty: 'Site Admin (admin)',
         toParty: 'Anita (investor)',
+      }),
+    );
+  });
+
+  it('collects WD fee as businessAmount and deposit fee as platformAmount from business', async () => {
+    await service.creditCollectedFees({
+      platformAmount: 250,
+      businessAmount: 500,
+      fromUserId: 'payer-1',
+      fromName: 'Rahul',
+      fromRole: 'user',
+      referenceType: 'withdrawal_payment',
+      referenceId: 'pay-id',
+      referenceLabel: 'PAY-1',
+      businessId: 'biz-1',
+    });
+
+    expect(walletService.debit).toHaveBeenCalledTimes(2);
+    expect(walletService.debit).toHaveBeenCalledWith(
+      'biz-wallet',
+      250,
+      false,
+      undefined,
+      { allowOverdraft: true },
+    );
+    expect(walletService.debit).toHaveBeenCalledWith(
+      'biz-wallet',
+      500,
+      false,
+      undefined,
+      { allowOverdraft: true },
+    );
+    expect(walletService.credit).toHaveBeenCalledTimes(2);
+    expect(transactionService.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'admin-id',
+        direction: LedgerDirection.CREDIT,
+        amount: 250,
+        description: expect.stringContaining('Deposit fee ₹250'),
+      }),
+    );
+    expect(transactionService.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'admin-id',
+        direction: LedgerDirection.CREDIT,
+        amount: 500,
+        description: expect.stringContaining('Withdrawal fee ₹500'),
       }),
     );
   });

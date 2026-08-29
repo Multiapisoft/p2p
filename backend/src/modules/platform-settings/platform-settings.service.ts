@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import {
@@ -7,6 +7,7 @@ import {
 } from './schemas/platform-settings.schema';
 import { UpdatePlatformSettingsDto } from './dto/platform-settings.dto';
 import { RedisService } from '../../redis/redis.service';
+import { resolveInvestorWithdrawalMethods as resolveInvestorMethodsList } from '../business/utils/payment-methods.util';
 
 const CACHE_KEY = 'platform-settings';
 const CACHE_TTL_SECONDS = 60;
@@ -95,6 +96,26 @@ export class PlatformSettingsService {
   async allowPartialPay(): Promise<boolean> {
     const settings = await this.get();
     return settings.allowPartialPay !== false;
+  }
+
+  resolveInvestorWithdrawalMethods(
+    settings: Pick<PlatformSettings, 'investorAllowedWithdrawalMethods'>,
+  ): string[] {
+    return resolveInvestorMethodsList(settings.investorAllowedWithdrawalMethods);
+  }
+
+  async getInvestorAllowedWithdrawalMethods(): Promise<string[]> {
+    const settings = await this.get();
+    return this.resolveInvestorWithdrawalMethods(settings);
+  }
+
+  async assertInvestorWithdrawalMethodAllowed(method: string) {
+    const allowed = await this.getInvestorAllowedWithdrawalMethods();
+    if (!allowed.includes(method)) {
+      throw new BadRequestException(
+        `Withdrawal method "${method}" is disabled for investors. Contact platform admin.`,
+      );
+    }
   }
 
   async preferB2bSettlement(): Promise<boolean> {

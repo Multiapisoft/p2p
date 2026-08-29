@@ -18,7 +18,7 @@ describe('platform-commission-ledger.util', () => {
       fromName: 'Rahul (user)',
       referenceLabel: 'PAY-1',
     });
-    expect(text).toBe('Platform fee ₹10 received from Rahul (user) (PAY-1)');
+    expect(text).toBe('Deposit fee ₹10 received from Rahul (user) (PAY-1)');
   });
 
   it('describes investor commission leaving admin wallet', () => {
@@ -55,7 +55,7 @@ describe('platform-commission-ledger.util', () => {
       fromName: 'Rahul (user)',
       referenceLabel: 'DEP-1',
     });
-    expect(text).toBe('Business fee ₹8 received from Rahul (user) (DEP-1)');
+    expect(text).toBe('Withdrawal fee ₹8 received from Rahul (user) (DEP-1)');
   });
 
   it('describes deposit given to a user', () => {
@@ -70,15 +70,15 @@ describe('platform-commission-ledger.util', () => {
 
   it('describes fee cut notes', () => {
     expect(feeCutNote(0, 0)).toBe('');
-    expect(feeCutNote(10, 0)).toBe(' Fee cut: platform fee ₹10.');
-    expect(feeCutNote(0, 5)).toBe(' Fee cut: business fee ₹5.');
-    expect(feeCutNote(10, 5)).toBe(' Fee cut: platform fee ₹10 + business fee ₹5.');
+    expect(feeCutNote(10, 0)).toBe(' Fee cut: deposit fee ₹10.');
+    expect(feeCutNote(0, 5)).toBe(' Fee cut: withdrawal fee ₹5.');
+    expect(feeCutNote(10, 5)).toBe(' Fee cut: deposit fee ₹10 + withdrawal fee ₹5.');
   });
 
   it('strips fee cut notes from payer ledger descriptions', () => {
     expect(
       stripFeeCutFromDescription(
-        'Deposit approved by admin Fee cut: platform fee ₹10 + business fee ₹5.',
+        'Deposit approved by admin Fee cut: deposit fee ₹10 + withdrawal fee ₹5.',
       ),
     ).toBe('Deposit approved by admin');
     expect(stripFeeCutFromDescription('P2P payment — WDR-1')).toBe('P2P payment — WDR-1');

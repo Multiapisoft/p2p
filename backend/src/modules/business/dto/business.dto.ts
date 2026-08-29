@@ -101,6 +101,51 @@ export class UpdateBusinessDto {
   @IsOptional()
   @IsBoolean()
   allowMobileNumberUpi?: boolean;
+
+  /** Deposit methods this business's users may use. */
+  @IsOptional()
+  @IsArray()
+  @IsEnum(PaymentMethod, { each: true })
+  allowedDepositMethods?: PaymentMethod[];
+
+  /** Withdrawal methods this business's users may use. */
+  @IsOptional()
+  @IsArray()
+  @IsEnum(PaymentMethod, { each: true })
+  allowedWithdrawalMethods?: PaymentMethod[];
+}
+
+/** Admin-only txn flags + payment methods (avoids wiping unset UpdateBusinessDto fields). */
+export class UpdateBusinessTxnFlagsDto {
+  @IsOptional()
+  @IsBoolean()
+  depositsEnabled?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  withdrawalsEnabled?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  b2bMatchingEnabled?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  allowPartialPay?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  allowMobileNumberUpi?: boolean;
+
+  @IsOptional()
+  @IsArray()
+  @IsEnum(PaymentMethod, { each: true })
+  allowedDepositMethods?: PaymentMethod[];
+
+  @IsOptional()
+  @IsArray()
+  @IsEnum(PaymentMethod, { each: true })
+  allowedWithdrawalMethods?: PaymentMethod[];
 }
 
 export class RegenerateApiKeysDto {

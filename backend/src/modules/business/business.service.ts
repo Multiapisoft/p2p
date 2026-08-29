@@ -13,11 +13,16 @@ import * as bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
 import { Business, BusinessDocument } from './schemas/business.schema';
 import { Withdrawal, WithdrawalDocument } from '../withdrawal/schemas/withdrawal.schema';
-import { CreateBusinessDto, UpdateBusinessDto } from './dto/business.dto';
+import { CreateBusinessDto, UpdateBusinessDto, UpdateBusinessTxnFlagsDto } from './dto/business.dto';
 import { UserStatus, Currency, LedgerType, LedgerDirection } from '../../common/enums/currency.enum';
 import { TransactionStatus } from '../../common/enums/transaction-status.enum';
 import { RedisService } from '../../redis/redis.service';
 import { resolvePartnerApiUrls } from './utils/partner-api-urls.util';
+import {
+  resolveDepositMethods as resolveDepositMethodsList,
+  resolveWithdrawalMethods as resolveWithdrawalMethodsList,
+} from './utils/payment-methods.util';
+import { assignDefinedFields } from './utils/assign-defined.util';
 import {
   p2pPayQuotaCap,
   p2pPayQuotaRemaining,
@@ -28,6 +33,7 @@ import {
   type P2pPayQuotaLedgerAction,
   type P2pPayQuotaRef,
 } from './utils/p2p-pay-quota-ledger.util';
+import { PaymentMethod } from '../../common/enums/payment-method.enum';
 import {
   listSortMap,
   normalizeListOpts,
@@ -240,9 +246,11 @@ export class BusinessService {
       b2bMatchingEnabled: _b,
       allowPartialPay: _p,
       allowMobileNumberUpi: _m,
+      allowedDepositMethods: _dep,
+      allowedWithdrawalMethods: _wd,
       ...rest
     } = dto;
-    Object.assign(business, rest);
+    this.assignDefined(business, rest);
     if (integrationUrls) {
       business.integrationUrls = { ...(business.integrationUrls || {}), ...integrationUrls };
       business.markModified('integrationUrls');
@@ -258,10 +266,28 @@ export class BusinessService {
     const business = await this.businessModel.findById(businessId).exec();
     if (!business) throw new NotFoundException('Business not found');
     const { integrationUrls, ...rest } = dto;
-    Object.assign(business, rest);
+    // Never Object.assign raw DTO — plainToInstance leaves undefined keys that wipe required fields.
+    this.assignDefined(business, rest);
     if (integrationUrls) {
       business.integrationUrls = { ...(business.integrationUrls || {}), ...integrationUrls };
       business.markModified('integrationUrls');
+    }
+    await business.save();
+    await this.redis.del(`business:${businessId}`);
+    return this.sanitize(business);
+  }
+
+  async updateTxnFlags(businessId: string, dto: UpdateBusinessTxnFlagsDto) {
+    const business = await this.businessModel.findById(businessId).exec();
+    if (!business) throw new NotFoundException('Business not found');
+    this.assignDefined(business, dto);
+    if (dto.allowedDepositMethods) {
+      business.allowedPaymentMethods = [...dto.allowedDepositMethods];
+      business.markModified('allowedDepositMethods');
+      business.markModified('allowedPaymentMethods');
+    }
+    if (dto.allowedWithdrawalMethods) {
+      business.markModified('allowedWithdrawalMethods');
     }
     await business.save();
     await this.redis.del(`business:${businessId}`);
@@ -284,6 +310,50 @@ export class BusinessService {
     if (business.depositsEnabled === false) {
       throw new BadRequestException(
         `Deposits are disabled for ${business.name}. Contact platform admin.`,
+      );
+    }
+  }
+
+  resolveDepositMethods(business: {
+    allowedDepositMethods?: PaymentMethod[] | null;
+    allowedPaymentMethods?: PaymentMethod[] | null;
+  }): PaymentMethod[] {
+    return resolveDepositMethodsList(business);
+  }
+
+  resolveWithdrawalMethods(business: {
+    allowedWithdrawalMethods?: PaymentMethod[] | null;
+    allowedPaymentMethods?: PaymentMethod[] | null;
+  }): PaymentMethod[] {
+    return resolveWithdrawalMethodsList(business);
+  }
+
+  async assertDepositMethodAllowed(businessId: string, method: PaymentMethod) {
+    const business = await this.businessModel
+      .findById(businessId)
+      .select('name allowedDepositMethods allowedPaymentMethods')
+      .lean()
+      .exec();
+    if (!business) throw new NotFoundException('Business not found');
+    const allowed = this.resolveDepositMethods(business);
+    if (!allowed.includes(method)) {
+      throw new BadRequestException(
+        `Deposit method "${method}" is disabled for ${business.name}. Contact platform admin.`,
+      );
+    }
+  }
+
+  async assertWithdrawalMethodAllowed(businessId: string, method: PaymentMethod) {
+    const business = await this.businessModel
+      .findById(businessId)
+      .select('name allowedWithdrawalMethods allowedPaymentMethods')
+      .lean()
+      .exec();
+    if (!business) throw new NotFoundException('Business not found');
+    const allowed = this.resolveWithdrawalMethods(business);
+    if (!allowed.includes(method)) {
+      throw new BadRequestException(
+        `Withdrawal method "${method}" is disabled for ${business.name}. Contact platform admin.`,
       );
     }
   }
@@ -1047,6 +1117,13 @@ export class BusinessService {
     return business;
   }
 
+  private assignDefined(
+    target: BusinessDocument,
+    source: Record<string, unknown> | object,
+  ) {
+    assignDefinedFields(target, source);
+  }
+
   private sanitize(business: BusinessDocument | Record<string, unknown>) {
     const obj =
       'toObject' in business && typeof business.toObject === 'function'
@@ -1061,6 +1138,14 @@ export class BusinessService {
     }
     return {
       ...obj,
+      allowedDepositMethods: this.resolveDepositMethods({
+        allowedDepositMethods: obj.allowedDepositMethods as PaymentMethod[] | undefined,
+        allowedPaymentMethods: obj.allowedPaymentMethods as PaymentMethod[] | undefined,
+      }),
+      allowedWithdrawalMethods: this.resolveWithdrawalMethods({
+        allowedWithdrawalMethods: obj.allowedWithdrawalMethods as PaymentMethod[] | undefined,
+        allowedPaymentMethods: obj.allowedPaymentMethods as PaymentMethod[] | undefined,
+      }),
       ...this.quotaSnapshot({
         p2pPayLimit: Number(obj.p2pPayLimit) || 0,
         p2pPayEarned: Number(obj.p2pPayEarned) || 0,

@@ -12,7 +12,7 @@ export function platformFeeInDescription(params: {
   fromName: string;
   referenceLabel: string;
 }): string {
-  return `Platform fee ${moneyLabel(params.amount, params.currency)} received from ${params.fromName} (${params.referenceLabel})`;
+  return `Deposit fee ${moneyLabel(params.amount, params.currency)} received from ${params.fromName} (${params.referenceLabel})`;
 }
 
 export function businessFeeInDescription(params: {
@@ -21,7 +21,7 @@ export function businessFeeInDescription(params: {
   fromName: string;
   referenceLabel: string;
 }): string {
-  return `Business fee ${moneyLabel(params.amount, params.currency)} received from ${params.fromName} (${params.referenceLabel})`;
+  return `Withdrawal fee ${moneyLabel(params.amount, params.currency)} received from ${params.fromName} (${params.referenceLabel})`;
 }
 
 export function platformFeeOutFromBusinessDescription(params: {
@@ -30,7 +30,7 @@ export function platformFeeOutFromBusinessDescription(params: {
   toName: string;
   referenceLabel: string;
 }): string {
-  return `Platform fee ${moneyLabel(params.amount, params.currency)} paid to ${params.toName} (${params.referenceLabel})`;
+  return `Deposit fee ${moneyLabel(params.amount, params.currency)} paid to ${params.toName} (${params.referenceLabel})`;
 }
 
 export function businessFeeOutFromBusinessDescription(params: {
@@ -39,7 +39,7 @@ export function businessFeeOutFromBusinessDescription(params: {
   toName: string;
   referenceLabel: string;
 }): string {
-  return `Business fee ${moneyLabel(params.amount, params.currency)} paid to ${params.toName} (${params.referenceLabel})`;
+  return `Withdrawal fee ${moneyLabel(params.amount, params.currency)} paid to ${params.toName} (${params.referenceLabel})`;
 }
 
 export function feeCutNote(
@@ -49,10 +49,10 @@ export function feeCutNote(
 ): string {
   const parts: string[] = [];
   if (platformAmount > 0) {
-    parts.push(`platform fee ${moneyLabel(platformAmount, currency)}`);
+    parts.push(`deposit fee ${moneyLabel(platformAmount, currency)}`);
   }
   if (businessAmount > 0) {
-    parts.push(`business fee ${moneyLabel(businessAmount, currency)}`);
+    parts.push(`withdrawal fee ${moneyLabel(businessAmount, currency)}`);
   }
   if (!parts.length) return '';
   return ` Fee cut: ${parts.join(' + ')}.`;
@@ -65,6 +65,8 @@ export function stripFeeCutFromDescription(description?: string | null): string 
     .replace(/\s*Fee cut:[^.]*\./gi, '')
     .replace(/\s*platform fee\s*[₹$]?\s*[\d,.]+/gi, '')
     .replace(/\s*business fee\s*[₹$]?\s*[\d,.]+/gi, '')
+    .replace(/\s*deposit fee\s*[₹$]?\s*[\d,.]+/gi, '')
+    .replace(/\s*withdrawal fee\s*[₹$]?\s*[\d,.]+/gi, '')
     .replace(/\s{2,}/g, ' ')
     .trim();
 }

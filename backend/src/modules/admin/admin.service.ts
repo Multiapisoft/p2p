@@ -36,6 +36,9 @@ export class AdminService implements OnModuleInit {
   }
 
   private async seedInvestor() {
+    // Live wipe / production: only admin seed — skip demo investor.
+    if (this.config.get<string>('nodeEnv') === 'production') return;
+
     const email = this.config.get<string>('investor.email')!;
     const existing = await this.userModel.findOne({ email }).exec();
     if (existing) return;

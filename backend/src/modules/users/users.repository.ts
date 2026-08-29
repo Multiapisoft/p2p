@@ -157,7 +157,10 @@ export class UsersRepository implements OnModuleInit {
     const [items, total] = await Promise.all([
       this.userModel
         .find(filter)
-        .populate('referredByBusiness', 'name referralCode')
+        .populate(
+          'referredByBusiness',
+          'name referralCode allowedDepositMethods allowedWithdrawalMethods allowedPaymentMethods',
+        )
         .skip(skip)
         .limit(limit)
         .sort(sort)

@@ -107,8 +107,25 @@ export function WithdrawalsPage() {
   const { data: platformSettings } = useQuery({
     queryKey: ['platform-settings'],
     queryFn: () =>
-      apiGet<{ allowMobileNumberUpi?: boolean; minTransactionAmount?: number }>('/platform-settings'),
+      apiGet<{
+        allowMobileNumberUpi?: boolean;
+        minTransactionAmount?: number;
+        investorAllowedWithdrawalMethods?: PaymentMethod[];
+      }>('/platform-settings'),
   });
+
+  const enabledMethods = useMemo(() => {
+    const allowed = platformSettings?.investorAllowedWithdrawalMethods;
+    if (allowed?.length) return METHODS.filter((m) => allowed.includes(m.value));
+    return METHODS;
+  }, [platformSettings?.investorAllowedWithdrawalMethods]);
+
+  useEffect(() => {
+    if (!enabledMethods.length) return;
+    if (!enabledMethods.some((m) => m.value === method)) {
+      setMethod(enabledMethods[0].value);
+    }
+  }, [enabledMethods, method]);
 
   const { data: balance } = useQuery({
     queryKey: ['wallet-balance'],
@@ -198,7 +215,9 @@ export function WithdrawalsPage() {
     },
   });
 
-  const savedMethods = savedMethodsData?.items ?? profile?.savedWithdrawalMethods ?? [];
+  const savedMethods = (savedMethodsData?.items ?? profile?.savedWithdrawalMethods ?? []).filter(
+    (m) => enabledMethods.some((em) => em.value === m.method),
+  );
   const applySavedMethod = (saved: SavedWithdrawalMethod) => {
     setSelectedSavedMethodId(saved._id);
     setMethod(saved.method);
@@ -399,7 +418,7 @@ export function WithdrawalsPage() {
             <div>
               <p className="mb-2 text-sm font-semibold">Payout method</p>
               <div className="flex flex-wrap gap-2">
-                {METHODS.map((m) => (
+                {enabledMethods.map((m) => (
                   <button
                     key={m.value}
                     type="button"
