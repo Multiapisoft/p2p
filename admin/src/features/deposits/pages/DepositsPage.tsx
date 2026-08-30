@@ -19,8 +19,6 @@ import { asPerson, fetchAllPages, personCsvCells } from '@/shared/lib/csv';
 import { CsvDownloadButton } from '@/shared/components/CsvDownloadButton';
 import { PersonDetails } from '@/shared/components/PersonDetails';
 import { InvestmentsTab } from '../components/InvestmentsTab';
-import { AdminNewWithdrawalPopup } from '../components/AdminNewWithdrawalPopup';
-import { AdminDepositPayPanel } from '../components/AdminDepositPayPanel';
 import type { Deposit } from '@/shared/types/api.types';
 
 const STATUS_FILTERS = [
@@ -119,7 +117,7 @@ function DepositsEmptyPanel({
 }
 
 export function DepositsPage() {
-  const [tab, setTab] = useState<'deposits' | 'p2p' | 'investments' | 'pay'>('p2p');
+  const [tab, setTab] = useState<'deposits' | 'p2p' | 'investments'>('p2p');
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(20);
   const [status, setStatus] = useState('all');
@@ -221,7 +219,6 @@ export function DepositsPage() {
 
   return (
     <div className="mx-auto max-w-7xl space-y-4 sm:space-y-5">
-      <AdminNewWithdrawalPopup />
       <div className="relative overflow-hidden rounded-2xl border border-outline-variant bg-gradient-to-br from-surface-container-lowest via-surface-container-low/40 to-secondary-container/15 p-4 sm:p-5">
         <div className="pointer-events-none absolute -right-8 -top-10 h-32 w-32 rounded-full bg-secondary/10 blur-2xl" />
         <div className="relative flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -273,7 +270,6 @@ export function DepositsPage() {
       <div className="chip-scroll">
         {(
           [
-            { id: 'pay', label: 'Make deposit' },
             { id: 'p2p', label: `P2P payments${p2pTotal ? ` (${p2pTotal})` : ''}` },
             { id: 'deposits', label: 'Classic deposits' },
             { id: 'investments', label: 'Investments' },
@@ -292,9 +288,7 @@ export function DepositsPage() {
         ))}
       </div>
 
-      {tab === 'pay' ? (
-        <AdminDepositPayPanel />
-      ) : tab === 'investments' ? (
+      {tab === 'investments' ? (
         <InvestmentsTab />
       ) : tab === 'p2p' ? (
         <SplitPaymentsTab />

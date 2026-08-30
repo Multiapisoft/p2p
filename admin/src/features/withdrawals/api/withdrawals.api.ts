@@ -22,6 +22,8 @@ function cleanQuery(query: WithdrawalListQuery = {}) {
 }
 
 export const withdrawalsApi = {
+  getMine: (query: WithdrawalListQuery = {}) =>
+    apiGet<Paginated<Withdrawal>>('/withdrawals', cleanQuery(query)),
   getPending: (query: WithdrawalListQuery = {}) =>
     apiGet<Paginated<Withdrawal>>('/withdrawals/pending', cleanQuery(query)),
   getAll: (query: WithdrawalListQuery = {}) =>

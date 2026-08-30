@@ -55,10 +55,7 @@ import {
   toPayerPaymentPublic,
 } from './utils/payer-credit-public.util';
 import { RedisService } from '../../redis/redis.service';
-import {
-  paymentReceivedNotification,
-  shouldCreditInvestorBonus,
-} from './utils/payment-notification.util';
+import { paymentReceivedNotification } from './utils/payment-notification.util';
 import { assertUniquePaymentRef } from './utils/payment-ref-uniqueness.util';
 import { isInvestorToInvestorPay, isOpenOnPayList } from './utils/withdrawal-visibility.util';
 import {
@@ -257,24 +254,10 @@ export class WithdrawalPaymentService {
       payCurrency,
     );
 
-    // Align preview with approve: bonus only after plan target (exclude this payment from prior).
+    // Align preview with approve: always show investor bonus when business rate is set.
     let bonusAmount = breakdown.bonusAmount;
     let netCredited = breakdown.principalCredit;
-    if (isInvestor && bonusAmount > 0) {
-      const settings = await this.platformSettingsService.get();
-      const planAmount =
-        this.usersService.getInvestorLimitSnapshot(payer).added ||
-        payer.investorPlanAmount ||
-        0;
-      const paidTowardPlan = await this.getPaidTowardPlan(payerUserId);
-      const showBonus = shouldCreditInvestorBonus({
-        planAmount,
-        multiplier: settings.investorPlanTargetMultiplier ?? 1.1,
-        paidTowardPlan,
-        thisPaymentPrincipal: breakdown.principalCredit,
-      });
-      if (!showBonus) bonusAmount = 0;
-      // Always show investor their bonus when plan target allows (not a fee cut).
+    if (isInvestor) {
       netCredited =
         Math.round((breakdown.principalCredit + bonusAmount) * 100) / 100;
     }
@@ -330,6 +313,7 @@ export class WithdrawalPaymentService {
     // Fees tracked for admin/business only — NEVER deducted from payer/investor wallet.
     let commissionAmount = Math.round((withdrawalFee + depositFee) * 100) / 100;
     let principalCredit = Math.round(amount * 100) / 100;
+    let bonusPercentage = 0;
 
     if (isInvestor && wdBusinessId) {
       const bonus = await this.commissionService.calculate(
@@ -339,6 +323,7 @@ export class WithdrawalPaymentService {
         method,
       );
       investorBonus = bonus.amount;
+      bonusPercentage = bonus.percentage || 0;
     }
 
     const payIsUsdt =
@@ -381,6 +366,7 @@ export class WithdrawalPaymentService {
       depositFee,
       principalCredit: Math.max(0, principalCredit),
       bonusAmount: Math.max(0, Math.round(investorBonus * 100) / 100),
+      bonusPercentage,
       bonusInPayCurrency: Math.max(0, Math.round(bonusInPayCurrency * 100) / 100),
       netCredited: Math.max(0, netCredited),
       creditCurrency,
@@ -427,13 +413,12 @@ export class WithdrawalPaymentService {
     }
 
     const isBusinessPayer = payer.role === UserRole.BUSINESS;
-    const isPayer =
-      payer.role === UserRole.USER ||
-      payer.role === UserRole.INVESTOR ||
-      isBusinessPayer;
+    /** Users/investors must enter a match budget; admin/business see the full list. */
+    const requiresMatchAmount =
+      payer.role === UserRole.USER || payer.role === UserRole.INVESTOR;
     const rawAmount = Number(opts.amount);
     const hasAmount = Number.isFinite(rawAmount) && rawAmount >= 1;
-    if (isPayer && !hasAmount) {
+    if (requiresMatchAmount && !hasAmount) {
       const assignedOnly = await this.loadAssignedOpen(userId);
       return {
         items: assignedOnly.map((w) => ({
@@ -778,25 +763,15 @@ export class WithdrawalPaymentService {
           !!isInvestor,
           w.currency,
         );
-        const planGateOk =
-          !isInvestor ||
-          shouldCreditInvestorBonus({
-            planAmount: added,
-            multiplier: settings.investorPlanTargetMultiplier ?? 1.1,
-            paidTowardPlan: paidTowardPlan ?? 0,
-            thisPaymentPrincipal: credit.principalCredit,
-          });
-        const rawBonus = planGateOk ? credit.bonusAmount : 0;
         const shownBonus = visibleInvestorBonusAmount({
           viewerRole: payer.role,
-          bonusAmount: rawBonus,
+          bonusAmount: credit.bonusAmount,
         });
         return {
           ...view,
           maxPayable,
           p2pPayRemainingInr,
           // Never include platform/business fee cuts for payer-facing estimates.
-          // Investor bonus is always shown when plan gate allows.
           creditIfPayFull: toPayerCreditPublic({
             ...credit,
             bonusAmount: shownBonus,
@@ -1868,6 +1843,7 @@ export class WithdrawalPaymentService {
       });
     }
     if (
+      !isInvestor &&
       payerBizId &&
       !skipP2pPayQuota &&
       (!wdBizId || payerBizId !== wdBizId)
@@ -1966,71 +1942,51 @@ export class WithdrawalPaymentService {
       }
     }
 
-    // 3) Investor bonus only after plan target is met (admin-controlled rates).
+    // 3) Investor bonus on every pay (business INVESTOR_BONUS %) — funded from admin commission wallet.
     let creditedBonus = 0;
     if (investorBonus > 0 && isInvestor) {
-      const settings = await this.platformSettingsService.get();
-      const planAmount =
-        (payer ? this.usersService.getInvestorLimitSnapshot(payer).added : 0) ||
-        payer?.investorPlanAmount ||
-        0;
-      const multiplier = settings.investorPlanTargetMultiplier ?? 1.1;
-      // Exclude current payment — it is still PENDING and would double-count.
-      const paidTowardPlan = await this.getPaidTowardPlan(
-        payment.payerUserId.toString(),
-        payment._id.toString(),
+      creditedBonus = investorBonus;
+      const bonusBefore = updatedPayerWallet.balance;
+      updatedPayerWallet = await this.walletService.credit(
+        payerWallet._id.toString(),
+        creditedBonus,
+        creditField,
       );
-      if (
-        shouldCreditInvestorBonus({
-          planAmount,
-          multiplier,
-          paidTowardPlan,
-          thisPaymentPrincipal: principalCredit,
-        })
-      ) {
-        creditedBonus = investorBonus;
-        const bonusBefore = updatedPayerWallet.balance;
-        updatedPayerWallet = await this.walletService.credit(
-          payerWallet._id.toString(),
-          creditedBonus,
-          creditField,
-        );
-        const admin = await this.platformCommissionService.findPlatformAdmin();
-        const bonusRef = payment.referenceId || withdrawal.referenceId;
-        await this.transactionService.record({
-          userId: payment.payerUserId.toString(),
-          walletId: payerWallet._id.toString(),
-          type: LedgerType.COMMISSION,
-          direction: LedgerDirection.CREDIT,
-          flow: LedgerFlow.INVESTOR_COMMISSION,
+      const admin = await this.platformCommissionService.findPlatformAdmin();
+      const bonusRef = payment.referenceId || withdrawal.referenceId;
+      await this.transactionService.record({
+        userId: payment.payerUserId.toString(),
+        walletId: payerWallet._id.toString(),
+        type: LedgerType.COMMISSION,
+        direction: LedgerDirection.CREDIT,
+        flow: LedgerFlow.INVESTOR_COMMISSION,
+        amount: creditedBonus,
+        currency: creditCurrency,
+        balanceBefore: bonusBefore,
+        balanceAfter: updatedPayerWallet.balance,
+        referenceType: 'withdrawal_payment_bonus',
+        referenceId: payment._id.toString(),
+        description: investorCommissionInDescription({
           amount: creditedBonus,
           currency: creditCurrency,
-          balanceBefore: bonusBefore,
-          balanceAfter: updatedPayerWallet.balance,
-          referenceType: 'withdrawal_payment_bonus',
-          referenceId: payment._id.toString(),
-          description: investorCommissionInDescription({
-            amount: creditedBonus,
-            currency: creditCurrency,
-            referenceLabel: bonusRef,
-          }),
-          businessId: payment.businessId?.toString(),
-          counterpartyUserId: admin._id.toString(),
-          fromParty: `${admin.name} (admin)`,
-          toParty: `${payer?.name || 'Investor'} (investor)`,
-        });
-        await this.platformCommissionService.debitInvestorCommission({
-          amount: creditedBonus,
-          currency: creditCurrency,
-          toUserId: payment.payerUserId.toString(),
-          toName: payer?.name || 'Investor',
-          toRole: UserRole.INVESTOR,
-          referenceType: 'withdrawal_payment_bonus',
-          referenceId: payment._id.toString(),
           referenceLabel: bonusRef,
-          businessId: payment.businessId?.toString(),
-        });
-      }
+        }),
+        businessId: payment.businessId?.toString(),
+        counterpartyUserId: admin._id.toString(),
+        fromParty: `${admin.name} (admin)`,
+        toParty: `${payer?.name || 'Investor'} (investor)`,
+      });
+      await this.platformCommissionService.debitInvestorCommission({
+        amount: creditedBonus,
+        currency: creditCurrency,
+        toUserId: payment.payerUserId.toString(),
+        toName: payer?.name || 'Investor',
+        toRole: UserRole.INVESTOR,
+        referenceType: 'withdrawal_payment_bonus',
+        referenceId: payment._id.toString(),
+        referenceLabel: bonusRef,
+        businessId: payment.businessId?.toString(),
+      });
     }
 
     // 4) Investor→investor referral rewards from admin (first vs next pay %).

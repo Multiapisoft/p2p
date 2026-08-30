@@ -54,7 +54,11 @@ import { PlatformCommissionService } from '../wallet/platform-commission.service
 import { platformCommissionWithdrawError } from './utils/platform-commission-withdraw.util';
 import { P2pRealtimeService } from '../realtime/p2p-realtime.service';
 
-export type WithdrawalListOpts = ListQueryOpts & { method?: string };
+export type WithdrawalListOpts = ListQueryOpts & {
+  method?: string;
+  /** `user` = non-business origins; `business` = business-origin only. */
+  origin?: string;
+};
 
 const ADMIN_USER_FIELDS =
   'name email phone role status businessUserCode externalRef';
@@ -1314,6 +1318,11 @@ export class WithdrawalService {
     if (status) and.push({ status });
     if (opts.method && opts.method !== 'all') {
       and.push({ method: opts.method });
+    }
+    if (opts.origin === 'business') {
+      and.push({ origin: 'business' });
+    } else if (opts.origin === 'user') {
+      and.push({ origin: { $ne: 'business' } });
     }
     if (search) {
       and.push({

@@ -477,6 +477,60 @@ export class UsersService {
     return { items: this.normalizeSavedMethods(updated.savedWithdrawalMethods) };
   }
 
+  /** Investor: referral code + members who joined via that code. */
+  async getReferralTeam(investorUserId: string, opts: ListQueryOpts = {}) {
+    const investor = await this.usersRepo.findById(investorUserId);
+    if (!investor) throw new NotFoundException('User not found');
+    if (investor.role !== UserRole.INVESTOR) {
+      throw new ForbiddenException('Only investors have a referral team');
+    }
+
+    let referralCode = investor.referralCode;
+    if (!referralCode) {
+      const updated = await this.usersRepo.update(investorUserId, {
+        referralCode: `inv_${uuidv4().replace(/-/g, '').slice(0, 10)}`,
+      });
+      referralCode = updated.referralCode;
+    }
+
+    const { page, limit, skip, search, sort } = normalizeListOpts(opts);
+    const filter: Record<string, unknown> = {
+      referredByInvestor: new Types.ObjectId(investorUserId),
+    };
+    if (search) {
+      filter.$or = [
+        { name: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } },
+        { phone: { $regex: search, $options: 'i' } },
+      ];
+    }
+
+    const sortSpec = listSortMap(sort, {
+      newest: { createdAt: -1 },
+      oldest: { createdAt: 1 },
+      name: { name: 1 },
+    });
+
+    const { items, total } = await this.usersRepo.findAll(filter, skip, limit, sortSpec);
+
+    return {
+      referralCode,
+      total,
+      page,
+      limit,
+      totalPages: Math.max(1, Math.ceil(total / limit) || 1),
+      items: items.map((u) => ({
+        _id: u._id.toString(),
+        name: u.name,
+        email: u.email,
+        phone: u.phone,
+        role: u.role,
+        status: u.status,
+        createdAt: (u as { createdAt?: Date }).createdAt,
+      })),
+    };
+  }
+
   /** Attach business or investor via referral code after register. */
   async attachReferral(userId: string, referralCode: string) {
     const code = referralCode?.trim();

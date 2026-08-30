@@ -32,6 +32,20 @@ export class UsersController {
     return this.usersService.attachReferral(user.userId, dto.referralCode);
   }
 
+  @Get('me/referral-team')
+  @Roles(UserRole.INVESTOR)
+  getReferralTeam(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: UserListQueryDto,
+  ) {
+    return this.usersService.getReferralTeam(user.userId, {
+      page: query.page,
+      limit: query.limit,
+      search: query.search,
+      sort: query.sort,
+    });
+  }
+
   @Get('me/withdrawal-methods')
   getSavedWithdrawalMethods(@CurrentUser() user: AuthenticatedUser) {
     return this.usersService.getSavedWithdrawalMethods(user.userId);

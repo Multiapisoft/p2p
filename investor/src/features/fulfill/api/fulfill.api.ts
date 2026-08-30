@@ -8,6 +8,7 @@ export interface CreditPreview {
   payAmountInr?: number;
   principalCredit: number;
   bonusAmount: number;
+  bonusPercentage?: number;
   bonusInPayCurrency?: number;
   netCredited: number;
   creditCurrency?: string;

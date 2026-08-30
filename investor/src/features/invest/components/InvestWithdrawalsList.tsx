@@ -976,37 +976,54 @@ export function InvestWithdrawalsList() {
                   After verification you get
                 </p>
                 {creditPreview ? (
-                  <div className="mt-2 space-y-1 text-on-surface-variant">
-                    <p>
-                      You pay{' '}
+                  <div className="mt-2 space-y-1.5 text-on-surface-variant">
+                    <p className="flex flex-wrap items-baseline justify-between gap-2">
+                      <span>You pay</span>
                       <span className="font-semibold text-on-surface">
                         {formatCurrency(creditPreview.payAmount, moneyCurrency(target))}
                       </span>
-                      {moneyCurrency(target) === 'USDT' && creditPreview.payAmountInr != null && (
-                        <span className="text-xs">
-                          {' '}
-                          (≈ {formatCurrency(creditPreview.payAmountInr, 'INR')}
-                          {creditPreview.exchangeRate
-                            ? ` @ ${creditPreview.exchangeRate}`
-                            : ''}
-                          )
-                        </span>
-                      )}
                     </p>
-                    {showBonus && creditPreview.bonusAmount > 0 && (
-                      <p>
-                        Investor bonus{' '}
+                    {moneyCurrency(target) === 'USDT' && creditPreview.payAmountInr != null && (
+                      <p className="text-xs">
+                        ≈ {formatCurrency(creditPreview.payAmountInr, 'INR')}
+                        {creditPreview.exchangeRate ? ` @ ${creditPreview.exchangeRate}` : ''}
+                      </p>
+                    )}
+                    <p className="flex flex-wrap items-baseline justify-between gap-2">
+                      <span>Principal credit</span>
+                      <span className="font-semibold text-on-surface">
+                        {formatCurrency(
+                          creditPreview.principalCredit,
+                          creditPreview.creditCurrency || 'INR',
+                        )}
+                      </span>
+                    </p>
+                    {showBonus && (
+                      <p className="flex flex-wrap items-baseline justify-between gap-2">
+                        <span>
+                          Investor bonus
+                          {creditPreview.bonusPercentage != null &&
+                          creditPreview.bonusPercentage > 0
+                            ? ` (${creditPreview.bonusPercentage}%)`
+                            : ''}
+                        </span>
                         <span className="font-semibold text-secondary">
-                          +{formatCurrency(creditPreview.bonusAmount, 'INR')}
+                          +
+                          {formatCurrency(
+                            creditPreview.bonusAmount || 0,
+                            creditPreview.creditCurrency || 'INR',
+                          )}
                         </span>
                       </p>
                     )}
-                    <p className="border-t border-outline-variant/60 pt-2 text-base font-bold text-secondary">
-                      Wallet credit (INR points){' '}
-                      {formatCurrency(
-                        creditPreview.netCredited,
-                        creditPreview.creditCurrency || 'INR',
-                      )}
+                    <p className="flex flex-wrap items-baseline justify-between gap-2 border-t border-outline-variant/60 pt-2 text-base font-bold text-secondary">
+                      <span>Total wallet credit</span>
+                      <span>
+                        {formatCurrency(
+                          creditPreview.netCredited,
+                          creditPreview.creditCurrency || 'INR',
+                        )}
+                      </span>
                     </p>
                   </div>
                 ) : (

@@ -109,6 +109,7 @@ export class WithdrawalController {
       search: query.search,
       sort: query.sort,
       method: query.method,
+      origin: query.origin,
     });
   }
 

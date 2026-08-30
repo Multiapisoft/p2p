@@ -8,6 +8,8 @@ export type WithdrawalsListQuery = {
   search?: string;
   sort?: string;
   method?: string;
+  /** `user` = non-business origins; `business` = business-origin WDs */
+  origin?: 'user' | 'business';
 };
 
 function cleanQuery(query: WithdrawalsListQuery = {}) {
@@ -18,6 +20,7 @@ function cleanQuery(query: WithdrawalsListQuery = {}) {
     search: query.search?.trim() || undefined,
     sort: query.sort || 'newest',
     method: query.method && query.method !== 'all' ? query.method : undefined,
+    origin: query.origin || undefined,
   };
 }
 

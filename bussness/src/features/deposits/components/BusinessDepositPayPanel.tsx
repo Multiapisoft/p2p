@@ -6,7 +6,6 @@ import {
   businessDepositPayApi,
   type AvailableWithdrawal,
 } from '@/features/deposits/api/business-deposit-pay.api';
-import { DepositAmountModal } from '@/features/deposits/components/DepositAmountModal';
 import { ProofUpload } from '@/features/deposits/components/ProofUpload';
 import { AddressQr } from '@/shared/components/AddressQr';
 import { Card } from '@/shared/components/ui/Card';
@@ -28,13 +27,6 @@ import { minPartialAmount, partialPayError } from '@/shared/lib/partial-pay';
 import type { PaymentMethod } from '@/shared/types/api.types';
 
 const PAGE_SIZES = [5, 10, 20];
-const MATCH_AMOUNT_KEY = 'biz-deposit-match-amount';
-
-function readStoredMatchAmount() {
-  if (typeof window === 'undefined') return null;
-  const n = Number(sessionStorage.getItem(MATCH_AMOUNT_KEY));
-  return Number.isFinite(n) && n >= 1 ? n : null;
-}
 
 const METHOD_META: Record<PaymentMethod, { label: string; icon: string }> = {
   upi: { label: 'UPI', icon: 'qr_code_2' },
@@ -207,31 +199,13 @@ export function BusinessDepositPayPanel() {
   const [proofUrl, setProofUrl] = useState('');
   const [formError, setFormError] = useState('');
   const [now, setNow] = useState(() => Date.now());
-  const [matchAmount, setMatchAmount] = useState<number | null>(null);
-  const [matchInput, setMatchInput] = useState('');
-  const [amountModalOpen, setAmountModalOpen] = useState(false);
   const [matchReadyOpen, setMatchReadyOpen] = useState(false);
   const wasWaitingRef = useRef(false);
   const qc = useQueryClient();
 
-  const applyMatchAmount = (n: number) => {
-    setMatchAmount(n);
-    setMatchInput(String(n));
-    setPage(1);
-    setAmountModalOpen(false);
-    sessionStorage.setItem(MATCH_AMOUNT_KEY, String(n));
+  useEffect(() => {
     if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
       void Notification.requestPermission();
-    }
-  };
-
-  useEffect(() => {
-    const stored = readStoredMatchAmount();
-    if (stored) {
-      setMatchAmount(stored);
-      setMatchInput(String(stored));
-    } else {
-      setAmountModalOpen(true);
     }
   }, []);
 
@@ -250,8 +224,8 @@ export function BusinessDepositPayPanel() {
   }, [claimPayDeadline, target]);
 
   const listQuery = useMemo(
-    () => ({ page, limit, search, sort, method, amount: matchAmount ?? undefined }),
-    [page, limit, search, sort, method, matchAmount],
+    () => ({ page, limit, search, sort, method }),
+    [page, limit, search, sort, method],
   );
 
   const payAmountNum = Number(payAmount);
@@ -265,19 +239,19 @@ export function BusinessDepositPayPanel() {
     queryKey: ['available-withdrawals', listQuery],
     queryFn: () => businessDepositPayApi.getAvailable(listQuery),
     refetchInterval: 10_000,
-    enabled: matchAmount != null,
   });
 
   useEffect(() => {
-    if (matchAmount == null || !data) return;
+    if (!data) return;
     const waiting = !!data.waitingForMatch || (data.items?.length ?? 0) === 0;
     const hasItems = (data.items?.length ?? 0) > 0;
     if (wasWaitingRef.current && hasItems) {
+      const first = data.items?.[0];
       setMatchReadyOpen(true);
-      notifyMatchReady(matchAmount);
+      notifyMatchReady(first?.remainingAmount ?? first?.amount ?? 0);
     }
     wasWaitingRef.current = waiting;
-  }, [data, matchAmount]);
+  }, [data]);
 
   const submit = useMutation({
     mutationFn: () =>
@@ -328,8 +302,7 @@ export function BusinessDepositPayPanel() {
           w.maxPayable != null
             ? Math.min(w.maxPayable, w.remainingAmount)
             : w.remainingAmount;
-        const pref = matchAmount && matchAmount >= 1 ? matchAmount : maxPay;
-        setPayAmount(String(Math.min(pref, maxPay) > 0 ? Math.min(pref, maxPay) : maxPay));
+        setPayAmount(String(maxPay > 0 ? maxPay : ''));
         return;
       }
       const claimed = await businessDepositPayApi.claimWithdrawal(w._id);
@@ -340,8 +313,7 @@ export function BusinessDepositPayPanel() {
         claimed.maxPayable != null
           ? Math.min(claimed.maxPayable, claimed.remainingAmount)
           : claimed.remainingAmount;
-      const pref = matchAmount && matchAmount >= 1 ? matchAmount : maxPay;
-      setPayAmount(String(Math.min(pref, maxPay) > 0 ? Math.min(pref, maxPay) : maxPay));
+      setPayAmount(String(maxPay > 0 ? maxPay : ''));
       qc.invalidateQueries({ queryKey: ['available-withdrawals'] });
     } catch (err: unknown) {
       setFormError(getApiErrorMessage(err, 'Could not claim this withdrawal'));
@@ -407,9 +379,7 @@ export function BusinessDepositPayPanel() {
   const items = data?.items ?? [];
   const total = data?.total ?? 0;
   const totalPages = data?.totalPages ?? 1;
-  const needsAmount = !matchAmount || !!data?.needsAmount;
-  const waitingForMatch =
-    !!matchAmount && (!!data?.waitingForMatch || (!isLoading && items.length === 0));
+  const waitingForMatch = !!data?.waitingForMatch || (!isLoading && !isError && items.length === 0);
   const claimLockMinutes = data?.claimLockMinutes ?? 7;
   const paySecondsLeft = claimPayDeadline
     ? Math.max(0, Math.ceil((new Date(claimPayDeadline).getTime() - now) / 1000))
@@ -424,45 +394,18 @@ export function BusinessDepositPayPanel() {
           {formError}
         </div>
       )}
-      <DepositAmountModal
-        open={amountModalOpen}
-        initialValue={matchInput}
-        onClose={() => setAmountModalOpen(false)}
-        onApply={applyMatchAmount}
-      />
       <Modal
         open={matchReadyOpen}
         onClose={() => setMatchReadyOpen(false)}
         title="Withdrawal ready"
       >
         <div className="space-y-4">
-          <p className="text-sm text-on-surface-variant">Match found.</p>
+          <p className="text-sm text-on-surface-variant">New withdrawal listed for pay.</p>
           <Button type="button" className="w-full" onClick={() => setMatchReadyOpen(false)}>
             View payment details
           </Button>
         </div>
       </Modal>
-
-      <Card>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-on-surface-variant">
-              Deposit amount
-            </p>
-            <p className="text-lg font-bold text-secondary">
-              {matchAmount != null ? formatCurrency(matchAmount) : 'Enter amount first'}
-            </p>
-          </div>
-          <Button
-            type="button"
-            size="sm"
-            variant={matchAmount ? 'outline' : 'primary'}
-            onClick={() => setAmountModalOpen(true)}
-          >
-            {matchAmount != null ? 'Change amount' : 'Enter amount'}
-          </Button>
-        </div>
-      </Card>
 
       <Card title="Available Details for Payment">
         <div className="mb-3 space-y-2">
@@ -525,12 +468,7 @@ export function BusinessDepositPayPanel() {
           </div>
         </div>
 
-        {needsAmount ? (
-          <EmptyState
-            message="Enter a deposit amount first to see matching UPI / bank / USDT details."
-            icon="payments"
-          />
-        ) : isLoading ? (
+        {isLoading ? (
           <LoadingScreen />
         ) : isError ? (
           <div className="rounded-xl border border-error/30 bg-error-container/40 px-4 py-6 text-center">
@@ -542,19 +480,7 @@ export function BusinessDepositPayPanel() {
             </Button>
           </div>
         ) : waitingForMatch ? (
-          <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-6 text-center">
-            <span className="material-symbols-outlined text-3xl text-amber-700">hourglass_top</span>
-            <p className="mt-2 text-sm font-semibold text-on-surface">
-              No matching withdrawal right now
-            </p>
-            <p className="mt-1 text-xs text-on-surface-variant">
-              Wait for a user or investor withdrawal. We will notify you on this device as soon as
-              one matches {formatCurrency(matchAmount!)}.
-            </p>
-            <Button type="button" className="mt-3" size="sm" variant="outline" onClick={() => refetch()}>
-              Check again
-            </Button>
-          </div>
+          <EmptyState message="No listed withdrawals right now" icon="hourglass_top" />
         ) : (
           <div className={`space-y-3 ${isFetching ? 'opacity-70' : ''}`}>
             {items.map((w) => (
@@ -601,7 +527,7 @@ export function BusinessDepositPayPanel() {
                       </p>
                     )}
                     <div className="mt-2">
-                      <PaymentDetails w={w} payAmount={matchAmount ?? undefined} />
+                      <PaymentDetails w={w} />
                     </div>
                   </div>
                   <Button

@@ -113,10 +113,10 @@ export function AdminNewWithdrawalPopup() {
             className="w-full"
             onClick={() => {
               setOpen(false);
-              router.push('/withdrawals');
+              router.push('/my-deposits');
             }}
           >
-            Open withdrawals
+            Open My Deposits
           </Button>
           <Button type="button" variant="secondary" className="w-full" onClick={() => setOpen(false)}>
             Dismiss

@@ -1,5 +1,5 @@
-import { FulfillPage } from '@/features/fulfill/pages/FulfillPage';
+import { redirect } from 'next/navigation';
 
 export default function Page() {
-  return <FulfillPage />;
+  redirect('/invest');
 }

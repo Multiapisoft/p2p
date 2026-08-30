@@ -78,10 +78,10 @@ export function DashboardPage() {
           trend="From verified investments"
         />
         <StatCard
-          label="Redeemable"
+          label="Available to withdraw"
           value={formatCurrency(portfolio?.redeemableAmount ?? balance?.redeemableAmount ?? 0)}
           icon="payments"
-          trend="Available to withdraw"
+          trend="Wallet available"
         />
         <StatCard
           label="Wallet Balance"
@@ -89,7 +89,7 @@ export function DashboardPage() {
           icon="account_balance_wallet"
         />
         <StatCard
-          label="Total Redeemed"
+          label="Total withdrawn"
           value={formatCurrency(portfolio?.totalRedeemed ?? 0)}
           icon="history"
         />
@@ -118,11 +118,11 @@ export function DashboardPage() {
               <span className="text-sm font-semibold">New Investment</span>
             </Link>
             <Link
-              href="/redeem"
+              href="/withdrawals"
               className="flex flex-col items-center gap-2 rounded-xl border border-outline-variant p-4 transition-colors hover:bg-surface-container-low active:scale-95"
             >
-              <span className="material-symbols-outlined text-2xl text-secondary">payments</span>
-              <span className="text-sm font-semibold">Redeem Funds</span>
+              <span className="material-symbols-outlined text-2xl text-secondary">north_east</span>
+              <span className="text-sm font-semibold">Withdraw</span>
             </Link>
             <Link
               href="/investments"
@@ -132,11 +132,11 @@ export function DashboardPage() {
               <span className="text-sm font-semibold">My Investments</span>
             </Link>
             <Link
-              href="/redemptions"
+              href="/my-teams"
               className="flex flex-col items-center gap-2 rounded-xl border border-outline-variant p-4 transition-colors hover:bg-surface-container-low active:scale-95"
             >
-              <span className="material-symbols-outlined text-2xl text-secondary">receipt_long</span>
-              <span className="text-sm font-semibold">Redemptions</span>
+              <span className="material-symbols-outlined text-2xl text-secondary">groups</span>
+              <span className="text-sm font-semibold">My Teams</span>
             </Link>
           </div>
         </Card>
@@ -153,7 +153,7 @@ export function DashboardPage() {
             <div className="flex items-center justify-between rounded-lg bg-surface-container-low p-4">
               <div className="flex items-center gap-3">
                 <span className="material-symbols-outlined text-secondary">check_circle</span>
-                <span className="font-medium">Redeemable Now</span>
+                <span className="font-medium">Available now</span>
               </div>
               <span className="font-semibold text-on-secondary-container">
                 {formatCurrency(portfolio?.redeemableAmount ?? 0)}

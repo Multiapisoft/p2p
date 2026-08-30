@@ -1,5 +1,5 @@
-import { RedemptionsPage } from '@/features/redemptions/pages/RedemptionsPage';
+import { redirect } from 'next/navigation';
 
 export default function Page() {
-  return <RedemptionsPage />;
+  redirect('/withdrawals');
 }

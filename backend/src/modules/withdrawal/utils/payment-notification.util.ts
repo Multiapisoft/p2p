@@ -23,16 +23,14 @@ export function paymentReceivedNotification(opts: {
 }
 
 /**
- * Investor bonus is credited only after plan target is met (#26).
+ * Investor bonus is credited on every approved investor pay (business INVESTOR_BONUS %).
+ * Plan-target gating was removed — pay amount + bonus always apply when a rate is set.
  */
-export function shouldCreditInvestorBonus(opts: {
+export function shouldCreditInvestorBonus(_opts: {
   planAmount: number | null | undefined;
   multiplier: number;
   paidTowardPlan: number;
   thisPaymentPrincipal: number;
 }): boolean {
-  const plan = opts.planAmount || 0;
-  if (plan <= 0) return false;
-  const target = Math.round(plan * opts.multiplier * 100) / 100;
-  return opts.paidTowardPlan + opts.thisPaymentPrincipal >= target;
+  return true;
 }

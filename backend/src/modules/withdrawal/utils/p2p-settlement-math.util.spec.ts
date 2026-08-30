@@ -193,7 +193,7 @@ describe('p2p-settlement-math (ledger + commissions + limits)', () => {
   });
 
   describe('investor bonus gate vs fee calc', () => {
-    it('bonus amount still computed; gate decides credit', () => {
+    it('bonus amount computed; gate always allows credit', () => {
       const fees = computePayFees({
         payAmount: 5000,
         wdFeePercent: 10,
@@ -208,14 +208,6 @@ describe('p2p-settlement-math (ledger + commissions + limits)', () => {
           multiplier: 1.1,
           paidTowardPlan: 0,
           thisPaymentPrincipal: 5000,
-        }),
-      ).toBe(false);
-      expect(
-        shouldCreditInvestorBonus({
-          planAmount: 25_000,
-          multiplier: 1.1,
-          paidTowardPlan: 27_000,
-          thisPaymentPrincipal: 500,
         }),
       ).toBe(true);
     });

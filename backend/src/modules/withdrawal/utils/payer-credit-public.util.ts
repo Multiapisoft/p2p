@@ -5,6 +5,8 @@ export type PayerCreditPublic = {
   payAmountInr: number;
   principalCredit: number;
   bonusAmount: number;
+  /** Business INVESTOR_BONUS percentage applied (0 if none). */
+  bonusPercentage?: number;
   netCredited: number;
   creditCurrency: string;
   exchangeRate: number | null;
@@ -18,6 +20,7 @@ export function toPayerCreditPublic(breakdown: {
   payAmountInr: number;
   principalCredit: number;
   bonusAmount: number;
+  bonusPercentage?: number;
   netCredited: number;
   creditCurrency: string;
   exchangeRate: number | null;
@@ -35,6 +38,7 @@ export function toPayerCreditPublic(breakdown: {
     payAmountInr: breakdown.payAmountInr,
     principalCredit: breakdown.principalCredit,
     bonusAmount: breakdown.bonusAmount,
+    bonusPercentage: breakdown.bonusPercentage ?? 0,
     netCredited: breakdown.netCredited,
     creditCurrency: breakdown.creditCurrency,
     exchangeRate: breakdown.exchangeRate,

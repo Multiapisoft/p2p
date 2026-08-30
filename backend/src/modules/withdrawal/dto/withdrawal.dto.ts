@@ -22,6 +22,11 @@ export class WithdrawalListQueryDto extends ListQueryDto {
   @IsOptional()
   @IsString()
   method?: string;
+
+  /** Business list: `user` = non-business origins; `business` = business-origin WDs. */
+  @IsOptional()
+  @IsString()
+  origin?: string;
 }
 
 export class WithdrawalUpiDetailsDto {

@@ -92,7 +92,15 @@ function destinationLine(w: Withdrawal) {
     .join(' · ');
 }
 
-export function WithdrawalsPage() {
+export function WithdrawalsPage({
+  origin = 'user',
+  showCreateForm = false,
+  title = 'Withdrawals',
+}: {
+  origin?: 'user' | 'business';
+  showCreateForm?: boolean;
+  title?: string;
+} = {}) {
   const searchParams = useSearchParams();
   const statusFromUrl = searchParams.get('status');
   const [page, setPage] = useState(1);
@@ -128,12 +136,12 @@ export function WithdrawalsPage() {
   }, [searchInput]);
 
   const listQuery = useMemo(
-    () => ({ page, limit, status, method, sort, search }),
-    [page, limit, status, method, sort, search],
+    () => ({ page, limit, status, method, sort, search, origin }),
+    [page, limit, status, method, sort, search, origin],
   );
 
   const { data, isLoading, isFetching, isError, error, refetch } = useQuery({
-    queryKey: ['business-withdrawals', listQuery],
+    queryKey: ['business-withdrawals', origin, listQuery],
     queryFn: () => withdrawalsApi.getBusinessWithdrawals(listQuery),
   });
 
@@ -283,11 +291,15 @@ export function WithdrawalsPage() {
         <div className="pointer-events-none absolute -right-8 -top-10 h-36 w-36 rounded-full bg-secondary/10 blur-2xl" />
         <div className="relative">
           <PageHeader
-            title="Withdrawal requests"
+            title={title}
             action={
               <CsvDownloadButton<Withdrawal>
-                title="Business withdrawals"
-                filename="business-withdrawals"
+                title={origin === 'business' ? 'My withdrawals' : 'User withdrawals'}
+                filename={
+                  origin === 'business'
+                    ? 'business-my-withdrawals'
+                    : 'business-user-withdrawals'
+                }
                 filters={{ Status: status, Method: method, Search: search, Sort: sort }}
                 disabled={!data?.total}
                 columns={[
@@ -310,7 +322,7 @@ export function WithdrawalsPage() {
         </div>
       </div>
 
-      <BusinessWithdrawalForm />
+      {showCreateForm ? <BusinessWithdrawalForm /> : null}
 
       {actionError ? (
         <p className="rounded-lg border border-error/30 bg-error/5 px-3 py-2 text-sm text-error">
