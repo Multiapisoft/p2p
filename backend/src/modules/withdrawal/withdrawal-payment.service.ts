@@ -1833,10 +1833,11 @@ export class WithdrawalPaymentService {
     const payInr = breakdown.payAmountInr;
 
     // Limit math:
-    // 1) Always release principal from WD-owner list reserve (any payer type)
-    // 2) If payer business ≠ WD owner → earned +pay on payer (skip business-as-payer)
+    // 1) Release list reserve for USER/BUSINESS payers only — restores WD-owner remaining.
+    //    Investor pays must NOT increase business remaining (keep list reserve consumed).
+    // 2) If payer business ≠ WD owner → earned +pay on payer (never for investors / business-as-payer)
     // 3) Fees consume from respective businesses' limits (below)
-    if (wdBizId && withdrawal.origin !== 'business') {
+    if (wdBizId && withdrawal.origin !== 'business' && !isInvestor) {
       await this.businessService.releaseP2pPay(wdBizId, payInr, {
         referenceType: 'withdrawal_payment',
         referenceId: payment._id.toString(),
