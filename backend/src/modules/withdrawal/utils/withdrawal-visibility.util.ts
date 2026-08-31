@@ -1,9 +1,8 @@
 /**
  * Visibility rules:
  * - During user cancel TAT → only owner (user) sees edit/cancel on their panel
- * - After TAT → owning business can see / list for Platform Payment
+ * - After TAT → business / admin can review for Platform Payment
  * - After listed (p2pListStatus=listed) → investors/users for pay
- * - Admin list → all withdrawals (no visibility gate)
  */
 
 export function tatCutoffDate(nowMs: number, tatMs: number): Date {
@@ -30,18 +29,20 @@ export function remainingTatSeconds(
   return Math.ceil((tatMs - elapsed) / 1000);
 }
 
-export function businessWithdrawalVisibilityFilter(tatCutoff: Date) {
+/** User/investor WDs hidden during edit TAT; business-origin WDs visible immediately. */
+export function postTatWithdrawalVisibilityFilter(tatCutoff: Date) {
   return {
     $or: [{ createdAt: { $lte: tatCutoff } }, { origin: 'business' as const }],
   };
 }
 
-/**
- * Admin list: every withdrawal — awaiting (not listed), listed, rejected list,
- * cancelled / completed / rejected status, business-origin, within TAT, etc.
- */
-export function adminWithdrawalVisibilityFilter(_tatCutoff?: Date): Record<string, never> {
-  return {};
+export function businessWithdrawalVisibilityFilter(tatCutoff: Date) {
+  return postTatWithdrawalVisibilityFilter(tatCutoff);
+}
+
+/** Admin oversight list uses the same post-TAT gate as business. */
+export function adminWithdrawalVisibilityFilter(tatCutoff: Date) {
+  return postTatWithdrawalVisibilityFilter(tatCutoff);
 }
 
 /**

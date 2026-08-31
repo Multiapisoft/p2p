@@ -43,6 +43,7 @@ import {
 import { withOptionalTransaction } from '../../common/utils/mongo-transaction';
 import { assertValidWithdrawalDestination } from './utils/withdrawal-destination.validation';
 import {
+  adminWithdrawalVisibilityFilter,
   businessWithdrawalVisibilityFilter,
   isInvestorToInvestorPay,
   tatCutoffDate,
@@ -275,6 +276,9 @@ export class WithdrawalService {
       );
     }
 
+    this.p2pRealtime.emitListChanged('updated', {
+      withdrawalId: withdrawal._id.toString(),
+    });
     return withdrawal;
   }
 
@@ -361,6 +365,9 @@ export class WithdrawalService {
         toParty: 'P2P',
       });
 
+      this.p2pRealtime.emitListChanged('updated', {
+        withdrawalId: withdrawal._id.toString(),
+      });
       return withdrawal;
     } catch (err) {
       if (wantHighlight) {
@@ -437,6 +444,9 @@ export class WithdrawalService {
       toParty: 'P2P',
     });
 
+    this.p2pRealtime.emitListChanged('listed', {
+      withdrawalId: withdrawal._id.toString(),
+    });
     return withdrawal;
   }
 
@@ -1628,8 +1638,11 @@ export class WithdrawalService {
 
   async findAll(opts: WithdrawalListOpts = {}) {
     const { page, limit, skip, search, status, sort } = normalizeListOpts(opts);
-    const and: Record<string, unknown>[] = [];
-    // Admin sees all WDs: listed / awaiting / cancelled / within TAT / business-linked.
+    const tatMs = await this.platformSettingsService.getTatMs();
+    const tatCutoff = tatCutoffDate(Date.now(), tatMs);
+    const and: Record<string, unknown>[] = [
+      adminWithdrawalVisibilityFilter(tatCutoff),
+    ];
 
     if (status) and.push({ status });
     if (opts.method && opts.method !== 'all') {

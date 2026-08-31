@@ -20,7 +20,20 @@ import { StaffPanel } from '../components/StaffPanel';
 import type { PaymentMethod } from '@/shared/types/api.types';
 import { userInviteRegisterUrl } from '@/shared/lib/user-app-url';
 
-const PAYMENT_METHODS: PaymentMethod[] = ['upi', 'bank', 'usdt'];
+const PAYMENT_METHOD_OPTIONS: { value: PaymentMethod; label: string }[] = [
+  { value: 'upi', label: 'UPI' },
+  { value: 'bank', label: 'Bank' },
+  { value: 'usdt', label: 'USDT' },
+];
+
+function defaultMethods(
+  specific?: PaymentMethod[],
+  legacy?: PaymentMethod[],
+): PaymentMethod[] {
+  if (specific?.length) return specific;
+  if (legacy?.length) return legacy;
+  return PAYMENT_METHOD_OPTIONS.map((m) => m.value);
+}
 
 export function ProfilePage() {
   const qc = useQueryClient();
@@ -54,7 +67,8 @@ export function ProfilePage() {
   const [webhookUrl, setWebhookUrl] = useState('');
   const [userName, setUserName] = useState('');
   const [userPhone, setUserPhone] = useState('');
-  const [methods, setMethods] = useState<PaymentMethod[]>([]);
+  const [depositMethods, setDepositMethods] = useState<PaymentMethod[]>([]);
+  const [withdrawalMethods, setWithdrawalMethods] = useState<PaymentMethod[]>([]);
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -67,7 +81,12 @@ export function ProfilePage() {
       setName(business.name);
       setDescription(business.description ?? '');
       setWebhookUrl(business.webhookUrl ?? '');
-      setMethods(business.allowedPaymentMethods ?? []);
+      setDepositMethods(
+        defaultMethods(business.allowedDepositMethods, business.allowedPaymentMethods),
+      );
+      setWithdrawalMethods(
+        defaultMethods(business.allowedWithdrawalMethods, business.allowedPaymentMethods),
+      );
     }
   }, [business]);
 
@@ -79,13 +98,18 @@ export function ProfilePage() {
   }, [user]);
 
   const updateBusiness = useMutation({
-    mutationFn: () =>
-      businessApi.update({
+    mutationFn: () => {
+      if (!depositMethods.length || !withdrawalMethods.length) {
+        throw new Error('Enable at least one deposit and one withdrawal method');
+      }
+      return businessApi.update({
         name,
         description: description || undefined,
         webhookUrl: webhookUrl || undefined,
-        allowedPaymentMethods: methods,
-      }),
+        allowedDepositMethods: depositMethods,
+        allowedWithdrawalMethods: withdrawalMethods,
+      });
+    },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['business-me'] }),
   });
 
@@ -117,7 +141,7 @@ export function ProfilePage() {
     mutationFn: () =>
       businessApi.create({
         name: name.trim() || user?.name || 'My Business',
-        allowedPaymentMethods: PAYMENT_METHODS,
+        allowedPaymentMethods: PAYMENT_METHOD_OPTIONS.map((m) => m.value),
       }),
     onSuccess: (data) => {
       setPendingApiCredentials(data.apiKey, data.apiSecret, data.internalSecret);
@@ -221,21 +245,55 @@ export function ProfilePage() {
             onChange={(e) => setWebhookUrl(e.target.value)}
             placeholder="https://your-site.com/webhook"
           />
-          <div>
-            <p className="mb-2 text-sm font-semibold">Payment Methods</p>
-            <div className="chip-scroll">
-              {PAYMENT_METHODS.map((m) => (
-                <button
-                  key={m}
-                  type="button"
-                  onClick={() =>
-                    setMethods((prev) => (prev.includes(m) ? prev.filter((x) => x !== m) : [...prev, m]))
-                  }
-                  className={`chip capitalize ${methods.includes(m) ? 'chip-active' : ''}`}
-                >
-                  {m}
-                </button>
-              ))}
+          <div className="space-y-4">
+            <div>
+              <p className="mb-2 text-sm font-semibold">User deposit methods (P2P pay)</p>
+              <p className="mb-2 text-xs text-on-surface-variant">
+                Users registered with your business code can pay withdrawals using only these
+                methods.
+              </p>
+              <div className="chip-scroll">
+                {PAYMENT_METHOD_OPTIONS.map((m) => (
+                  <button
+                    key={`dep-${m.value}`}
+                    type="button"
+                    onClick={() =>
+                      setDepositMethods((prev) =>
+                        prev.includes(m.value)
+                          ? prev.filter((x) => x !== m.value)
+                          : [...prev, m.value],
+                      )
+                    }
+                    className={`chip capitalize ${depositMethods.includes(m.value) ? 'chip-active' : ''}`}
+                  >
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <p className="mb-2 text-sm font-semibold">User withdrawal methods</p>
+              <p className="mb-2 text-xs text-on-surface-variant">
+                Users can request withdrawals only via enabled methods below.
+              </p>
+              <div className="chip-scroll">
+                {PAYMENT_METHOD_OPTIONS.map((m) => (
+                  <button
+                    key={`wd-${m.value}`}
+                    type="button"
+                    onClick={() =>
+                      setWithdrawalMethods((prev) =>
+                        prev.includes(m.value)
+                          ? prev.filter((x) => x !== m.value)
+                          : [...prev, m.value],
+                      )
+                    }
+                    className={`chip capitalize ${withdrawalMethods.includes(m.value) ? 'chip-active' : ''}`}
+                  >
+                    {m.label}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
           <Button type="submit" loading={updateBusiness.isPending}>

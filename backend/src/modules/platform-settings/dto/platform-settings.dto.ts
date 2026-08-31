@@ -35,6 +35,13 @@ export class UpdatePlatformSettingsDto {
 
   @IsOptional()
   @IsArray()
+  @ArrayMinSize(1)
+  @IsEnum(PaymentMethod, { each: true })
+  investorAllowedDepositMethods?: PaymentMethod[];
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(1)
   @IsEnum(PaymentMethod, { each: true })
   investorAllowedWithdrawalMethods?: PaymentMethod[];
 

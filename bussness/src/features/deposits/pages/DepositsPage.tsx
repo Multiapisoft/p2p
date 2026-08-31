@@ -14,6 +14,7 @@ import { LoadingScreen, EmptyState } from '@/shared/components/ui/Icon';
 import { PageHeader } from '@/shared/components/layout/PageHeader';
 import { Modal } from '@/shared/components/ui/Modal';
 import { formatCurrency, formatDate } from '@/shared/lib/utils';
+import { liveQueryOptions } from '@/shared/constants/live-query';
 import { CsvDownloadButton } from '@/shared/components/CsvDownloadButton';
 import { fetchAllPages } from '@/shared/lib/csv';
 import type { BusinessPlatformPayment } from '@/features/deposits/api/platform-payments.api';
@@ -118,6 +119,7 @@ export function DepositsPage() {
   } = useQuery({
     queryKey: ['deposits-summary'],
     queryFn: () => depositsApi.getBusinessSummary(),
+    ...liveQueryOptions,
   });
 
   const {
@@ -130,6 +132,7 @@ export function DepositsPage() {
   } = useQuery({
     queryKey: ['business-platform-payments', listQuery],
     queryFn: () => platformPaymentsApi.list(listQuery),
+    ...liveQueryOptions,
   });
 
   const totalFromSummary = summary?.reduce((sum, row) => sum + row.totalDeposited, 0) ?? 0;

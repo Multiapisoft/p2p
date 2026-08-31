@@ -43,6 +43,7 @@ import {
   businessWithdrawalVisibilityFilter,
   tatCutoffDate,
 } from '../withdrawal/utils/withdrawal-visibility.util';
+import { P2pRealtimeService } from '../realtime/p2p-realtime.service';
 
 export type DepositListOpts = ListQueryOpts & { method?: string };
 
@@ -102,6 +103,7 @@ export class DepositService {
     private platformSettingsService: PlatformSettingsService,
     private platformCommissionService: PlatformCommissionService,
     private exchangeRateService: ExchangeRateService,
+    private p2pRealtime: P2pRealtimeService,
   ) {}
 
   async create(userId: string, dto: CreateDepositDto, businessFromApi?: BusinessDocument) {
@@ -215,6 +217,7 @@ export class DepositService {
       );
     }
 
+    this.p2pRealtime.emitListChanged('updated');
     return deposit;
   }
 
@@ -395,6 +398,7 @@ export class DepositService {
       /* non-fatal */
     }
 
+    this.p2pRealtime.emitListChanged('updated');
     return approved;
   }
 
@@ -437,6 +441,7 @@ export class DepositService {
       });
     }
 
+    this.p2pRealtime.emitListChanged('updated');
     return deposit;
   }
 

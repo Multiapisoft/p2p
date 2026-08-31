@@ -12,6 +12,7 @@ import { Pagination } from '@/shared/components/ui/Pagination';
 import { LoadingScreen, EmptyState } from '@/shared/components/ui/Icon';
 import { getApiErrorMessage } from '@/shared/lib/api-error';
 import { formatCurrency, formatDate } from '@/shared/lib/utils';
+import { liveQueryOptions } from '@/shared/constants/live-query';
 import {
   accountNumberError,
   bankNameError,
@@ -259,6 +260,7 @@ export function MyWithdrawalsPage() {
   const { data, isLoading, isFetching, isError, error, refetch } = useQuery({
     queryKey: ['admin-my-withdrawals', listQuery],
     queryFn: () => withdrawalsApi.getMine(listQuery),
+    ...liveQueryOptions,
   });
 
   const items = data?.items ?? [];

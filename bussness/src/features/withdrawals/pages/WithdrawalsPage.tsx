@@ -21,6 +21,7 @@ import { BusinessWithdrawalForm } from '../components/BusinessWithdrawalForm';
 import { AssignPayerModal } from '../components/AssignPayerModal';
 import { useAuthStore } from '@/features/auth/store/auth.store';
 import type { Withdrawal } from '@/shared/types/api.types';
+import { liveQueryOptions } from '@/shared/constants/live-query';
 
 const STATUS_FILTERS = [
   { value: 'all', label: 'All' },
@@ -143,6 +144,7 @@ export function WithdrawalsPage({
   const { data, isLoading, isFetching, isError, error, refetch } = useQuery({
     queryKey: ['business-withdrawals', origin, listQuery],
     queryFn: () => withdrawalsApi.getBusinessWithdrawals(listQuery),
+    ...liveQueryOptions,
   });
 
   const {

@@ -111,6 +111,24 @@ export class WithdrawalPaymentService {
     private p2pRealtime: P2pRealtimeService,
   ) {}
 
+  private investorRoleIdsCache: { ids: Types.ObjectId[]; at: number } | null = null;
+
+  private async getInvestorOwnerIds(): Promise<Types.ObjectId[]> {
+    const now = Date.now();
+    if (this.investorRoleIdsCache && now - this.investorRoleIdsCache.at < 60_000) {
+      return this.investorRoleIdsCache.ids;
+    }
+    const ids = (
+      await this.userModel
+        .find({ role: UserRole.INVESTOR })
+        .select('_id')
+        .lean()
+        .exec()
+    ).map((u) => u._id);
+    this.investorRoleIdsCache = { ids, at: now };
+    return ids;
+  }
+
   getRemaining(withdrawal: WithdrawalDocument) {
     const locked =
       (withdrawal.paidAmount || 0) + (withdrawal.reservedAmount || 0);
@@ -384,6 +402,16 @@ export class WithdrawalPaymentService {
 
     const settings = await this.platformSettingsService.get();
     const isInvestor = payer.role === UserRole.INVESTOR;
+    const isUserPayer = payer.role === UserRole.USER;
+    let userBusinessDepositMethods: string[] | null = null;
+    if (isUserPayer && payer.referredByBusiness) {
+      const biz = await this.businessService.findDocumentById(
+        payer.referredByBusiness.toString(),
+      );
+      if (biz) {
+        userBusinessDepositMethods = this.businessService.resolveDepositMethods(biz);
+      }
+    }
     const limitView = isInvestor ? this.usersService.getInvestorLimitSnapshot(payer) : null;
     const multiplier = settings.investorPlanTargetMultiplier ?? 1.1;
     const added = limitView?.added ?? 0;
@@ -454,15 +482,7 @@ export class WithdrawalPaymentService {
 
     const paidTowardPlan = isInvestor ? await this.getPaidTowardPlan(userId) : null;
 
-    const investorOwnerIds = isInvestor
-      ? (
-          await this.userModel
-            .find({ role: UserRole.INVESTOR })
-            .select('_id')
-            .lean()
-            .exec()
-        ).map((u) => u._id)
-      : [];
+    const investorOwnerIds = isInvestor ? await this.getInvestorOwnerIds() : [];
 
     // Exclude only businesses with an exhausted quota — missing/unknown businessId still shows
     const exhaustedBusinessIds =
@@ -516,7 +536,44 @@ export class WithdrawalPaymentService {
       });
     }
 
-    if (opts.method && opts.method !== 'all') {
+    const investorDepositMethods = isInvestor
+      ? this.platformSettingsService.resolveInvestorDepositMethods(settings)
+      : null;
+    const payerDepositMethods = isInvestor
+      ? investorDepositMethods
+      : userBusinessDepositMethods;
+
+    if (payerDepositMethods && opts.method && opts.method !== 'all') {
+      if (!payerDepositMethods.includes(opts.method)) {
+        return {
+          items: [],
+          total: 0,
+          page,
+          limit,
+          totalPages: 1,
+          needsLimit: false,
+          needsPlan: false,
+          needsAmount: false,
+          waitingForMatch: hasAmount,
+          matchAmount,
+          lots: limitView?.lots ?? [],
+          limitRemaining: limitView?.remaining ?? null,
+          limitAdded: limitView?.added ?? null,
+          planAmount: added > 0 ? added : null,
+          targetAmount,
+          paidTowardPlan,
+          claimLockMinutes: settings.investorClaimLockMinutes,
+          paySubmitMinutes: settings.investorPaySubmitMinutes,
+          showCommissionToInvestor: true,
+          allowMobileNumberUpi: !!settings.allowMobileNumberUpi,
+          investorAllowedDepositMethods: isInvestor ? payerDepositMethods : undefined,
+          allowedDepositMethods: isUserPayer ? payerDepositMethods : undefined,
+        };
+      }
+      and.push({ method: opts.method as PaymentMethod });
+    } else if (payerDepositMethods?.length) {
+      and.push({ method: { $in: payerDepositMethods } });
+    } else if (opts.method && opts.method !== 'all') {
       and.push({ method: opts.method as PaymentMethod });
     }
     if (matchAmount != null) {
@@ -674,22 +731,7 @@ export class WithdrawalPaymentService {
       }
     }
 
-    // Clear stale claim fields on read
-    for (const w of items) {
-      if (
-        w.claimLockedUntil &&
-        w.claimLockedUntil.getTime() <= now.getTime() &&
-        (w.claimLockedBy || w.claimPayDeadline)
-      ) {
-        w.set('claimLockedBy', null);
-        w.set('claimLockedUntil', null);
-        w.set('claimPayDeadline', null);
-        await w.save();
-        await this.clearClaimRedis(w._id.toString());
-      }
-    }
-
-    // Source-of-truth for locked: active (non-disputed) pending payment sums
+    // Pending payment totals for accurate locked/remaining (read-only — no DB writes on list).
     const pendingByWd = await this.paymentModel.aggregate<{ _id: Types.ObjectId; total: number }>([
       {
         $match: {
@@ -702,19 +744,12 @@ export class WithdrawalPaymentService {
     ]);
     const pendingMap = new Map(pendingByWd.map((r) => [r._id.toString(), r.total]));
 
-    for (const w of items) {
-      const reserved = pendingMap.get(w._id.toString()) || 0;
-      if ((w.reservedAmount || 0) !== reserved) {
-        w.reservedAmount = reserved;
-        await w.save();
-      }
-    }
-
     const payerBusinessId = await this.businessService.findBusinessIdForUser(payer);
 
     const itemsWithCredit = await Promise.all(
       items.map(async (w) => {
-        const view = this.toAvailableView(w, userId);
+        const reservedLive = pendingMap.get(w._id.toString()) ?? w.reservedAmount ?? 0;
+        const view = this.toAvailableView(w, userId, reservedLive);
         const remaining = view.remainingAmount;
         if (remaining <= 0) {
           return {
@@ -803,6 +838,10 @@ export class WithdrawalPaymentService {
       paySubmitMinutes: settings.investorPaySubmitMinutes,
       showCommissionToInvestor: true,
       allowMobileNumberUpi: !!settings.allowMobileNumberUpi,
+      investorAllowedDepositMethods: isInvestor
+        ? this.platformSettingsService.resolveInvestorDepositMethods(settings)
+        : undefined,
+      allowedDepositMethods: userBusinessDepositMethods ?? undefined,
     };
   }
 
@@ -834,6 +873,18 @@ export class WithdrawalPaymentService {
 
     const withdrawal = await this.withdrawalModel.findById(withdrawalId).exec();
     if (!withdrawal) throw new NotFoundException('Withdrawal not found');
+
+    if (payer.role === UserRole.INVESTOR) {
+      await this.platformSettingsService.assertInvestorDepositMethodAllowed(
+        withdrawal.method,
+      );
+    }
+    if (payer.role === UserRole.USER && payer.referredByBusiness) {
+      await this.businessService.assertDepositMethodAllowed(
+        payer.referredByBusiness.toString(),
+        withdrawal.method,
+      );
+    }
 
     if (payer.role === UserRole.BUSINESS && withdrawal.origin === 'business') {
       throw new BadRequestException(
@@ -1147,6 +1198,17 @@ export class WithdrawalPaymentService {
 
     if (isInvestor && investorLimit?.needsLimit) {
       throw new BadRequestException('Add a pay-limit amount first');
+    }
+    if (isInvestor) {
+      await this.platformSettingsService.assertInvestorDepositMethodAllowed(
+        withdrawal.method,
+      );
+    }
+    if (payer?.role === UserRole.USER && payer.referredByBusiness) {
+      await this.businessService.assertDepositMethodAllowed(
+        payer.referredByBusiness.toString(),
+        withdrawal.method,
+      );
     }
 
     let maxPayable = remaining;
@@ -2543,10 +2605,15 @@ export class WithdrawalPaymentService {
     }
   }
 
-  private toAvailableView(w: WithdrawalDocument, viewerId?: string) {
-    const remaining = this.getRemaining(w);
-    const reserved = w.reservedAmount || 0;
+  private toAvailableView(
+    w: WithdrawalDocument,
+    viewerId?: string,
+    reservedOverride?: number,
+  ) {
+    const reserved =
+      reservedOverride != null ? reservedOverride : w.reservedAmount || 0;
     const approved = w.paidAmount || 0;
+    const remaining = Math.max(0, w.amount - approved - reserved);
     const now = Date.now();
     const assignedToMe = viewerId ? isAssignedToPayer(w.assignedTo, viewerId) : false;
     const claimActive =

@@ -38,9 +38,11 @@ describe('withdrawal-visibility.util (#8 #24)', () => {
       });
     });
 
-    it('admin filter matches all withdrawals (listed, awaiting, cancelled, etc.)', () => {
+    it('admin filter hides user WDs still in TAT (same as business)', () => {
       const cutoff = tatCutoffDate(now, tatMs);
-      expect(adminWithdrawalVisibilityFilter(cutoff)).toEqual({});
+      expect(adminWithdrawalVisibilityFilter(cutoff)).toEqual({
+        $or: [{ createdAt: { $lte: cutoff } }, { origin: 'business' }],
+      });
     });
 
     it('available-for-payment is listed-only (business WD needs admin verify)', () => {

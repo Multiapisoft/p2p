@@ -246,14 +246,24 @@ export class BusinessService {
       b2bMatchingEnabled: _b,
       allowPartialPay: _p,
       allowMobileNumberUpi: _m,
-      allowedDepositMethods: _dep,
-      allowedWithdrawalMethods: _wd,
+      allowedDepositMethods,
+      allowedWithdrawalMethods,
       ...rest
     } = dto;
     this.assignDefined(business, rest);
     if (integrationUrls) {
       business.integrationUrls = { ...(business.integrationUrls || {}), ...integrationUrls };
       business.markModified('integrationUrls');
+    }
+    if (allowedDepositMethods) {
+      business.allowedDepositMethods = allowedDepositMethods;
+      business.allowedPaymentMethods = [...allowedDepositMethods];
+      business.markModified('allowedDepositMethods');
+      business.markModified('allowedPaymentMethods');
+    }
+    if (allowedWithdrawalMethods) {
+      business.allowedWithdrawalMethods = allowedWithdrawalMethods;
+      business.markModified('allowedWithdrawalMethods');
     }
 
     await business.save();
@@ -894,8 +904,13 @@ export class BusinessService {
     return rows.map((r) => r._id as Types.ObjectId);
   }
 
-  /** Businesses whose P2P pay quota is fully used. */
+  /** Businesses whose P2P pay quota is fully used. Cached briefly to speed pay-list queries. */
   async findBusinessIdsExhaustedForP2pPay(): Promise<Types.ObjectId[]> {
+    const cacheKey = 'business:p2p-exhausted-ids';
+    const cached = await this.redis.get<string[]>(cacheKey);
+    if (Array.isArray(cached)) {
+      return cached.map((id) => new Types.ObjectId(id));
+    }
     const rows = await this.businessModel
       .find({
         $expr: {
@@ -908,6 +923,8 @@ export class BusinessService {
       .select('_id')
       .lean()
       .exec();
+    const ids = rows.map((r) => r._id.toString());
+    await this.redis.set(cacheKey, ids, 30);
     return rows.map((r) => r._id as Types.ObjectId);
   }
 

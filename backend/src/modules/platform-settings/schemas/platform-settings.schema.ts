@@ -25,6 +25,13 @@ export class PlatformSettings {
   allowMobileNumberUpi!: boolean;
 
   /**
+   * Deposit (P2P pay) methods investors may use.
+   * Empty / missing = all methods enabled.
+   */
+  @Prop({ type: [String], default: ['upi', 'bank', 'usdt', 'cdm'] })
+  investorAllowedDepositMethods!: string[];
+
+  /**
    * Withdrawal methods investors may use.
    * Empty / missing = all methods enabled.
    */

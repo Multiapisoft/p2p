@@ -20,6 +20,7 @@ import { InvestorLimitPanel } from '@/features/invest/components/InvestorLimitPa
 import { InvestAmountModal } from '@/features/invest/components/InvestAmountModal';
 import { apiGet } from '@/shared/api/client';
 import type { PaymentMethod } from '@/shared/types/api.types';
+import { liveQueryOptions } from '@/shared/constants/live-query';
 
 const MATCH_AMOUNT_KEY = 'p2p-match-amount';
 const PAGE_SIZES = [5, 10, 20];
@@ -288,7 +289,7 @@ export function InvestWithdrawalsList() {
   const { data, isLoading, isFetching, isError, error, refetch } = useQuery({
     queryKey: ['invest-withdrawals', listQuery],
     queryFn: () => fulfillApi.getAvailable(listQuery),
-    refetchInterval: 10_000,
+    ...liveQueryOptions,
   });
 
   useEffect(() => {
@@ -305,8 +306,31 @@ export function InvestWithdrawalsList() {
   const { data: platformSettings } = useQuery({
     queryKey: ['platform-settings'],
     queryFn: () =>
-      apiGet<{ investorPlanAmounts?: number[] }>('/platform-settings'),
+      apiGet<{
+        investorPlanAmounts?: number[];
+        investorAllowedDepositMethods?: PaymentMethod[];
+      }>('/platform-settings'),
   });
+
+  const methodTabs = useMemo(() => {
+    const allowed =
+      platformSettings?.investorAllowedDepositMethods ?? data?.investorAllowedDepositMethods;
+    if (!allowed?.length) return METHOD_TABS;
+    return METHOD_TABS.filter((t) => t.value === 'all' || allowed.includes(t.value));
+  }, [platformSettings?.investorAllowedDepositMethods, data?.investorAllowedDepositMethods]);
+
+  const depositMethodsRestricted =
+    (platformSettings?.investorAllowedDepositMethods ?? data?.investorAllowedDepositMethods)
+      ?.length &&
+    methodTabs.filter((t) => t.value !== 'all').length <
+      METHOD_TABS.filter((t) => t.value !== 'all').length;
+
+  useEffect(() => {
+    if (!methodTabs.length) return;
+    if (!methodTabs.some((t) => t.value === method)) {
+      setMethod(methodTabs[0]?.value ?? 'all');
+    }
+  }, [methodTabs, method]);
 
   const addLimit = useMutation({
     mutationFn: (amount: number) => fulfillApi.addInvestorLimit(amount),
@@ -629,7 +653,7 @@ export function InvestWithdrawalsList() {
         </div>
 
         <div className="mt-2 flex flex-wrap gap-1">
-          {METHOD_TABS.map((t) => (
+          {methodTabs.map((t) => (
             <button
               key={t.value}
               type="button"
@@ -647,6 +671,11 @@ export function InvestWithdrawalsList() {
             </button>
           ))}
         </div>
+        {depositMethodsRestricted ? (
+          <p className="mt-2 text-xs text-on-surface-variant">
+            Only admin-enabled deposit methods are shown (UPI / Bank / USDT / CDM).
+          </p>
+        ) : null}
       </div>
 
       <div className="overflow-hidden rounded-xl border border-outline-variant/60 bg-surface-container-lowest">

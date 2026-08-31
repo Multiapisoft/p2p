@@ -94,6 +94,7 @@ export interface AvailableWithdrawalsResponse extends Paginated<AvailableWithdra
   paySubmitMinutes?: number;
   showCommissionToInvestor?: boolean;
   allowMobileNumberUpi?: boolean;
+  investorAllowedDepositMethods?: PaymentMethod[];
 }
 
 export interface ClaimWithdrawalResult extends AvailableWithdrawal {

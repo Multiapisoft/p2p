@@ -23,6 +23,7 @@ import {
   paymentRefErrorForMethod,
 } from '@/shared/lib/validation';
 import { buildUpiPayUri, buildUpiAppLinks, formatSecondsMmSs } from '@/shared/lib/upi-qr';
+import { liveQueryOptions } from '@/shared/constants/live-query';
 import { minPartialAmount, partialPayError } from '@/shared/lib/partial-pay';
 import type { PaymentMethod } from '@/shared/types/api.types';
 
@@ -238,7 +239,7 @@ export function BusinessDepositPayPanel() {
   const { data, isLoading, isFetching, isError, error, refetch } = useQuery({
     queryKey: ['available-withdrawals', listQuery],
     queryFn: () => businessDepositPayApi.getAvailable(listQuery),
-    refetchInterval: 10_000,
+    ...liveQueryOptions,
   });
 
   useEffect(() => {

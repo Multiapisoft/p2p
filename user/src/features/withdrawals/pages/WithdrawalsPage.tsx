@@ -23,6 +23,7 @@ import {
   upiIdError,
 } from '@/shared/lib/validation';
 import { formatSecondsMmSs } from '@/shared/lib/upi-qr';
+import { liveQueryOptions } from '@/shared/constants/live-query';
 import { Modal } from '@/shared/components/ui/Modal';
 import { toast } from '@/shared/ui/toast/toast.store';
 import { CsvDownloadButton } from '@/shared/components/CsvDownloadButton';
@@ -225,7 +226,7 @@ export function WithdrawalsPage() {
   const { data, isLoading, isFetching, isError, error, refetch } = useQuery({
     queryKey: ['withdrawals', listQuery],
     queryFn: () => withdrawalsApi.getMy(listQuery),
-    refetchInterval: 10_000,
+    ...liveQueryOptions,
   });
 
   useEffect(() => {

@@ -18,8 +18,10 @@ import { LoadingScreen, EmptyState } from '@/shared/components/ui/Icon';
 import { apiErrorMessage, formatCurrency, formatDate } from '@/shared/lib/utils';
 import { normalizeUtr, normalizeTxHash, paymentRefErrorForMethod } from '@/shared/lib/validation';
 import { buildUpiPayUri, buildUpiAppLinks, formatSecondsMmSs } from '@/shared/lib/upi-qr';
+import { liveQueryOptions } from '@/shared/constants/live-query';
 import { minPartialAmount, partialPayError } from '@/shared/lib/partial-pay';
 import { DepositAmountModal } from '@/features/deposits/components/DepositAmountModal';
+import { profileApi } from '@/features/profile/api/profile.api';
 import type { PaymentMethod } from '@/shared/types/api.types';
 
 const PAGE_SIZES = [5, 10, 20];
@@ -30,6 +32,14 @@ function readStoredMatchAmount() {
   const n = Number(sessionStorage.getItem(MATCH_AMOUNT_KEY));
   return Number.isFinite(n) && n >= 1 ? n : null;
 }
+
+const METHOD_TABS: { value: PaymentMethod | 'all'; label: string }[] = [
+  { value: 'all', label: 'All' },
+  { value: 'upi', label: 'UPI' },
+  { value: 'bank', label: 'Bank' },
+  { value: 'usdt', label: 'USDT' },
+  { value: 'cdm', label: 'CDM' },
+];
 
 const METHOD_META: Record<PaymentMethod, { label: string; icon: string }> = {
   upi: { label: 'UPI', icon: 'qr_code_2' },
@@ -240,10 +250,28 @@ export function AvailableWithdrawalsPanel({
     enabled: !!target && Number.isFinite(payAmountNum) && payAmountNum >= 1,
   });
 
+  const { data: profile } = useQuery({
+    queryKey: ['profile-me'],
+    queryFn: () => profileApi.getMe(),
+  });
+
+  const methodTabs = useMemo(() => {
+    const allowed = profile?.referredBusiness?.allowedDepositMethods;
+    if (!allowed?.length) return METHOD_TABS;
+    return METHOD_TABS.filter((t) => t.value === 'all' || allowed.includes(t.value));
+  }, [profile?.referredBusiness?.allowedDepositMethods]);
+
+  useEffect(() => {
+    if (!methodTabs.length) return;
+    if (!methodTabs.some((t) => t.value === method)) {
+      setMethod(methodTabs[0]?.value ?? 'all');
+    }
+  }, [methodTabs, method]);
+
   const { data, isLoading, isFetching, isError, error, refetch } = useQuery({
     queryKey: ['available-withdrawals', listQuery],
     queryFn: () => p2pPayApi.getAvailable(listQuery),
-    refetchInterval: 10_000,
+    ...liveQueryOptions,
   });
 
   const submit = useMutation({
@@ -484,21 +512,21 @@ export function AvailableWithdrawalsPanel({
             </Button>
           </div>
           <div className="chip-scroll">
-            {(['all', 'upi', 'bank', 'usdt', 'cdm'] as const).map((m) => (
+            {methodTabs.map((t) => (
               <button
-                key={m}
+                key={t.value}
                 type="button"
                 onClick={() => {
-                  setMethod(m);
+                  setMethod(t.value);
                   setPage(1);
                 }}
                 className={`rounded-full px-2.5 py-1 text-[11px] font-semibold capitalize sm:px-3.5 sm:py-1.5 sm:text-xs ${
-                  method === m
+                  method === t.value
                     ? 'bg-primary text-on-primary'
                     : 'border border-outline-variant bg-surface-container-lowest'
                 }`}
               >
-                {m === 'all' ? 'All' : METHOD_META[m].label}
+                {t.label}
               </button>
             ))}
           </div>
@@ -747,6 +775,7 @@ export function MyP2pPaymentsPanel() {
   const { data, isLoading, isFetching, isError, error, refetch } = useQuery({
     queryKey: ['my-p2p-payments', page, limit],
     queryFn: () => p2pPayApi.getMyPayments({ page, limit }),
+    ...liveQueryOptions,
   });
 
   const items = data?.items ?? [];

@@ -19,6 +19,7 @@ import { SplitPaymentsTab } from '../components/SplitPaymentsTab';
 import { RedemptionsTab } from '../components/RedemptionsTab';
 import { AssignPayerModal } from '../components/AssignPayerModal';
 import type { Withdrawal } from '@/shared/types/api.types';
+import { liveQueryOptions } from '@/shared/constants/live-query';
 
 const STATUS_FILTERS = [
   { value: 'all', label: 'All' },
@@ -96,6 +97,7 @@ export function WithdrawalsPage() {
         ? withdrawalsApi.getPending(listQuery)
         : withdrawalsApi.getAll(listQuery),
     enabled: tab !== 'split' && tab !== 'redemptions',
+    ...liveQueryOptions,
   });
 
   const { data: detailFull, isLoading: detailLoading } = useQuery({

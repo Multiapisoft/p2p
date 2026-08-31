@@ -20,6 +20,7 @@ import { CsvDownloadButton } from '@/shared/components/CsvDownloadButton';
 import { PersonDetails } from '@/shared/components/PersonDetails';
 import { InvestmentsTab } from '../components/InvestmentsTab';
 import type { Deposit } from '@/shared/types/api.types';
+import { liveQueryOptions } from '@/shared/constants/live-query';
 
 const STATUS_FILTERS = [
   { value: 'all', label: 'All' },
@@ -160,11 +161,13 @@ export function DepositsPage() {
         ? depositsApi.getPending(listQuery)
         : depositsApi.getAll(listQuery),
     enabled: tab === 'deposits',
+    ...liveQueryOptions,
   });
 
   const { data: p2pData } = useQuery({
     queryKey: ['withdrawal-payments', 'count-for-deposits'],
     queryFn: () => withdrawalPaymentsApi.getAll({ page: 1, limit: 1 }),
+    ...liveQueryOptions,
   });
 
   const approve = useMutation({

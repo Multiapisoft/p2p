@@ -33,6 +33,8 @@ export const businessApi = {
     webhookUrl?: string;
     commissionRate?: number;
     allowedPaymentMethods?: PaymentMethod[];
+    allowedDepositMethods?: PaymentMethod[];
+    allowedWithdrawalMethods?: PaymentMethod[];
     integrationUrls?: IntegrationUrls;
   }) => apiPatch<BusinessProfile>('/business/me', body),
   regenerateKeys: () => apiPost<RegenerateKeysResponse>('/business/me/regenerate-keys'),

@@ -17,6 +17,7 @@ import { LoadingScreen, EmptyState } from '@/shared/components/ui/Icon';
 import { CsvDownloadButton } from '@/shared/components/CsvDownloadButton';
 import { fetchAllPages } from '@/shared/lib/csv';
 import { formatCurrency, formatDate } from '@/shared/lib/utils';
+import { liveQueryOptions } from '@/shared/constants/live-query';
 
 const STATUS_FILTERS = [
   { value: 'all', label: 'All' },
@@ -66,7 +67,7 @@ function MyPaymentsHistory() {
   const { data, isLoading, isFetching, isError, error, refetch } = useQuery({
     queryKey: ['business-my-deposits', listQuery],
     queryFn: () => businessDepositPayApi.getMyPayments(listQuery),
-    refetchInterval: 10_000,
+    ...liveQueryOptions,
   });
 
   const items = data?.items ?? [];

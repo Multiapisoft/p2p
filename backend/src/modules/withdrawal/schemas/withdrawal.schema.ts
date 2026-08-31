@@ -161,3 +161,4 @@ export class Withdrawal {
 export const WithdrawalSchema = SchemaFactory.createForClass(Withdrawal);
 WithdrawalSchema.index({ status: 1, createdAt: -1 });
 WithdrawalSchema.index({ p2pListStatus: 1, status: 1, createdAt: -1 });
+WithdrawalSchema.index({ createdAt: 1, origin: 1 });

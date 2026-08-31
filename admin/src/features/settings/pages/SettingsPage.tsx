@@ -43,6 +43,12 @@ export function SettingsPage() {
   const [planMultiplier, setPlanMultiplier] = useState('');
   const [planAmountsText, setPlanAmountsText] = useState('25000,50000,75000,100000,200000');
   const [allowMobileUpi, setAllowMobileUpi] = useState(false);
+  const [investorDepositMethods, setInvestorDepositMethods] = useState<string[]>([
+    'upi',
+    'bank',
+    'usdt',
+    'cdm',
+  ]);
   const [investorWdMethods, setInvestorWdMethods] = useState<string[]>([
     'upi',
     'bank',
@@ -74,6 +80,11 @@ export function SettingsPage() {
       ).join(','),
     );
     setAllowMobileUpi(!!settings.allowMobileNumberUpi);
+    setInvestorDepositMethods(
+      settings.investorAllowedDepositMethods?.length
+        ? settings.investorAllowedDepositMethods
+        : ['upi', 'bank', 'usdt', 'cdm'],
+    );
     setInvestorWdMethods(
       settings.investorAllowedWithdrawalMethods?.length
         ? settings.investorAllowedWithdrawalMethods
@@ -103,6 +114,9 @@ export function SettingsPage() {
       if (!plans.length) {
         throw new Error('Enter at least one investor plan amount');
       }
+      if (!investorDepositMethods.length) {
+        throw new Error('Enable at least one investor deposit method');
+      }
       if (!investorWdMethods.length) {
         throw new Error('Enable at least one investor withdrawal method');
       }
@@ -113,6 +127,7 @@ export function SettingsPage() {
         investorPlanTargetMultiplier: Number(planMultiplier),
         investorPlanAmounts: plans,
         allowMobileNumberUpi: allowMobileUpi,
+        investorAllowedDepositMethods: investorDepositMethods,
         investorAllowedWithdrawalMethods: investorWdMethods,
         showCommissionToInvestor,
         minTransactionAmount: minAmount,
@@ -263,35 +278,74 @@ export function SettingsPage() {
               </label>
 
               <div className="space-y-2 rounded-xl border border-outline-variant bg-surface-container-low/40 p-3">
-                <p className="text-sm font-semibold">Investor withdrawal methods</p>
+                <p className="text-sm font-semibold">Investor payment methods</p>
                 <p className="text-xs text-on-surface-variant">
-                  Only checked methods appear for investors when they request a withdrawal.
+                  Enable or disable UPI, Bank, USDT, and CDM separately for investor deposits
+                  (P2P pay) and withdrawals.
                 </p>
-                <div className="flex flex-wrap gap-3">
-                  {(
-                    [
-                      ['upi', 'UPI'],
-                      ['bank', 'Bank'],
-                      ['usdt', 'USDT'],
-                      ['cdm', 'CDM'],
-                    ] as const
-                  ).map(([value, label]) => (
-                    <label key={value} className="flex items-center gap-2 text-sm">
-                      <input
-                        type="checkbox"
-                        checked={investorWdMethods.includes(value)}
-                        onChange={(e) => {
-                          setInvestorWdMethods((prev) => {
-                            if (e.target.checked) {
-                              return prev.includes(value) ? prev : [...prev, value];
-                            }
-                            return prev.filter((m) => m !== value);
-                          });
-                        }}
-                      />
-                      {label}
-                    </label>
-                  ))}
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-on-surface-variant">
+                      Deposits (P2P pay)
+                    </p>
+                    <div className="flex flex-wrap gap-3">
+                      {(
+                        [
+                          ['upi', 'UPI'],
+                          ['bank', 'Bank'],
+                          ['usdt', 'USDT'],
+                          ['cdm', 'CDM'],
+                        ] as const
+                      ).map(([value, label]) => (
+                        <label key={`dep-${value}`} className="flex items-center gap-2 text-sm">
+                          <input
+                            type="checkbox"
+                            checked={investorDepositMethods.includes(value)}
+                            onChange={(e) => {
+                              setInvestorDepositMethods((prev) => {
+                                if (e.target.checked) {
+                                  return prev.includes(value) ? prev : [...prev, value];
+                                }
+                                return prev.filter((m) => m !== value);
+                              });
+                            }}
+                          />
+                          {label}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-on-surface-variant">
+                      Withdrawals
+                    </p>
+                    <div className="flex flex-wrap gap-3">
+                      {(
+                        [
+                          ['upi', 'UPI'],
+                          ['bank', 'Bank'],
+                          ['usdt', 'USDT'],
+                          ['cdm', 'CDM'],
+                        ] as const
+                      ).map(([value, label]) => (
+                        <label key={`wd-${value}`} className="flex items-center gap-2 text-sm">
+                          <input
+                            type="checkbox"
+                            checked={investorWdMethods.includes(value)}
+                            onChange={(e) => {
+                              setInvestorWdMethods((prev) => {
+                                if (e.target.checked) {
+                                  return prev.includes(value) ? prev : [...prev, value];
+                                }
+                                return prev.filter((m) => m !== value);
+                              });
+                            }}
+                          />
+                          {label}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               </div>
 

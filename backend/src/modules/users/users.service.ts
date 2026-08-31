@@ -41,6 +41,8 @@ import {
 import { sanitizeBusinessStaffPermissions } from '../../common/utils/business-staff.util';
 import { assertValidWithdrawalDestination } from '../withdrawal/utils/withdrawal-destination.validation';
 import { PlatformSettingsService } from '../platform-settings/platform-settings.service';
+import { resolveWithdrawalMethods } from '../business/utils/payment-methods.util';
+import { PaymentMethod } from '../../common/enums/payment-method.enum';
 import {
   buildSavedWithdrawalMethodLabel,
   deleteSavedWithdrawalMethod as deleteSavedMethodUtil,
@@ -423,6 +425,24 @@ export class UsersService {
       },
       { allowMobileNumber: !!settings.allowMobileNumberUpi },
     );
+    if (user.role === UserRole.INVESTOR) {
+      await this.platformSettingsService.assertInvestorWithdrawalMethodAllowed(dto.method);
+    }
+    if (user.role === UserRole.USER && user.referredByBusiness) {
+      const business = await this.businessModel
+        .findById(user.referredByBusiness)
+        .select('name allowedWithdrawalMethods allowedPaymentMethods')
+        .lean()
+        .exec();
+      if (business) {
+        const allowed = resolveWithdrawalMethods(business);
+        if (!allowed.includes(dto.method as PaymentMethod)) {
+          throw new BadRequestException(
+            `Withdrawal method "${dto.method}" is disabled for ${business.name}. Contact your business.`,
+          );
+        }
+      }
+    }
 
     const items = this.normalizeSavedMethods(user.savedWithdrawalMethods);
     if (!methodId && items.length >= MAX_SAVED_WITHDRAWAL_METHODS) {

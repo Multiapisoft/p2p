@@ -7,7 +7,10 @@ import {
 } from './schemas/platform-settings.schema';
 import { UpdatePlatformSettingsDto } from './dto/platform-settings.dto';
 import { RedisService } from '../../redis/redis.service';
-import { resolveInvestorWithdrawalMethods as resolveInvestorMethodsList } from '../business/utils/payment-methods.util';
+import {
+  resolveInvestorDepositMethods as resolveInvestorDepositMethodsList,
+  resolveInvestorWithdrawalMethods as resolveInvestorWithdrawalMethodsList,
+} from '../business/utils/payment-methods.util';
 
 const CACHE_KEY = 'platform-settings';
 const CACHE_TTL_SECONDS = 60;
@@ -98,15 +101,35 @@ export class PlatformSettingsService {
     return settings.allowPartialPay !== false;
   }
 
+  resolveInvestorDepositMethods(
+    settings: Pick<PlatformSettings, 'investorAllowedDepositMethods'>,
+  ): string[] {
+    return resolveInvestorDepositMethodsList(settings.investorAllowedDepositMethods);
+  }
+
   resolveInvestorWithdrawalMethods(
     settings: Pick<PlatformSettings, 'investorAllowedWithdrawalMethods'>,
   ): string[] {
-    return resolveInvestorMethodsList(settings.investorAllowedWithdrawalMethods);
+    return resolveInvestorWithdrawalMethodsList(settings.investorAllowedWithdrawalMethods);
+  }
+
+  async getInvestorAllowedDepositMethods(): Promise<string[]> {
+    const settings = await this.get();
+    return this.resolveInvestorDepositMethods(settings);
   }
 
   async getInvestorAllowedWithdrawalMethods(): Promise<string[]> {
     const settings = await this.get();
     return this.resolveInvestorWithdrawalMethods(settings);
+  }
+
+  async assertInvestorDepositMethodAllowed(method: string) {
+    const allowed = await this.getInvestorAllowedDepositMethods();
+    if (!allowed.includes(method)) {
+      throw new BadRequestException(
+        `Deposit method "${method}" is disabled for investors. Contact platform admin.`,
+      );
+    }
   }
 
   async assertInvestorWithdrawalMethodAllowed(method: string) {

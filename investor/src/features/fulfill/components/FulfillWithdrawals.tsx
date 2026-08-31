@@ -13,6 +13,7 @@ import { ProofUpload } from '@/shared/components/ProofUpload';
 import { AddressQr } from '@/shared/components/AddressQr';
 import { LoadingScreen, EmptyState } from '@/shared/components/ui/Icon';
 import { apiErrorMessage, formatCurrency, formatDate } from '@/shared/lib/utils';
+import { liveQueryOptions } from '@/shared/constants/live-query';
 import { normalizeUtr, normalizeTxHash, paymentRefErrorForMethod } from '@/shared/lib/validation';
 import { buildUpiPayUri, buildUpiAppLinks, formatSecondsMmSs } from '@/shared/lib/upi-qr';
 import { minPartialAmount, partialPayError } from '@/shared/lib/partial-pay';
@@ -333,7 +334,7 @@ export function FulfillWithdrawals({
   const { data, isLoading, isFetching, isError, error, refetch } = useQuery({
     queryKey: ['fulfill-available', availableQuery],
     queryFn: () => fulfillApi.getAvailable(availableQuery),
-    refetchInterval: 30_000,
+    ...liveQueryOptions,
   });
 
   const { data: platformSettings } = useQuery({

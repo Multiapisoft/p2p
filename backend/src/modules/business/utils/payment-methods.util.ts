@@ -35,9 +35,19 @@ export function isMethodAllowed(
   return allowed.includes(method as PaymentMethod);
 }
 
+const DEFAULT_INVESTOR_METHODS = ['upi', 'bank', 'usdt', 'cdm'];
+
+export function resolveInvestorMethodsList(methods?: string[] | null): string[] {
+  if (Array.isArray(methods) && methods.length > 0) return [...methods];
+  return [...DEFAULT_INVESTOR_METHODS];
+}
+
 export function resolveInvestorWithdrawalMethods(
   methods?: string[] | null,
 ): string[] {
-  if (Array.isArray(methods) && methods.length > 0) return [...methods];
-  return ['upi', 'bank', 'usdt', 'cdm'];
+  return resolveInvestorMethodsList(methods);
+}
+
+export function resolveInvestorDepositMethods(methods?: string[] | null): string[] {
+  return resolveInvestorMethodsList(methods);
 }

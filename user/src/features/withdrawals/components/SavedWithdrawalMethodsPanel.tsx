@@ -1,6 +1,6 @@
 ﻿'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { profileApi } from '@/features/profile/api/profile.api';
 import { apiGet } from '@/shared/api/client';
@@ -65,10 +65,21 @@ export function SavedWithdrawalMethodsPanel({
   const [saveAsDefault, setSaveAsDefault] = useState(true);
   const [formError, setFormError] = useState('');
 
+  const { data: profile } = useQuery({
+    queryKey: ['profile-me'],
+    queryFn: () => profileApi.getMe(),
+  });
+
   const { data: platformSettings } = useQuery({
     queryKey: ['platform-settings'],
     queryFn: () => apiGet<{ allowMobileNumberUpi?: boolean }>('/platform-settings'),
   });
+
+  const enabledAddMethods = useMemo(() => {
+    const allowed = profile?.referredBusiness?.allowedWithdrawalMethods;
+    if (allowed?.length) return ADD_METHODS.filter((m) => allowed.includes(m.value));
+    return ADD_METHODS;
+  }, [profile?.referredBusiness?.allowedWithdrawalMethods]);
 
   const { data } = useQuery({
     queryKey: ['saved-withdrawal-methods'],
@@ -186,7 +197,7 @@ export function SavedWithdrawalMethodsPanel({
     <>
       <Card title="Payout methods">
         <div className="mb-3 flex flex-wrap gap-1.5">
-          {ADD_METHODS.map((m) => (
+          {enabledAddMethods.map((m) => (
             <Button
               key={m.value}
               type="button"

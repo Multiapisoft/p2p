@@ -23,6 +23,7 @@ import {
   upiIdError,
 } from '@/shared/lib/validation';
 import { formatSecondsMmSs } from '@/shared/lib/upi-qr';
+import { liveQueryOptions } from '@/shared/constants/live-query';
 import { SavedWithdrawalMethodsPanel } from '../components/SavedWithdrawalMethodsPanel';
 import type {
   CreateWithdrawalPayload,
@@ -150,6 +151,7 @@ export function WithdrawalsPage() {
   const { data, isLoading, isFetching } = useQuery({
     queryKey: ['my-withdrawals', listQuery],
     queryFn: () => withdrawalsApi.getMy(listQuery),
+    ...liveQueryOptions,
   });
 
   const resetForm = () => {
@@ -368,6 +370,8 @@ export function WithdrawalsPage() {
     if (!showForm) resetForm();
   }, [showForm]);
 
+  const withdrawalsDisabled = enabledMethods.length === 0;
+
   return (
     <div className="mx-auto max-w-7xl space-y-6">
       <div className="relative overflow-hidden rounded-2xl border border-outline-variant bg-gradient-to-br from-surface-container-lowest via-surface-container-low/40 to-secondary-container/20 p-4 sm:p-5">
@@ -383,6 +387,7 @@ export function WithdrawalsPage() {
             </h1>
           </div>
           <Button
+            disabled={withdrawalsDisabled}
             onClick={() => {
               if (showForm) {
                 setShowForm(false);
@@ -396,6 +401,13 @@ export function WithdrawalsPage() {
           </Button>
         </div>
       </div>
+
+      {withdrawalsDisabled ? (
+        <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-on-surface">
+          Withdrawal methods are disabled by platform admin. Contact support to enable UPI, Bank, or
+          USDT.
+        </div>
+      ) : null}
 
       <div className="rounded-xl border border-secondary/25 bg-secondary-container/15 p-4">
         <p className="text-xs text-on-surface-variant">Available balance</p>
@@ -412,7 +424,7 @@ export function WithdrawalsPage() {
         }}
       />
 
-      {showForm && (
+      {showForm && !withdrawalsDisabled && (
         <Card>
           <form className="space-y-4" onSubmit={handleSubmit}>
             <div>

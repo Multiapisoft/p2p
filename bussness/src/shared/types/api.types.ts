@@ -111,6 +111,8 @@ export interface BusinessProfile {
   totalUsers: number;
   totalCommissionEarned: number;
   allowedPaymentMethods: PaymentMethod[];
+  allowedDepositMethods?: PaymentMethod[];
+  allowedWithdrawalMethods?: PaymentMethod[];
   status: string;
   integrationUrls?: IntegrationUrls;
   createdAt: string;

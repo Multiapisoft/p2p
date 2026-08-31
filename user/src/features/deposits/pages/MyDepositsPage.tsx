@@ -15,6 +15,7 @@ import { LoadingScreen, EmptyState } from '@/shared/components/ui/Icon';
 import { CsvDownloadButton } from '@/shared/components/CsvDownloadButton';
 import { fetchAllPages } from '@/shared/lib/csv';
 import { formatCurrency, formatDate } from '@/shared/lib/utils';
+import { liveQueryOptions } from '@/shared/constants/live-query';
 
 const STATUS_FILTERS = [
   { value: 'all', label: 'All' },
@@ -86,7 +87,7 @@ function MyDepositsPageInner() {
   const { data, isLoading, isFetching, isError, error, refetch } = useQuery({
     queryKey: ['my-deposits-platform', listQuery],
     queryFn: () => p2pPayApi.getMyPayments(listQuery),
-    refetchInterval: 10_000,
+    ...liveQueryOptions,
   });
 
   const items = data?.items ?? [];

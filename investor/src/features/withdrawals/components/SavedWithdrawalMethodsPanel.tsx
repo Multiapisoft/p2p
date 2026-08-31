@@ -1,6 +1,6 @@
 ﻿'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { profileApi } from '@/features/profile/api/profile.api';
 import { apiGet } from '@/shared/api/client';
@@ -57,8 +57,18 @@ export function SavedWithdrawalMethodsPanel({
 
   const { data: platformSettings } = useQuery({
     queryKey: ['platform-settings'],
-    queryFn: () => apiGet<{ allowMobileNumberUpi?: boolean }>('/platform-settings'),
+    queryFn: () =>
+      apiGet<{
+        allowMobileNumberUpi?: boolean;
+        investorAllowedWithdrawalMethods?: PaymentMethod[];
+      }>('/platform-settings'),
   });
+
+  const enabledAddMethods = useMemo(() => {
+    const allowed = platformSettings?.investorAllowedWithdrawalMethods;
+    if (allowed?.length) return ADD_METHODS.filter((m) => allowed.includes(m.value));
+    return ADD_METHODS;
+  }, [platformSettings?.investorAllowedWithdrawalMethods]);
 
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ['saved-withdrawal-methods'],
@@ -171,7 +181,7 @@ export function SavedWithdrawalMethodsPanel({
     <>
       <Card title="Payout methods">
         <div className="mb-3 flex flex-wrap gap-1.5">
-          {ADD_METHODS.map((m) => (
+          {enabledAddMethods.map((m) => (
             <Button
               key={m.value}
               type="button"

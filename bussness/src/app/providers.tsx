@@ -3,11 +3,10 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useState, type ReactNode } from 'react';
 import { useP2pListLive } from '@/shared/hooks/useP2pListLive';
-
-const P2P_LIST_KEYS = ['available-withdrawals'];
+import { LIVE_QUERY_ROOTS } from '@/shared/constants/live-query';
 
 function P2pListLiveSync() {
-  useP2pListLive(P2P_LIST_KEYS);
+  useP2pListLive(LIVE_QUERY_ROOTS);
   return null;
 }
 
@@ -17,9 +16,9 @@ export function AppProviders({ children }: { children: ReactNode }) {
       new QueryClient({
         defaultOptions: {
           queries: {
-            staleTime: 30_000,
+            staleTime: 10_000,
             retry: 1,
-            refetchOnWindowFocus: false,
+            refetchOnWindowFocus: true,
           },
         },
       }),

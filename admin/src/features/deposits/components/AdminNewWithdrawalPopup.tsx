@@ -7,6 +7,7 @@ import { withdrawalsApi } from '@/features/withdrawals/api/withdrawals.api';
 import { Modal } from '@/shared/components/ui/Modal';
 import { Button } from '@/shared/components/ui/Button';
 import { formatCurrency } from '@/shared/lib/utils';
+import { liveQueryOptions } from '@/shared/constants/live-query';
 
 const SEEN_KEY = 'admin-wd-popup-seen-ids';
 
@@ -69,7 +70,7 @@ export function AdminNewWithdrawalPopup() {
         status: 'pending',
         sort: 'newest',
       }),
-    refetchInterval: 10_000,
+    ...liveQueryOptions,
   });
 
   useEffect(() => {

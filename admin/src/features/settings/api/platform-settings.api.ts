@@ -7,6 +7,7 @@ export interface PlatformSettings {
   investorPlanAmounts: number[];
   investorPlanTargetMultiplier: number;
   allowMobileNumberUpi: boolean;
+  investorAllowedDepositMethods: string[];
   investorAllowedWithdrawalMethods: string[];
   showCommissionToInvestor: boolean;
   minTransactionAmount: number;

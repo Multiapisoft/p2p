@@ -2,6 +2,7 @@ import { PaymentMethod } from '../../../common/enums/payment-method.enum';
 import {
   isMethodAllowed,
   resolveDepositMethods,
+  resolveInvestorDepositMethods,
   resolveInvestorWithdrawalMethods,
   resolveWithdrawalMethods,
 } from './payment-methods.util';
@@ -38,5 +39,7 @@ describe('payment-methods.util', () => {
     expect(resolveInvestorWithdrawalMethods(null)).toEqual(['upi', 'bank', 'usdt', 'cdm']);
     expect(resolveInvestorWithdrawalMethods([])).toEqual(['upi', 'bank', 'usdt', 'cdm']);
     expect(resolveInvestorWithdrawalMethods(['upi', 'usdt'])).toEqual(['upi', 'usdt']);
+    expect(resolveInvestorDepositMethods(null)).toEqual(['upi', 'bank', 'usdt', 'cdm']);
+    expect(resolveInvestorDepositMethods(['bank'])).toEqual(['bank']);
   });
 });
