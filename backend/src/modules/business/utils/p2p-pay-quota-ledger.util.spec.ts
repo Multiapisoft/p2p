@@ -35,4 +35,16 @@ describe('p2pPayQuotaLedgerDescription', () => {
       }),
     ).toBe('P2P pay limit deducted ₹200. Remaining ₹1500 → ₹1300');
   });
+
+  it('notes admin fee on P2P payment limit deduct', () => {
+    expect(
+      p2pPayQuotaLedgerDescription({
+        action: 'deduct',
+        amount: 50,
+        remainingBefore: 1500,
+        remainingAfter: 1450,
+        feeToAdmin: true,
+      }),
+    ).toBe('P2P pay limit deducted ₹50 (fee to admin). Remaining ₹1500 → ₹1450');
+  });
 });

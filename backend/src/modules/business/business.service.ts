@@ -1054,6 +1054,9 @@ export class BusinessService {
       opts.remainingAfter >= opts.remainingBefore
         ? LedgerDirection.CREDIT
         : LedgerDirection.DEBIT;
+    const refType = opts.ref?.referenceType;
+    const feeToAdmin =
+      refType === 'withdrawal_payment_fee' || refType === 'withdrawal_payment_deposit_fee';
     await this.transactionService.record({
       userId: ownerId,
       type: LedgerType.P2P_LIMIT,
@@ -1062,7 +1065,7 @@ export class BusinessService {
       currency: Currency.INR,
       balanceBefore: opts.remainingBefore,
       balanceAfter: opts.remainingAfter,
-      referenceType: opts.ref?.referenceType || 'p2p_pay_limit',
+      referenceType: refType || 'p2p_pay_limit',
       referenceId: opts.ref?.referenceId || opts.business._id.toString(),
       description: p2pPayQuotaLedgerDescription({
         action: opts.action,
@@ -1071,6 +1074,7 @@ export class BusinessService {
         remainingAfter: opts.remainingAfter,
         seedBefore: opts.seedBefore,
         seedAfter: opts.seedAfter,
+        feeToAdmin,
       }),
       businessId: opts.business._id.toString(),
       fromParty: direction === LedgerDirection.DEBIT ? opts.business.name : 'Platform',

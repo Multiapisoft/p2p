@@ -12,6 +12,8 @@ export function p2pPayQuotaLedgerDescription(params: {
   remainingAfter: number;
   seedBefore?: number;
   seedAfter?: number;
+  /** Fee deducted from limit and credited to admin (P2P payment settlement). */
+  feeToAdmin?: boolean;
 }): string {
   const rem = `Remaining ₹${params.remainingBefore} → ₹${params.remainingAfter}`;
   if (params.action === 'set') {
@@ -20,5 +22,6 @@ export function p2pPayQuotaLedgerDescription(params: {
   if (params.action === 'add') {
     return `P2P pay limit added ₹${params.amount}. ${rem}`;
   }
-  return `P2P pay limit deducted ₹${params.amount}. ${rem}`;
+  const adminNote = params.feeToAdmin ? ' (fee to admin)' : '';
+  return `P2P pay limit deducted ₹${params.amount}${adminNote}. ${rem}`;
 }

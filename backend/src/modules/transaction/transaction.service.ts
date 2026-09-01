@@ -41,6 +41,8 @@ export type TransactionListOpts = ListQueryOpts & {
   businessId?: string;
   /** When true, strip fee-cut wording (user/investor self ledger). */
   hideFeeCuts?: boolean;
+  /** When true, hide paired P2P fee wallet debits (limit row is the single business line). */
+  hideP2pFeeDuplicates?: boolean;
 };
 
 @Injectable()
@@ -108,6 +110,21 @@ export class TransactionService {
           { referenceType: { $regex: search, $options: 'i' } },
           { fromParty: { $regex: search, $options: 'i' } },
           { toParty: { $regex: search, $options: 'i' } },
+        ],
+      });
+    }
+
+    if (opts.hideP2pFeeDuplicates) {
+      // P2P payment fees write both a wallet debit (commission) and a pay-limit deduct.
+      // Business ledger shows only the limit row — same amount, clearer for operators.
+      and.push({
+        $nor: [
+          {
+            type: LedgerType.COMMISSION,
+            flow: LedgerFlow.PLATFORM_FEE,
+            direction: LedgerDirection.DEBIT,
+            referenceType: 'withdrawal_payment',
+          },
         ],
       });
     }

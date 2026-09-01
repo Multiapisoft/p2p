@@ -50,6 +50,7 @@ export class TransactionController {
       type: query.type,
       direction: query.direction,
       hideFeeCuts: true,
+      hideP2pFeeDuplicates: true,
     });
   }
 
