@@ -43,6 +43,11 @@ const METHOD_OPTIONS: { value: PaymentMethod | 'all'; label: string }[] = [
   { value: 'cdm', label: 'CDM' },
 ];
 
+function moneyCurrency(w: { currency?: string; method?: string }) {
+  if (w.method === 'usdt' || (w.currency || '').toUpperCase() === 'USDT') return 'USDT';
+  return w.currency || 'INR';
+}
+
 function depositMethodOptions(
   allowed?: PaymentMethod[] | null,
 ): { value: PaymentMethod | 'all'; label: string }[] {
@@ -173,6 +178,7 @@ function ListToolbar({
   onMethodChange,
   showMethod = false,
   sortOptions,
+  methodOptions = METHOD_OPTIONS,
 }: {
   searchInput: string;
   onSearchInputChange: (v: string) => void;
@@ -184,6 +190,7 @@ function ListToolbar({
   onMethodChange?: (v: PaymentMethod | 'all') => void;
   showMethod?: boolean;
   sortOptions: { value: string; label: string }[];
+  methodOptions?: { value: PaymentMethod | 'all'; label: string }[];
 }) {
   return (
     <div className="mb-5 space-y-4">
@@ -669,6 +676,7 @@ export function FulfillWithdrawals({
           }}
           showMethod
           sortOptions={AVAILABLE_SORT_OPTIONS}
+          methodOptions={methodOptions}
         />
         <div className="mb-3">
           <Button type="button" size="sm" variant="outline" onClick={() => refetch()}>
@@ -997,8 +1005,12 @@ export function FulfillWithdrawals({
                 You pay:{' '}
                 <strong>
                   {formatCurrency(
-                    payAmountNum >= 1 ? payAmountNum : maxPay,
-                    target.currency,
+                    payAmountNum >= 1
+                      ? payAmountNum
+                      : target.maxPayable != null
+                        ? Math.min(target.maxPayable, target.remainingAmount)
+                        : target.remainingAmount,
+                    moneyCurrency(target),
                   )}
                 </strong>
               </p>
