@@ -25,6 +25,8 @@ import {
 import { formatSecondsMmSs } from '@/shared/lib/upi-qr';
 import { liveQueryOptions } from '@/shared/constants/live-query';
 import { SavedWithdrawalMethodsPanel } from '../components/SavedWithdrawalMethodsPanel';
+import { WithdrawalOwnerPaymentsPanel } from '../components/WithdrawalOwnerPaymentsPanel';
+import { confirmDialog } from '@/shared/ui/confirm/confirm.store';
 import type {
   CreateWithdrawalPayload,
   PaymentMethod,
@@ -32,11 +34,10 @@ import type {
   Withdrawal,
 } from '@/shared/types/api.types';
 
-const METHODS: { value: PaymentMethod; label: string }[] = [
-  { value: 'upi', label: 'UPI' },
-  { value: 'bank', label: 'Bank Transfer' },
-  { value: 'usdt', label: 'USDT' },
-];
+import {
+  filterWithdrawalMethodOptions,
+  resolveInvestorWithdrawalMethods,
+} from '@/shared/lib/payment-methods';
 
 const STATUS_FILTERS: { value: string; label: string }[] = [
   { value: 'all', label: 'All' },
@@ -76,6 +77,11 @@ function DestinationLine({ w }: { w: Withdrawal }) {
   return null;
 }
 
+function progressPct(paid: number, total: number) {
+  if (total <= 0) return 0;
+  return Math.min(100, Math.round((paid / total) * 100));
+}
+
 export function WithdrawalsPage() {
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
@@ -97,6 +103,8 @@ export function WithdrawalsPage() {
   const [selectedSavedMethodId, setSelectedSavedMethodId] = useState('');
   const [saveCurrentMethod, setSaveCurrentMethod] = useState(false);
   const [saveAsDefault, setSaveAsDefault] = useState(false);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState('');
   const [now, setNow] = useState(() => Date.now());
   const qc = useQueryClient();
 
@@ -115,11 +123,13 @@ export function WithdrawalsPage() {
       }>('/platform-settings'),
   });
 
-  const enabledMethods = useMemo(() => {
-    const allowed = platformSettings?.investorAllowedWithdrawalMethods;
-    if (allowed?.length) return METHODS.filter((m) => allowed.includes(m.value));
-    return METHODS;
-  }, [platformSettings?.investorAllowedWithdrawalMethods]);
+  const enabledMethods = useMemo(
+    () =>
+      filterWithdrawalMethodOptions(
+        resolveInvestorWithdrawalMethods(platformSettings?.investorAllowedWithdrawalMethods),
+      ),
+    [platformSettings?.investorAllowedWithdrawalMethods],
+  );
 
   useEffect(() => {
     if (!enabledMethods.length) return;
@@ -282,6 +292,29 @@ export function WithdrawalsPage() {
       qc.invalidateQueries({ queryKey: ['my-withdrawals'] });
       qc.invalidateQueries({ queryKey: ['wallet-balance'] });
     },
+  });
+
+  const confirmReceived = useMutation({
+    mutationFn: (paymentId: string) => withdrawalsApi.confirmPaymentReceived(paymentId),
+    onSuccess: () => {
+      setActionError('');
+      qc.invalidateQueries({ queryKey: ['my-withdrawals'] });
+      qc.invalidateQueries({ queryKey: ['wallet-balance'] });
+      qc.invalidateQueries({ queryKey: ['portfolio'] });
+    },
+    onError: (err: unknown) =>
+      setActionError(apiErrorMessage(err, 'Could not confirm payment')),
+  });
+
+  const raiseDispute = useMutation({
+    mutationFn: ({ paymentId, reason }: { paymentId: string; reason?: string }) =>
+      withdrawalsApi.disputePayment(paymentId, reason),
+    onSuccess: () => {
+      setActionError('');
+      qc.invalidateQueries({ queryKey: ['my-withdrawals'] });
+    },
+    onError: (err: unknown) =>
+      setActionError(apiErrorMessage(err, 'Could not raise dispute')),
   });
 
   const available = balance?.availableBalance ?? 0;
@@ -651,6 +684,16 @@ export function WithdrawalsPage() {
         ) : (
           <div className={`space-y-3 ${isFetching ? 'opacity-70' : ''}`}>
             {items.map((w: Withdrawal) => {
+              const paid = w.paidAmount ?? 0;
+              const remaining = w.remainingAmount ?? Math.max(0, w.amount - paid);
+              const payments = w.payments ?? [];
+              const completedPays = payments.filter((p) => p.status === 'completed');
+              const pendingPays = payments.filter(
+                (p) => p.status === 'pending' && !p.disputedAt,
+              );
+              const disputedPays = payments.filter((p) => !!p.disputedAt);
+              const expanded = expandedId === w._id;
+              const pct = progressPct(paid, w.amount);
               const canCancel = w.userCanCancel === true;
               const tatLeft =
                 w.userEditExpiresAt != null
@@ -659,10 +702,13 @@ export function WithdrawalsPage() {
                       Math.ceil((new Date(w.userEditExpiresAt).getTime() - now) / 1000),
                     )
                   : w.tatSecondsRemaining ?? 0;
+              const needsConfirm = pendingPays.some(
+                (p) => p.status === 'pending' && !p.disputedAt,
+              );
               return (
               <article
                 key={w._id}
-                className={`overflow-hidden rounded-2xl border border-outline-variant/80 border-l-4 bg-surface-container-lowest p-3 shadow-sm sm:p-4 ${
+                className={`overflow-hidden rounded-2xl border border-outline-variant/80 border-l-4 bg-surface-container-lowest shadow-sm sm:p-0 ${
                   w.status === 'pending'
                     ? 'border-l-amber-500'
                     : w.status === 'processing'
@@ -674,6 +720,7 @@ export function WithdrawalsPage() {
                           : 'border-l-outline-variant'
                 }`}
               >
+                <div className="p-3 sm:p-4">
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
@@ -694,6 +741,11 @@ export function WithdrawalsPage() {
                           </span>
                         ) : null}
                       </p>
+                      {needsConfirm && (
+                        <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-bold uppercase text-amber-700">
+                          Confirm receipt
+                        </span>
+                      )}
                     </div>
                     <p className="mt-1 font-mono text-[11px] font-semibold text-primary">
                       {w.referenceId}
@@ -723,23 +775,87 @@ export function WithdrawalsPage() {
                   </div>
                   <div className="flex flex-col items-end gap-2">
                     <StatusBadge status={w.status} />
-                    {canCancel && tatLeft > 0 && (
-                      <div className="flex flex-col items-end gap-2">
-                        <Button size="sm" variant="secondary" onClick={() => startEdit(w)}>
-                          Edit
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="danger"
-                          loading={cancel.isPending}
-                          onClick={() => cancel.mutate(w._id)}
-                        >
-                          Cancel
-                        </Button>
-                      </div>
-                    )}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => setExpandedId(expanded ? null : w._id)}
+                      >
+                        {expanded ? 'Hide' : 'Details'}
+                      </Button>
+                      {canCancel && tatLeft > 0 && (
+                        <>
+                          <Button size="sm" variant="secondary" onClick={() => startEdit(w)}>
+                            Edit
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="danger"
+                            loading={cancel.isPending}
+                            onClick={async () => {
+                              const ok = await confirmDialog({
+                                title: 'Cancel withdrawal?',
+                                description: `Cancel ${w.referenceId} for ${formatCurrency(w.amount, w.currency)}?`,
+                                confirmLabel: 'Yes, cancel',
+                                cancelLabel: 'Keep request',
+                                variant: 'danger',
+                              });
+                              if (ok) cancel.mutate(w._id);
+                            }}
+                          >
+                            Cancel
+                          </Button>
+                        </>
+                      )}
+                    </div>
                   </div>
                 </div>
+                </div>
+
+                {(paid > 0 || payments.length > 0) && (
+                  <div className="border-t border-outline-variant/70 px-3 pb-3 pt-2.5 sm:px-4">
+                    <div className="mb-1.5 flex flex-wrap items-center justify-between gap-1 text-[11px] sm:text-xs">
+                      <span className="text-on-surface-variant">
+                        Paid {formatCurrency(paid, w.currency)} · Left{' '}
+                        {formatCurrency(remaining, w.currency)}
+                      </span>
+                      <span className="font-semibold">{pct}%</span>
+                    </div>
+                    <div className="h-1.5 overflow-hidden rounded-full bg-surface-container-high">
+                      <div
+                        className="h-full rounded-full bg-secondary transition-all"
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                    <p className="mt-1.5 text-[11px] text-on-surface-variant">
+                      {completedPays.length} completed
+                      {pendingPays.length ? ` · ${pendingPays.length} pending confirm` : ''}
+                      {disputedPays.length ? ` · ${disputedPays.length} disputed` : ''}
+                    </p>
+                  </div>
+                )}
+
+                {expanded && (
+                  <div className="border-t border-outline-variant bg-surface-container-low/50 px-3 py-3 sm:px-4">
+                    <WithdrawalOwnerPaymentsPanel
+                      payments={payments}
+                      currency={w.currency}
+                      actionError={actionError}
+                      onClearError={() => setActionError('')}
+                      confirmingId={
+                        confirmReceived.isPending ? confirmReceived.variables : null
+                      }
+                      disputing={raiseDispute.isPending}
+                      onConfirm={(paymentId) => confirmReceived.mutate(paymentId)}
+                      onDispute={(paymentId, reason) =>
+                        raiseDispute.mutate({ paymentId, reason })
+                      }
+                    />
+                    {!payments.length && (
+                      <p className="text-sm text-on-surface-variant">No payments yet.</p>
+                    )}
+                  </div>
+                )}
               </article>
               );
             })}

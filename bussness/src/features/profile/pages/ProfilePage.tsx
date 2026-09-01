@@ -69,6 +69,7 @@ export function ProfilePage() {
   const [userPhone, setUserPhone] = useState('');
   const [depositMethods, setDepositMethods] = useState<PaymentMethod[]>([]);
   const [withdrawalMethods, setWithdrawalMethods] = useState<PaymentMethod[]>([]);
+  const [minPartialPayInr, setMinPartialPayInr] = useState('');
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -86,6 +87,11 @@ export function ProfilePage() {
       );
       setWithdrawalMethods(
         defaultMethods(business.allowedWithdrawalMethods, business.allowedPaymentMethods),
+      );
+      setMinPartialPayInr(
+        business.minPartialPayInr && business.minPartialPayInr > 0
+          ? String(business.minPartialPayInr)
+          : '',
       );
     }
   }, [business]);
@@ -108,6 +114,9 @@ export function ProfilePage() {
         webhookUrl: webhookUrl || undefined,
         allowedDepositMethods: depositMethods,
         allowedWithdrawalMethods: withdrawalMethods,
+        minPartialPayInr: minPartialPayInr.trim()
+          ? Math.max(0, Number(minPartialPayInr))
+          : 0,
       });
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['business-me'] }),
@@ -294,6 +303,21 @@ export function ProfilePage() {
                   </button>
                 ))}
               </div>
+            </div>
+            <div>
+              <Input
+                label="Minimum split pay (₹)"
+                type="number"
+                min={0}
+                step={100}
+                value={minPartialPayInr}
+                onChange={(e) => setMinPartialPayInr(e.target.value)}
+                placeholder="5000 (platform default)"
+              />
+              <p className="mt-1 text-xs text-on-surface-variant">
+                Smallest partial amount payers may send on your withdrawals. Leave empty for
+                platform default (₹5,000). Full remaining can always be paid.
+              </p>
             </div>
           </div>
           <Button type="submit" loading={updateBusiness.isPending}>

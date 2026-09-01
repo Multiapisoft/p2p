@@ -1,16 +1,34 @@
 'use client';
 
-import { Suspense, useEffect, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
+import { useQuery } from '@tanstack/react-query';
 import { LoadingScreen } from '@/shared/components/ui/Icon';
 import { Button } from '@/shared/components/ui/Button';
 import { AvailableWithdrawalsPanel } from '../components/AvailableWithdrawalsPanel';
 import { CdmDepositForm } from '../components/CdmDepositForm';
+import { profileApi } from '@/features/profile/api/profile.api';
+import {
+  isDepositMethodEnabled,
+  resolveUserDepositMethods,
+} from '@/shared/lib/payment-methods';
 
 function DepositsPageInner() {
   const searchParams = useSearchParams();
   const [preferredPayAmount, setPreferredPayAmount] = useState<number | undefined>();
+
+  const { data: profile } = useQuery({
+    queryKey: ['profile-me'],
+    queryFn: () => profileApi.getMe(),
+  });
+
+  const allowedDepositMethods = useMemo(
+    () => resolveUserDepositMethods(profile?.referredBusiness?.allowedDepositMethods),
+    [profile?.referredBusiness?.allowedDepositMethods],
+  );
+
+  const showCdm = isDepositMethodEnabled('cdm', allowedDepositMethods);
 
   useEffect(() => {
     const amountParam = Number(searchParams.get('payAmount'));
@@ -35,7 +53,7 @@ function DepositsPageInner() {
       </div>
 
       <AvailableWithdrawalsPanel preferredAmount={preferredPayAmount} />
-      <CdmDepositForm />
+      {showCdm ? <CdmDepositForm /> : null}
     </div>
   );
 }

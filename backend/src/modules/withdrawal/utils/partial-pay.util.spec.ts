@@ -36,6 +36,37 @@ describe('partialPayError', () => {
       }),
     ).toBeNull();
   });
+
+  it('uses custom business min partial', () => {
+    expect(
+      partialPayError({
+        amount: 3000,
+        remaining: 20000,
+        minPartial: 3000,
+      }),
+    ).toBeNull();
+  });
+
+  it('blocks partial when disabled', () => {
+    expect(
+      partialPayError({
+        amount: 5000,
+        remaining: 20000,
+        allowPartial: false,
+      }),
+    ).toMatch(/full remaining \(20000\)/i);
+  });
+
+  it('allows investor tail partial when quota below min', () => {
+    expect(
+      partialPayError({
+        amount: 200,
+        remaining: 20000,
+        allowPartial: false,
+        investorTailRemaining: 200,
+      }),
+    ).toBeNull();
+  });
 });
 
 describe('canMatchPayBudget', () => {
@@ -48,6 +79,11 @@ describe('canMatchPayBudget', () => {
     expect(canMatchPayBudget(12000, 5000)).toBe(true);
     expect(canMatchPayBudget(8000, 5000)).toBe(false);
     expect(canMatchPayBudget(20000, 2000)).toBe(false);
+  });
+
+  it('matches investor tail budget on larger withdrawals', () => {
+    expect(canMatchPayBudget(20000, 200, 'upi', 'INR', undefined, 200)).toBe(true);
+    expect(canMatchPayBudget(150, 200, 'upi', 'INR', undefined, 200)).toBe(true);
   });
 
   it('uses USDT min of 5', () => {

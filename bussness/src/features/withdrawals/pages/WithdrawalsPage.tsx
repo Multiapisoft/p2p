@@ -19,6 +19,7 @@ import { fetchAllPages } from '@/shared/lib/csv';
 import { resolveUser } from '@/shared/lib/entity-user';
 import { BusinessWithdrawalForm } from '../components/BusinessWithdrawalForm';
 import { AssignPayerModal } from '../components/AssignPayerModal';
+import { WithdrawalOwnerPaymentsPanel } from '../components/WithdrawalOwnerPaymentsPanel';
 import { useAuthStore } from '@/features/auth/store/auth.store';
 import type { Withdrawal } from '@/shared/types/api.types';
 import { liveQueryOptions } from '@/shared/constants/live-query';
@@ -246,6 +247,27 @@ export function WithdrawalsPage({
       qc.invalidateQueries({ queryKey: ['business-withdrawal'] });
     },
     onError: (err) => setActionError(getApiErrorMessage(err, 'Reject failed')),
+  });
+
+  const confirmReceived = useMutation({
+    mutationFn: (paymentId: string) => withdrawalsApi.confirmPaymentReceived(paymentId),
+    onSuccess: () => {
+      setActionError('');
+      qc.invalidateQueries({ queryKey: ['business-withdrawals'] });
+      qc.invalidateQueries({ queryKey: ['business-withdrawal'] });
+    },
+    onError: (err) => setActionError(getApiErrorMessage(err, 'Could not confirm payment')),
+  });
+
+  const raiseDispute = useMutation({
+    mutationFn: ({ paymentId, reason }: { paymentId: string; reason?: string }) =>
+      withdrawalsApi.disputePayment(paymentId, reason),
+    onSuccess: () => {
+      setActionError('');
+      qc.invalidateQueries({ queryKey: ['business-withdrawals'] });
+      qc.invalidateQueries({ queryKey: ['business-withdrawal'] });
+    },
+    onError: (err) => setActionError(getApiErrorMessage(err, 'Could not raise dispute')),
   });
 
   const items = data?.items ?? [];
@@ -808,7 +830,26 @@ export function WithdrawalsPage({
                     <DetailRow label="Completed" value={formatDate(detail.completedAt)} />
                   ) : null}
 
-                  {(detail.payments?.length || 0) > 0 && (
+                  {(detail.payments?.length || 0) > 0 && origin === 'business' && (
+                    <div className="mt-4">
+                      <WithdrawalOwnerPaymentsPanel
+                        payments={detail.payments!}
+                        currency={detail.currency}
+                        actionError={actionError}
+                        onClearError={() => setActionError('')}
+                        confirmingId={
+                          confirmReceived.isPending ? confirmReceived.variables : null
+                        }
+                        disputing={raiseDispute.isPending}
+                        onConfirm={(paymentId) => confirmReceived.mutate(paymentId)}
+                        onDispute={(paymentId, reason) =>
+                          raiseDispute.mutate({ paymentId, reason })
+                        }
+                      />
+                    </div>
+                  )}
+
+                  {(detail.payments?.length || 0) > 0 && origin !== 'business' && (
                     <div className="mt-4">
                       <p className="mb-2 text-sm font-semibold">
                         {(detail.payments?.length || 0) <= 1 ? 'Payment' : 'Payments'}

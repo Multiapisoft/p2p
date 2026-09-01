@@ -19,11 +19,10 @@ import {
 } from '@/shared/lib/validation';
 import type { PaymentMethod, SavedWithdrawalMethod } from '@/shared/types/api.types';
 
-const ADD_METHODS: { value: PaymentMethod; label: string }[] = [
-  { value: 'upi', label: 'UPI' },
-  { value: 'bank', label: 'Bank' },
-  { value: 'usdt', label: 'USDT' },
-];
+import {
+  filterWithdrawalMethodOptions,
+  resolveUserWithdrawalMethods,
+} from '@/shared/lib/payment-methods';
 
 function methodErrorMessage(error: unknown) {
   if (error && typeof error === 'object' && 'response' in error) {
@@ -75,18 +74,22 @@ export function SavedWithdrawalMethodsPanel({
     queryFn: () => apiGet<{ allowMobileNumberUpi?: boolean }>('/platform-settings'),
   });
 
-  const enabledAddMethods = useMemo(() => {
-    const allowed = profile?.referredBusiness?.allowedWithdrawalMethods;
-    if (allowed?.length) return ADD_METHODS.filter((m) => allowed.includes(m.value));
-    return ADD_METHODS;
-  }, [profile?.referredBusiness?.allowedWithdrawalMethods]);
+  const enabledAddMethods = useMemo(
+    () =>
+      filterWithdrawalMethodOptions(
+        resolveUserWithdrawalMethods(profile?.referredBusiness?.allowedWithdrawalMethods),
+      ),
+    [profile?.referredBusiness?.allowedWithdrawalMethods],
+  );
 
   const { data } = useQuery({
     queryKey: ['saved-withdrawal-methods'],
     queryFn: () => profileApi.getWithdrawalMethods(),
   });
 
-  const items = data?.items ?? [];
+  const items = (data?.items ?? []).filter((m) =>
+    enabledAddMethods.some((em) => em.value === m.method),
+  );
 
   const resetAddForm = () => {
     setUpiId('');

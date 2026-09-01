@@ -19,11 +19,10 @@ import {
 } from '@/shared/lib/validation';
 import type { PaymentMethod, SavedWithdrawalMethod } from '@/shared/types/api.types';
 
-const ADD_METHODS: { value: PaymentMethod; label: string }[] = [
-  { value: 'upi', label: 'UPI' },
-  { value: 'bank', label: 'Bank' },
-  { value: 'usdt', label: 'USDT' },
-];
+import {
+  filterWithdrawalMethodOptions,
+  resolveInvestorWithdrawalMethods,
+} from '@/shared/lib/payment-methods';
 
 function methodSummary(m: SavedWithdrawalMethod) {
   if (m.method === 'upi') return m.upiDetails?.upiId || m.label;
@@ -64,18 +63,22 @@ export function SavedWithdrawalMethodsPanel({
       }>('/platform-settings'),
   });
 
-  const enabledAddMethods = useMemo(() => {
-    const allowed = platformSettings?.investorAllowedWithdrawalMethods;
-    if (allowed?.length) return ADD_METHODS.filter((m) => allowed.includes(m.value));
-    return ADD_METHODS;
-  }, [platformSettings?.investorAllowedWithdrawalMethods]);
+  const enabledAddMethods = useMemo(
+    () =>
+      filterWithdrawalMethodOptions(
+        resolveInvestorWithdrawalMethods(platformSettings?.investorAllowedWithdrawalMethods),
+      ),
+    [platformSettings?.investorAllowedWithdrawalMethods],
+  );
 
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ['saved-withdrawal-methods'],
     queryFn: () => profileApi.getWithdrawalMethods(),
   });
 
-  const items = data?.items ?? [];
+  const items = (data?.items ?? []).filter((m) =>
+    enabledAddMethods.some((em) => em.value === m.method),
+  );
 
   const resetAddForm = () => {
     setUpiId('');

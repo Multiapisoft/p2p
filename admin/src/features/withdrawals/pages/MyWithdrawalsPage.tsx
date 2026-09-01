@@ -13,6 +13,7 @@ import { LoadingScreen, EmptyState } from '@/shared/components/ui/Icon';
 import { getApiErrorMessage } from '@/shared/lib/api-error';
 import { formatCurrency, formatDate } from '@/shared/lib/utils';
 import { liveQueryOptions } from '@/shared/constants/live-query';
+import { WithdrawalOwnerPaymentsPanel } from '@/features/withdrawals/components/WithdrawalOwnerPaymentsPanel';
 import {
   accountNumberError,
   bankNameError,
@@ -52,6 +53,11 @@ function destinationLine(w: Withdrawal) {
     return `USDT ${w.usdtDetails.walletAddress}`;
   }
   return String(w.method).toUpperCase();
+}
+
+function progressPct(paid: number, total: number) {
+  if (total <= 0) return 0;
+  return Math.min(100, Math.round((paid / total) * 100));
 }
 
 function AdminWithdrawalForm({ onCreated }: { onCreated: () => void }) {
@@ -243,6 +249,8 @@ export function MyWithdrawalsPage() {
   const [status, setStatus] = useState('all');
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState('');
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -261,6 +269,27 @@ export function MyWithdrawalsPage() {
     queryKey: ['admin-my-withdrawals', listQuery],
     queryFn: () => withdrawalsApi.getMine(listQuery),
     ...liveQueryOptions,
+  });
+
+  const confirmReceived = useMutation({
+    mutationFn: (paymentId: string) => withdrawalsApi.confirmPaymentReceived(paymentId),
+    onSuccess: () => {
+      setActionError('');
+      qc.invalidateQueries({ queryKey: ['admin-my-withdrawals'] });
+    },
+    onError: (err) =>
+      setActionError(getApiErrorMessage(err, 'Could not confirm payment')),
+  });
+
+  const raiseDispute = useMutation({
+    mutationFn: ({ paymentId, reason }: { paymentId: string; reason?: string }) =>
+      withdrawalsApi.disputePayment(paymentId, reason),
+    onSuccess: () => {
+      setActionError('');
+      qc.invalidateQueries({ queryKey: ['admin-my-withdrawals'] });
+    },
+    onError: (err) =>
+      setActionError(getApiErrorMessage(err, 'Could not raise dispute')),
   });
 
   const items = data?.items ?? [];
@@ -355,11 +384,22 @@ export function MyWithdrawalsPage() {
           />
         ) : (
           <div className={`space-y-2 ${isFetching ? 'opacity-70' : ''}`}>
-            {items.map((w) => (
+            {items.map((w) => {
+              const paid = w.paidAmount ?? 0;
+              const remaining = w.remainingAmount ?? Math.max(0, w.amount - paid);
+              const payments = w.payments ?? [];
+              const pendingPays = payments.filter(
+                (p) => p.status === 'pending' && !p.disputedAt,
+              );
+              const expanded = expandedId === w._id;
+              const pct = progressPct(paid, w.amount);
+              const needsConfirm = pendingPays.length > 0;
+              return (
               <div
                 key={w._id}
-                className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-outline-variant p-3 sm:p-4"
+                className="overflow-hidden rounded-xl border border-outline-variant"
               >
+                <div className="flex flex-wrap items-center justify-between gap-2 p-3 sm:p-4">
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="font-semibold">{formatCurrency(w.amount, w.currency)}</p>
@@ -367,13 +407,62 @@ export function MyWithdrawalsPage() {
                     <span className="rounded-full bg-surface-container-high px-2 py-0.5 text-[10px] font-semibold uppercase">
                       {w.method}
                     </span>
+                    {needsConfirm && (
+                      <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-bold uppercase text-amber-700">
+                        Confirm receipt
+                      </span>
+                    )}
                   </div>
                   <p className="mt-1 break-all text-xs text-on-surface-variant">
                     {w.referenceId} · {destinationLine(w)} · {formatDate(w.createdAt)}
                   </p>
                 </div>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => setExpandedId(expanded ? null : w._id)}
+                >
+                  {expanded ? 'Hide' : 'Details'}
+                </Button>
+                </div>
+                {(paid > 0 || payments.length > 0) && (
+                  <div className="border-t border-outline-variant/70 px-3 pb-3 pt-2 sm:px-4">
+                    <div className="mb-1 flex justify-between text-[11px] sm:text-xs">
+                      <span className="text-on-surface-variant">
+                        Paid {formatCurrency(paid, w.currency)} · Left {formatCurrency(remaining, w.currency)}
+                      </span>
+                      <span className="font-semibold">{pct}%</span>
+                    </div>
+                    <div className="h-1.5 overflow-hidden rounded-full bg-surface-container-high">
+                      <div className="h-full rounded-full bg-secondary" style={{ width: `${pct}%` }} />
+                    </div>
+                  </div>
+                )}
+                {expanded && (
+                  <div className="border-t border-outline-variant bg-surface-container-low/40 px-3 py-3 sm:px-4">
+                    {payments.length > 0 ? (
+                      <WithdrawalOwnerPaymentsPanel
+                        payments={payments}
+                        currency={w.currency}
+                        actionError={actionError}
+                        onClearError={() => setActionError('')}
+                        confirmingId={
+                          confirmReceived.isPending ? confirmReceived.variables : null
+                        }
+                        disputing={raiseDispute.isPending}
+                        onConfirm={(paymentId) => confirmReceived.mutate(paymentId)}
+                        onDispute={(paymentId, reason) =>
+                          raiseDispute.mutate({ paymentId, reason })
+                        }
+                      />
+                    ) : (
+                      <p className="text-sm text-on-surface-variant">No payments yet.</p>
+                    )}
+                  </div>
+                )}
               </div>
-            ))}
+              );
+            })}
             <Pagination
               page={page}
               totalPages={totalPages}

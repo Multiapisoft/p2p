@@ -56,4 +56,8 @@ export const withdrawalsApi = {
   ) => apiPatch<Withdrawal>(`/withdrawals/${id}/approve`, body || {}),
   reject: (id: string, reason: string) =>
     apiPatch<Withdrawal>(`/withdrawals/${id}/reject`, { reason }),
+  confirmPaymentReceived: (paymentId: string) =>
+    apiPatch(`/withdrawal-payments/${paymentId}/confirm-received`),
+  disputePayment: (paymentId: string, reason?: string) =>
+    apiPost(`/withdrawal-payments/${paymentId}/dispute`, reason ? { reason } : {}),
 };

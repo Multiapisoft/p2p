@@ -33,13 +33,12 @@ function readStoredMatchAmount() {
   return Number.isFinite(n) && n >= 1 ? n : null;
 }
 
-const METHOD_TABS: { value: PaymentMethod | 'all'; label: string }[] = [
-  { value: 'all', label: 'All' },
-  { value: 'upi', label: 'UPI' },
-  { value: 'bank', label: 'Bank' },
-  { value: 'usdt', label: 'USDT' },
-  { value: 'cdm', label: 'CDM' },
-];
+import {
+  filterDepositMethodTabs,
+  resolveUserDepositMethods,
+  filterWithdrawalMethodOptions,
+  resolveUserWithdrawalMethods,
+} from '@/shared/lib/payment-methods';
 
 const METHOD_META: Record<PaymentMethod, { label: string; icon: string }> = {
   upi: { label: 'UPI', icon: 'qr_code_2' },
@@ -255,11 +254,28 @@ export function AvailableWithdrawalsPanel({
     queryFn: () => profileApi.getMe(),
   });
 
-  const methodTabs = useMemo(() => {
-    const allowed = profile?.referredBusiness?.allowedDepositMethods;
-    if (!allowed?.length) return METHOD_TABS;
-    return METHOD_TABS.filter((t) => t.value === 'all' || allowed.includes(t.value));
-  }, [profile?.referredBusiness?.allowedDepositMethods]);
+  const { data, isLoading, isFetching, isError, error, refetch } = useQuery({
+    queryKey: ['available-withdrawals', listQuery],
+    queryFn: () => p2pPayApi.getAvailable(listQuery),
+    ...liveQueryOptions,
+  });
+
+  const allowedDepositMethods = useMemo(
+    () =>
+      resolveUserDepositMethods(
+        profile?.referredBusiness?.allowedDepositMethods ??
+          data?.allowedDepositMethods,
+      ),
+    [
+      profile?.referredBusiness?.allowedDepositMethods,
+      data?.allowedDepositMethods,
+    ],
+  );
+
+  const methodTabs = useMemo(
+    () => filterDepositMethodTabs(allowedDepositMethods),
+    [allowedDepositMethods],
+  );
 
   useEffect(() => {
     if (!methodTabs.length) return;
@@ -267,12 +283,6 @@ export function AvailableWithdrawalsPanel({
       setMethod(methodTabs[0]?.value ?? 'all');
     }
   }, [methodTabs, method]);
-
-  const { data, isLoading, isFetching, isError, error, refetch } = useQuery({
-    queryKey: ['available-withdrawals', listQuery],
-    queryFn: () => p2pPayApi.getAvailable(listQuery),
-    ...liveQueryOptions,
-  });
 
   const submit = useMutation({
     mutationFn: () =>
@@ -404,6 +414,8 @@ export function AvailableWithdrawalsPanel({
       maxPayable: maxPay,
       method: target.method,
       currency: target.currency,
+      allowPartial: target.allowPartialPay,
+      minPartial: target.minPartialPay,
     });
     if (partialErr) {
       setFormError(partialErr);
@@ -714,7 +726,7 @@ export function AvailableWithdrawalsPanel({
                 <p className="text-[11px] text-on-surface-variant">
                   Min amount{' '}
                   {formatCurrency(
-                    minPartialAmount(target.method, target.currency),
+                    minPartialAmount(target.method, target.currency, target.minPartialPay),
                     moneyCurrency(target),
                   )}
                   . Smaller leftover only as full pay.

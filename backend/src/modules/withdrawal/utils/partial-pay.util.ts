@@ -7,10 +7,29 @@ export function roundMoney(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
-export function minPartialAmount(method?: string, currency?: string): number {
+export function minPartialAmount(
+  method?: string,
+  currency?: string,
+  overrideMin?: number,
+): number {
   const usdt =
     method === 'usdt' || (currency || '').toUpperCase() === 'USDT';
-  return usdt ? MIN_PARTIAL_USDT : MIN_PARTIAL_INR;
+  if (usdt) return MIN_PARTIAL_USDT;
+  if (typeof overrideMin === 'number' && overrideMin > 0) return overrideMin;
+  return MIN_PARTIAL_INR;
+}
+
+/** When investor plan quota left is below min partial, allow tail pays up to this amount. */
+export function investorTailRemaining(
+  limitRemaining: number | null | undefined,
+  method?: string,
+  currency?: string,
+  minPartial?: number,
+): number | undefined {
+  if (limitRemaining == null || limitRemaining <= 0) return undefined;
+  const min = minPartialAmount(method, currency, minPartial);
+  if (limitRemaining >= min) return undefined;
+  return roundMoney(limitRemaining);
 }
 
 /**
@@ -26,11 +45,15 @@ export function partialPayError(opts: {
   method?: string;
   currency?: string;
   allowPartial?: boolean;
+  minPartial?: number;
+  /** Investor plan tail: remaining quota below min partial — allow paying up to this. */
+  investorTailRemaining?: number;
 }): string | null {
   const amount = roundMoney(opts.amount);
   const remaining = roundMoney(opts.remaining);
   const maxPayable = roundMoney(opts.maxPayable ?? remaining);
-  const min = minPartialAmount(opts.method, opts.currency);
+  const min = minPartialAmount(opts.method, opts.currency, opts.minPartial);
+  const tail = roundMoney(opts.investorTailRemaining ?? 0);
 
   if (!(amount > 0)) return 'Enter a valid amount';
   if (amount > remaining) return `Amount exceeds remaining ${remaining}`;
@@ -39,6 +62,7 @@ export function partialPayError(opts: {
   if (amount >= remaining) return null;
 
   if (opts.allowPartial === false) {
+    if (tail > 0 && amount <= tail) return null;
     return `Partial pay is disabled. Pay full remaining (${remaining}).`;
   }
 
@@ -59,10 +83,16 @@ export function canMatchPayBudget(
   budget: number,
   method?: string,
   currency?: string,
+  minPartial?: number,
+  investorTailRemaining?: number,
 ): boolean {
   const rem = roundMoney(remaining);
   const x = roundMoney(budget);
   if (rem <= x) return true;
-  const min = minPartialAmount(method, currency);
+  const tail = roundMoney(investorTailRemaining ?? 0);
+  if (tail > 0 && tail < minPartialAmount(method, currency, minPartial) && x <= tail) {
+    return rem >= x;
+  }
+  const min = minPartialAmount(method, currency, minPartial);
   return x >= min && rem >= roundMoney(x + min);
 }

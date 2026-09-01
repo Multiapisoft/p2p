@@ -41,7 +41,7 @@ import {
 import { sanitizeBusinessStaffPermissions } from '../../common/utils/business-staff.util';
 import { assertValidWithdrawalDestination } from '../withdrawal/utils/withdrawal-destination.validation';
 import { PlatformSettingsService } from '../platform-settings/platform-settings.service';
-import { resolveWithdrawalMethods } from '../business/utils/payment-methods.util';
+import { resolveDepositMethods, resolveWithdrawalMethods } from '../business/utils/payment-methods.util';
 import { PaymentMethod } from '../../common/enums/payment-method.enum';
 import {
   buildSavedWithdrawalMethodLabel,
@@ -894,18 +894,8 @@ export class UsersService {
         _id: b._id,
         name: b.name,
         referralCode: b.referralCode,
-        allowedDepositMethods:
-          b.allowedDepositMethods?.length
-            ? b.allowedDepositMethods
-            : b.allowedPaymentMethods?.length
-              ? b.allowedPaymentMethods
-              : ['upi', 'bank', 'usdt', 'cdm'],
-        allowedWithdrawalMethods:
-          b.allowedWithdrawalMethods?.length
-            ? b.allowedWithdrawalMethods
-            : b.allowedPaymentMethods?.length
-              ? b.allowedPaymentMethods
-              : ['upi', 'bank', 'usdt', 'cdm'],
+        allowedDepositMethods: resolveDepositMethods(b),
+        allowedWithdrawalMethods: resolveWithdrawalMethods(b),
       };
       obj.referredByBusiness = b._id;
     }
@@ -936,23 +926,12 @@ export class UsersService {
       .lean()
       .exec();
     if (biz) {
-      const all = ['upi', 'bank', 'usdt', 'cdm'];
       obj.referredBusiness = {
         _id: biz._id,
         name: biz.name,
         referralCode: biz.referralCode,
-        allowedDepositMethods:
-          (biz as { allowedDepositMethods?: string[] }).allowedDepositMethods?.length
-            ? (biz as { allowedDepositMethods?: string[] }).allowedDepositMethods
-            : (biz as { allowedPaymentMethods?: string[] }).allowedPaymentMethods?.length
-              ? (biz as { allowedPaymentMethods?: string[] }).allowedPaymentMethods
-              : all,
-        allowedWithdrawalMethods:
-          (biz as { allowedWithdrawalMethods?: string[] }).allowedWithdrawalMethods?.length
-            ? (biz as { allowedWithdrawalMethods?: string[] }).allowedWithdrawalMethods
-            : (biz as { allowedPaymentMethods?: string[] }).allowedPaymentMethods?.length
-              ? (biz as { allowedPaymentMethods?: string[] }).allowedPaymentMethods
-              : all,
+        allowedDepositMethods: resolveDepositMethods(biz),
+        allowedWithdrawalMethods: resolveWithdrawalMethods(biz),
       };
     }
     return obj;

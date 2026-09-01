@@ -16,7 +16,11 @@ import { apiErrorMessage, formatCurrency, formatDate } from '@/shared/lib/utils'
 import { liveQueryOptions } from '@/shared/constants/live-query';
 import { normalizeUtr, normalizeTxHash, paymentRefErrorForMethod } from '@/shared/lib/validation';
 import { buildUpiPayUri, buildUpiAppLinks, formatSecondsMmSs } from '@/shared/lib/upi-qr';
-import { minPartialAmount, partialPayError } from '@/shared/lib/partial-pay';
+import { partialPayError } from '@/shared/lib/partial-pay';
+import {
+  filterDepositMethodTabs,
+  resolveInvestorDepositMethods,
+} from '@/shared/lib/payment-methods';
 import { InvestorLimitPanel } from '@/features/invest/components/InvestorLimitPanel';
 import { InvestAmountModal } from '@/features/invest/components/InvestAmountModal';
 import { apiGet } from '@/shared/api/client';
@@ -38,6 +42,17 @@ const METHOD_OPTIONS: { value: PaymentMethod | 'all'; label: string }[] = [
   { value: 'usdt', label: 'USDT' },
   { value: 'cdm', label: 'CDM' },
 ];
+
+function depositMethodOptions(
+  allowed?: PaymentMethod[] | null,
+): { value: PaymentMethod | 'all'; label: string }[] {
+  const resolved = resolveInvestorDepositMethods(allowed);
+  const tabs = filterDepositMethodTabs(resolved);
+  return tabs.map((t) => {
+    const found = METHOD_OPTIONS.find((m) => m.value === t.value);
+    return found ?? { value: t.value, label: t.label };
+  });
+}
 
 const AVAILABLE_SORT_OPTIONS = [
   { value: 'newest', label: 'Newest first' },
@@ -205,7 +220,7 @@ function ListToolbar({
                 onChange={(e) => onMethodChange(e.target.value as PaymentMethod | 'all')}
                 className="rounded-lg border border-outline-variant bg-surface-container-lowest px-3 py-3 text-sm font-normal focus:border-secondary focus:outline-none focus:ring-2 focus:ring-secondary/20"
               >
-                {METHOD_OPTIONS.map((m) => (
+                {methodOptions.map((m) => (
                   <option key={m.value} value={m.value}>
                     {m.label}
                   </option>
@@ -340,8 +355,23 @@ export function FulfillWithdrawals({
   const { data: platformSettings } = useQuery({
     queryKey: ['platform-settings'],
     queryFn: () =>
-      apiGet<{ investorPlanAmounts?: number[] }>('/platform-settings'),
+      apiGet<{
+        investorPlanAmounts?: number[];
+        investorAllowedDepositMethods?: PaymentMethod[];
+      }>('/platform-settings'),
   });
+
+  const methodOptions = useMemo(
+    () =>
+      depositMethodOptions(
+        platformSettings?.investorAllowedDepositMethods ??
+          data?.investorAllowedDepositMethods,
+      ),
+    [
+      platformSettings?.investorAllowedDepositMethods,
+      data?.investorAllowedDepositMethods,
+    ],
+  );
 
   const payAmountNum = Number(amount);
   const { data: creditPreview, isFetching: previewLoading } = useQuery({
@@ -471,11 +501,7 @@ export function FulfillWithdrawals({
         ? Math.min(target.maxPayable, target.remainingAmount)
         : target.remainingAmount;
     if (num > maxPay) {
-      setFormError(
-        target.p2pPayRemainingInr != null
-          ? `Max payable is ${maxPay} (business limit remaining ₹${target.p2pPayRemainingInr})`
-          : `Maximum remaining amount is ${maxPay}`,
-      );
+      setFormError(`Maximum payable amount is ${formatCurrency(maxPay, moneyCurrency(target))}`);
       return;
     }
     const partialErr = partialPayError({
@@ -484,6 +510,7 @@ export function FulfillWithdrawals({
       maxPayable: maxPay,
       method: target.method,
       currency: target.currency,
+      allowPartial: false,
     });
     if (partialErr) {
       setFormError(partialErr);
@@ -650,7 +677,7 @@ export function FulfillWithdrawals({
         </div>
 
         <div className="mb-4 flex flex-wrap gap-2">
-          {METHOD_OPTIONS.map((m) => (
+          {methodOptions.map((m) => (
             <button
               key={m.value}
               type="button"
@@ -967,21 +994,14 @@ export function FulfillWithdrawals({
                 <strong>{formatCurrency(target.remainingAmount, target.currency)}</strong>
               </p>
               <p>
-                Pay up to:{' '}
+                You pay:{' '}
                 <strong>
                   {formatCurrency(
-                    target.maxPayable != null
-                      ? Math.min(target.maxPayable, target.remainingAmount)
-                      : target.remainingAmount,
+                    payAmountNum >= 1 ? payAmountNum : maxPay,
                     target.currency,
                   )}
                 </strong>
               </p>
-              {target.p2pPayRemainingInr != null && (
-                <p className="mt-1 text-xs text-amber-700">
-                  Business Platform Payment limit remaining: ₹{target.p2pPayRemainingInr}
-                </p>
-              )}
             </div>
 
             <DestinationInfo
@@ -990,7 +1010,7 @@ export function FulfillWithdrawals({
             />
 
             <Input
-              label={labels.amountLabel}
+              label={`${labels.amountLabel} — fixed full pay`}
               type="number"
               min={1}
               max={
@@ -1001,29 +1021,11 @@ export function FulfillWithdrawals({
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               required
-              disabled={payExpired}
+              disabled
             />
-            {(() => {
-              const maxPay =
-                target.maxPayable != null
-                  ? Math.min(target.maxPayable, target.remainingAmount)
-                  : target.remainingAmount;
-              const isFullPay =
-                Number.isFinite(payAmountNum) &&
-                payAmountNum >= 1 &&
-                payAmountNum >= maxPay - 0.001;
-              if (isFullPay) return null;
-              return (
-                <p className="text-[11px] text-on-surface-variant">
-                  Min amount{' '}
-                  {formatCurrency(
-                    minPartialAmount(target.method, target.currency),
-                    target.currency,
-                  )}
-                  . Smaller leftover only as full pay.
-                </p>
-              );
-            })()}
+            <p className="text-[11px] text-on-surface-variant">
+              Investors must pay the full open amount. Split / partial pay is not allowed.
+            </p>
 
             {isInvest && payAmountNum >= 1 && (
               <div

@@ -68,6 +68,7 @@ import {
 import {
   MIN_PARTIAL_INR,
   MIN_PARTIAL_USDT,
+  investorTailRemaining,
   partialPayError,
 } from './utils/partial-pay.util';
 import { visibleInvestorBonusAmount } from '../commission/utils/investor-commission-visibility.util';
@@ -226,8 +227,10 @@ export class WithdrawalPaymentService {
         );
 
     let maxPayable = businessMax;
+    let investorLimitRemaining: number | null = null;
     if (isInvestor) {
       const limitView = this.usersService.getInvestorLimitSnapshot(payer);
+      investorLimitRemaining = limitView.remaining;
       maxPayable = this.capMaxPayableByInvestorLimit(
         maxPayable,
         limitView.remaining,
@@ -238,18 +241,21 @@ export class WithdrawalPaymentService {
 
     if (amount > maxPayable) {
       throw new BadRequestException(
-        p2pPayRemainingInr != null
-          ? `Amount exceeds business P2P pay limit. Max payable ${maxPayable} (limit remaining ₹${p2pPayRemainingInr})`
-          : `Amount exceeds max payable ${maxPayable}`,
+        isInvestor
+          ? `Amount exceeds max payable ${maxPayable}`
+          : p2pPayRemainingInr != null
+            ? `Amount exceeds business P2P pay limit. Max payable ${maxPayable} (limit remaining ₹${p2pPayRemainingInr})`
+            : `Amount exceeds max payable ${maxPayable}`,
       );
     }
 
     if (withdrawalRemaining != null) {
-      const platformPartial = await this.platformSettingsService.allowPartialPay();
-      const allowPartial = await this.businessService.resolveAllowPartialPay(
-        platformPartial,
+      const { allowPartial, minPartial } = await this.resolvePartialPayRules({
+        isInvestor,
         wdBusinessId,
-      );
+        method,
+        currency: payCurrency,
+      });
       const partialErr = partialPayError({
         amount,
         remaining: withdrawalRemaining,
@@ -257,6 +263,13 @@ export class WithdrawalPaymentService {
         method,
         currency: payCurrency,
         allowPartial,
+        minPartial,
+        investorTailRemaining: investorTailRemaining(
+          investorLimitRemaining,
+          method,
+          payCurrency,
+          minPartial,
+        ),
       });
       if (partialErr) throw new BadRequestException(partialErr);
     }
@@ -287,7 +300,7 @@ export class WithdrawalPaymentService {
         netCredited,
       }),
       maxPayable,
-      p2pPayRemainingInr,
+      p2pPayRemainingInr: isInvestor ? null : p2pPayRemainingInr,
       withdrawalRemaining,
     };
   }
@@ -441,11 +454,14 @@ export class WithdrawalPaymentService {
     }
 
     const isBusinessPayer = payer.role === UserRole.BUSINESS;
-    /** Users/investors must enter a match budget; admin/business see the full list. */
-    const requiresMatchAmount =
-      payer.role === UserRole.USER || payer.role === UserRole.INVESTOR;
-    const rawAmount = Number(opts.amount);
-    const hasAmount = Number.isFinite(rawAmount) && rawAmount >= 1;
+    /** Users must enter a match budget; investors get auto-assigned next withdrawal. */
+    const requiresMatchAmount = payer.role === UserRole.USER;
+    let rawAmount = Number(opts.amount);
+    let hasAmount = Number.isFinite(rawAmount) && rawAmount >= 1;
+    if (isInvestor && limitView && limitView.remaining > 0 && !hasAmount) {
+      rawAmount = limitView.remaining;
+      hasAmount = true;
+    }
     if (requiresMatchAmount && !hasAmount) {
       const assignedOnly = await this.loadAssignedOpen(userId);
       return {
@@ -588,29 +604,37 @@ export class WithdrawalPaymentService {
           },
         ],
       };
-      // Full close if remaining <= budget, or valid partial (min ₹5k / 5 USDT,
-      // leftover also >= min so dust amounts are not created).
-      and.push({
-        $expr: {
-          $or: [
-            { $lte: [remainingExpr, matchAmount] },
-            {
-              $and: [
-                { $eq: ['$method', PaymentMethod.USDT] },
-                { $gte: [matchAmount, MIN_PARTIAL_USDT] },
-                { $gte: [remainingExpr, matchAmount + MIN_PARTIAL_USDT] },
-              ],
-            },
-            {
-              $and: [
-                { $ne: ['$method', PaymentMethod.USDT] },
-                { $gte: [matchAmount, MIN_PARTIAL_INR] },
-                { $gte: [remainingExpr, matchAmount + MIN_PARTIAL_INR] },
-              ],
-            },
-          ],
-        },
-      });
+      const investorTailPay =
+        isInvestor &&
+        limitView != null &&
+        limitView.remaining > 0 &&
+        limitView.remaining < MIN_PARTIAL_INR;
+      // Investors: full pay only unless finishing plan tail (quota below ₹5k).
+      if (!(isInvestor && investorTailPay)) {
+        and.push({
+          $expr: isInvestor
+            ? { $lte: [remainingExpr, matchAmount] }
+            : {
+                $or: [
+                  { $lte: [remainingExpr, matchAmount] },
+                  {
+                    $and: [
+                      { $eq: ['$method', PaymentMethod.USDT] },
+                      { $gte: [matchAmount, MIN_PARTIAL_USDT] },
+                      { $gte: [remainingExpr, matchAmount + MIN_PARTIAL_USDT] },
+                    ],
+                  },
+                  {
+                    $and: [
+                      { $ne: ['$method', PaymentMethod.USDT] },
+                      { $gte: [matchAmount, MIN_PARTIAL_INR] },
+                      { $gte: [remainingExpr, matchAmount + MIN_PARTIAL_INR] },
+                    ],
+                  },
+                ],
+              },
+        });
+      }
     }
     if (search) {
       and.push({
@@ -703,11 +727,12 @@ export class WithdrawalPaymentService {
     }
 
     const filter = { $and: and };
-    // Priority jumps FIFO; users: oldest first; investors: newest first.
+    const investorSequential = isInvestor && hasAmount;
+    // Priority first; investors: FIFO (oldest) for one-by-one queue; users: oldest when matching.
     const sortSpec: Record<string, 1 | -1> =
       matchAmount != null && (!opts.sort || opts.sort === 'newest' || opts.sort === 'oldest')
         ? isInvestor
-          ? { priority: -1, createdAt: -1 }
+          ? { priority: -1, createdAt: 1 }
           : { priority: -1, createdAt: 1 }
         : listSortMap(sort, {
             newest: { priority: -1, createdAt: -1 },
@@ -717,12 +742,16 @@ export class WithdrawalPaymentService {
             status: { priority: -1, status: 1, createdAt: -1 },
           });
 
-    const [rawItems, total] = await Promise.all([
-      this.withdrawalModel.find(filter).skip(skip).limit(limit).sort(sortSpec).exec(),
+    const queryLimit = investorSequential ? Math.max(limit, 50) : limit;
+    const querySkip = investorSequential ? 0 : skip;
+
+    const [rawItems, totalMatched] = await Promise.all([
+      this.withdrawalModel.find(filter).skip(querySkip).limit(queryLimit).sort(sortSpec).exec(),
       this.withdrawalModel.countDocuments(filter).exec(),
     ]);
 
     let items = rawItems;
+    let total = totalMatched;
     if (skip === 0) {
       const assignedDocs = await this.loadAssignedOpen(userId);
       if (assignedDocs.length) {
@@ -802,10 +831,18 @@ export class WithdrawalPaymentService {
           viewerRole: payer.role,
           bonusAmount: credit.bonusAmount,
         });
+        const partialRules = await this.resolvePartialPayRules({
+          isInvestor,
+          wdBusinessId: businessId,
+          method: w.method,
+          currency: w.currency,
+        });
         return {
           ...view,
           maxPayable,
-          p2pPayRemainingInr,
+          p2pPayRemainingInr: isInvestor ? null : p2pPayRemainingInr,
+          allowPartialPay: partialRules.allowPartial,
+          minPartialPay: partialRules.minPartial,
           // Never include platform/business fee cuts for payer-facing estimates.
           creditIfPayFull: toPayerCreditPublic({
             ...credit,
@@ -817,17 +854,46 @@ export class WithdrawalPaymentService {
       }),
     );
 
+    let itemsWithCreditOut = itemsWithCredit;
+    let noMatchReason: 'tail_no_wd' | 'no_open_wd' | null = null;
+    if (investorSequential) {
+      const payable = itemsWithCredit.filter((i) => (i.maxPayable ?? 0) > 0);
+      const next = payable[0] ?? null;
+      if (next && limitView) {
+        const requiredPayAmount = Math.min(next.remainingAmount, limitView.remaining);
+        itemsWithCreditOut = [
+          {
+            ...next,
+            requiredPayAmount,
+            maxPayable: requiredPayAmount,
+          },
+        ];
+        total = payable.length;
+      } else {
+        itemsWithCreditOut = [];
+        const tail =
+          limitView != null &&
+          limitView.remaining > 0 &&
+          limitView.remaining < MIN_PARTIAL_INR;
+        noMatchReason = tail ? 'tail_no_wd' : 'no_open_wd';
+        total = 0;
+      }
+    }
+
     return {
-      items: itemsWithCredit,
+      items: itemsWithCreditOut,
       total,
-      page,
-      limit,
-      totalPages: Math.max(1, Math.ceil(total / limit) || 1),
+      page: investorSequential ? 1 : page,
+      limit: investorSequential ? 1 : limit,
+      totalPages: investorSequential ? 1 : Math.max(1, Math.ceil(total / limit) || 1),
       needsLimit: false,
       needsPlan: false,
       needsAmount: false,
-      waitingForMatch: hasAmount && itemsWithCredit.length === 0,
+      waitingForMatch: hasAmount && itemsWithCreditOut.length === 0,
       matchAmount,
+      sequentialMode: investorSequential,
+      queueTotal: investorSequential ? total : undefined,
+      noMatchReason: investorSequential ? noMatchReason : undefined,
       lots: limitView?.lots ?? [],
       limitRemaining: limitView?.remaining ?? null,
       limitAdded: limitView?.added ?? null,
@@ -1234,8 +1300,8 @@ export class WithdrawalPaymentService {
     }
     if (dto.amount > maxPayable) {
       throw new BadRequestException(
-        isInvestor && investorLimit
-          ? `Amount exceeds investor pay limit. Max payable ${maxPayable} (limit remaining ₹${investorLimit.remaining})`
+        isInvestor
+          ? `Amount exceeds max payable ${maxPayable}`
           : p2pPayRemainingInr != null
             ? `Amount exceeds business P2P pay limit. Max payable ${maxPayable} (limit remaining ₹${p2pPayRemainingInr})`
             : `Amount exceeds max payable ${maxPayable}`,
@@ -1243,11 +1309,12 @@ export class WithdrawalPaymentService {
     }
 
     if (!isAdminPayer) {
-      const platformPartial = await this.platformSettingsService.allowPartialPay();
-      const allowPartial = await this.businessService.resolveAllowPartialPay(
-        platformPartial,
-        businessId,
-      );
+      const { allowPartial, minPartial } = await this.resolvePartialPayRules({
+        isInvestor: !!isInvestor,
+        wdBusinessId: businessId,
+        method: withdrawal.method,
+        currency: withdrawal.currency,
+      });
       const partialErr = partialPayError({
         amount: dto.amount,
         remaining,
@@ -1255,6 +1322,13 @@ export class WithdrawalPaymentService {
         method: withdrawal.method,
         currency: withdrawal.currency,
         allowPartial,
+        minPartial,
+        investorTailRemaining: investorTailRemaining(
+          investorLimit?.remaining,
+          withdrawal.method,
+          withdrawal.currency,
+          minPartial,
+        ),
       });
       if (partialErr) throw new BadRequestException(partialErr);
     }
@@ -2603,6 +2677,28 @@ export class WithdrawalPaymentService {
         'Investors cannot pay another investor — deposits and withdrawals are not investor-to-investor',
       );
     }
+  }
+
+  private async resolvePartialPayRules(opts: {
+    isInvestor: boolean;
+    wdBusinessId?: string | null;
+    method?: string;
+    currency?: string;
+  }): Promise<{ allowPartial: boolean; minPartial: number }> {
+    const minPartial = await this.businessService.resolveMinPartialPay(
+      opts.wdBusinessId,
+      opts.method,
+      opts.currency,
+    );
+    if (opts.isInvestor) {
+      return { allowPartial: false, minPartial };
+    }
+    const platformPartial = await this.platformSettingsService.allowPartialPay();
+    const allowPartial = await this.businessService.resolveAllowPartialPay(
+      platformPartial,
+      opts.wdBusinessId,
+    );
+    return { allowPartial, minPartial };
   }
 
   private toAvailableView(

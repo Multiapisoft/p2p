@@ -114,7 +114,13 @@ export interface WithdrawalPaymentBrief {
   bonusAmount?: number;
   netCreditedAmount?: number;
   payerUserId?: string | UserSummary;
+  rejectionReason?: string;
   createdAt?: string;
+  completedAt?: string;
+  autoApproveAt?: string;
+  notes?: string;
+  disputedAt?: string;
+  disputeTicketId?: string;
 }
 
 export interface Withdrawal {

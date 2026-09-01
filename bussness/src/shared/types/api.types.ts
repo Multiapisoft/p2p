@@ -113,6 +113,8 @@ export interface BusinessProfile {
   allowedPaymentMethods: PaymentMethod[];
   allowedDepositMethods?: PaymentMethod[];
   allowedWithdrawalMethods?: PaymentMethod[];
+  /** Minimum INR split pay on your withdrawals. 0 = platform default (₹5,000). */
+  minPartialPayInr?: number;
   status: string;
   integrationUrls?: IntegrationUrls;
   createdAt: string;
@@ -197,6 +199,8 @@ export interface WithdrawalPaymentBrief {
   completedAt?: string;
   notes?: string;
   disputedAt?: string;
+  disputeTicketId?: string;
+  autoApproveAt?: string;
 }
 
 export interface Withdrawal {

@@ -116,6 +116,13 @@ export class Business {
   allowPartialPay?: boolean;
 
   /**
+   * Minimum INR partial/split pay for this business's withdrawal pool.
+   * undefined / 0 = platform default (₹5,000).
+   */
+  @Prop({ default: 0 })
+  minPartialPayInr!: number;
+
+  /**
    * Per-business mobile-as-UPI override (Noida #37).
    * undefined/missing = inherit platform `allowMobileNumberUpi`.
    */

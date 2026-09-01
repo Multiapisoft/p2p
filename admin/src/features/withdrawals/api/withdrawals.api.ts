@@ -53,4 +53,8 @@ export const withdrawalsApi = {
     };
     usdtDetails?: { walletAddress: string; network?: string };
   }) => apiPost<Withdrawal>('/withdrawals/platform', payload),
+  confirmPaymentReceived: (paymentId: string) =>
+    apiPatch(`/withdrawal-payments/${paymentId}/confirm-received`),
+  disputePayment: (paymentId: string, reason?: string) =>
+    apiPost(`/withdrawal-payments/${paymentId}/dispute`, reason ? { reason } : {}),
 };

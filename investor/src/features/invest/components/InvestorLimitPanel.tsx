@@ -1,8 +1,5 @@
 'use client';
 
-import { useState } from 'react';
-import { Button } from '@/shared/components/ui/Button';
-import { Input } from '@/shared/components/ui/Input';
 import { apiErrorMessage, formatCurrency, formatDate } from '@/shared/lib/utils';
 import type { InvestorLimitLot } from '@/features/fulfill/api/fulfill.api';
 
@@ -17,6 +14,7 @@ export function InvestorLimitPanel({
   error,
   planAmounts,
   firstLogin,
+  readOnly,
   onAdd,
 }: {
   remaining: number;
@@ -27,19 +25,12 @@ export function InvestorLimitPanel({
   error?: unknown;
   planAmounts?: number[];
   firstLogin?: boolean;
+  /** Summary only — no add form or plan buttons. */
+  readOnly?: boolean;
   onAdd: (amount: number) => void;
 }) {
-  const [amount, setAmount] = useState('');
   const used = Math.max(0, added - remaining);
   const plans = (planAmounts?.length ? planAmounts : DEFAULT_PLANS).filter((n) => n > 0);
-
-  const submit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const num = Number(amount);
-    if (!Number.isFinite(num) || num < 1) return;
-    onAdd(num);
-    setAmount('');
-  };
 
   return (
     <div className={compact ? 'space-y-3' : 'space-y-4'}>
@@ -49,7 +40,7 @@ export function InvestorLimitPanel({
             Choose an Investment plan to unlock Earnings
           </p>
           <p className="mt-1 text-xs text-on-surface-variant">
-            Pick a plan, then start making payments toward your target.
+            Pick a plan, then pay assigned withdrawals one by one toward your target.
           </p>
         </div>
       ) : (
@@ -69,44 +60,33 @@ export function InvestorLimitPanel({
         </div>
       )}
 
-      <div className="flex flex-wrap gap-2">
-        {plans.map((p) => (
-          <button
-            key={p}
-            type="button"
-            disabled={pending}
-            onClick={() => onAdd(p)}
-            className="rounded-full border border-outline-variant px-3 py-1.5 text-xs font-semibold hover:bg-secondary-container disabled:opacity-50"
-          >
-            {formatCurrency(p)}
-          </button>
-        ))}
-      </div>
-
-      <form onSubmit={submit} className="flex flex-col gap-2 sm:flex-row sm:items-end">
-        <div className="flex-1">
-          <Input
-            label={firstLogin ? 'Or enter custom amount' : 'Add amount'}
-            type="number"
-            min={1}
-            step="1"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-            placeholder="e.g. 10000"
-            className={compact ? 'py-2 text-sm' : undefined}
-          />
+      {firstLogin && !readOnly && (
+        <div className="flex flex-wrap gap-2">
+          {plans.map((p) => (
+            <button
+              key={p}
+              type="button"
+              disabled={pending}
+              onClick={() => onAdd(p)}
+              className="rounded-full border border-outline-variant px-3 py-1.5 text-xs font-semibold hover:bg-secondary-container disabled:opacity-50"
+            >
+              {formatCurrency(p)}
+            </button>
+          ))}
         </div>
-        <Button type="submit" size="sm" loading={pending} disabled={pending}>
-          {firstLogin ? 'Choose plan' : 'Add'}
-        </Button>
-      </form>
-      {error ? (
-        <p className="text-xs text-error">{apiErrorMessage(error, 'Could not add amount')}</p>
-      ) : (
-        <p className="text-[11px] text-on-surface-variant">
-          Newest lot is used first when you pay.
-        </p>
       )}
+
+      {firstLogin && error ? (
+        <p className="text-xs text-error">{apiErrorMessage(error, 'Could not choose plan')}</p>
+      ) : firstLogin ? (
+        <p className="text-[11px] text-on-surface-variant">
+          After choosing a plan, the next payable withdrawal will appear automatically.
+        </p>
+      ) : readOnly ? (
+        <p className="text-[11px] text-on-surface-variant">
+          Complete each assigned payment in order. Newest lot is used first.
+        </p>
+      ) : null}
 
       {lots.length > 0 && (
         <ul className="divide-y divide-outline-variant/40 overflow-hidden rounded-lg border border-outline-variant/60">

@@ -349,6 +349,8 @@ export function AdminDepositPayPanel() {
       maxPayable: maxPay,
       method: target.method,
       currency: target.currency,
+      allowPartial: target.allowPartialPay,
+      minPartial: target.minPartialPay,
     });
     if (partialErr) {
       setFormError(partialErr);
@@ -612,7 +614,7 @@ export function AdminDepositPayPanel() {
                 <p className="text-[11px] text-on-surface-variant">
                   Min amount{' '}
                   {formatCurrency(
-                    minPartialAmount(target.method, target.currency),
+                    minPartialAmount(target.method, target.currency, target.minPartialPay),
                     moneyCurrency(target),
                   )}
                   .

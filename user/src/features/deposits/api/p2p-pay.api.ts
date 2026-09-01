@@ -45,6 +45,8 @@ export interface AvailableWithdrawal {
   origin?: 'user' | 'investor' | 'business';
   assignedToMe?: boolean;
   priority?: boolean;
+  allowPartialPay?: boolean;
+  minPartialPay?: number;
   creditIfPayFull?: {
     payAmount: number;
     payCurrency?: string;
@@ -62,6 +64,7 @@ export interface AvailableWithdrawalsResponse extends Paginated<AvailableWithdra
   paySubmitMinutes?: number;
   needsAmount?: boolean;
   matchAmount?: number | null;
+  allowedDepositMethods?: PaymentMethod[];
 }
 
 export interface ClaimWithdrawalResult extends AvailableWithdrawal {

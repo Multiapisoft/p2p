@@ -52,6 +52,8 @@ export interface AvailableWithdrawal {
   origin?: 'user' | 'investor' | 'business';
   assignedToMe?: boolean;
   priority?: boolean;
+  allowPartialPay?: boolean;
+  minPartialPay?: number;
   /** Estimated wallet credit if you pay maxPayable (after verify, INR points) */
   creditIfPayFull?: {
     payAmount: number;
@@ -63,6 +65,8 @@ export interface AvailableWithdrawal {
     creditCurrency?: string;
     exchangeRate?: number | null;
   } | null;
+  /** Investor sequential mode: exact amount required for this payment. */
+  requiredPayAmount?: number;
 }
 
 export interface InvestorLimitLot {
@@ -95,6 +99,10 @@ export interface AvailableWithdrawalsResponse extends Paginated<AvailableWithdra
   showCommissionToInvestor?: boolean;
   allowMobileNumberUpi?: boolean;
   investorAllowedDepositMethods?: PaymentMethod[];
+  /** Investor: one withdrawal at a time within pay limit. */
+  sequentialMode?: boolean;
+  queueTotal?: number;
+  noMatchReason?: 'tail_no_wd' | 'no_open_wd' | null;
 }
 
 export interface ClaimWithdrawalResult extends AvailableWithdrawal {

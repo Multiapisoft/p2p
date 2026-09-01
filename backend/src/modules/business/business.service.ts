@@ -24,6 +24,10 @@ import {
 } from './utils/payment-methods.util';
 import { assignDefinedFields } from './utils/assign-defined.util';
 import {
+  MIN_PARTIAL_INR,
+  minPartialAmount,
+} from '../withdrawal/utils/partial-pay.util';
+import {
   p2pPayQuotaCap,
   p2pPayQuotaRemaining,
   p2pPayLimitExceededError,
@@ -381,6 +385,26 @@ export class BusinessService {
       .exec();
     if (!business || typeof business.allowPartialPay !== 'boolean') return platformAllow;
     return business.allowPartialPay;
+  }
+
+  /** Per-business min partial (INR); falls back to platform ₹5,000 default. */
+  async resolveMinPartialPay(
+    businessId: string | null | undefined,
+    method?: string,
+    currency?: string,
+  ): Promise<number> {
+    const usdt =
+      method === 'usdt' || (currency || '').toUpperCase() === 'USDT';
+    if (usdt) return minPartialAmount(method, currency);
+    if (!businessId) return MIN_PARTIAL_INR;
+    const business = await this.businessModel
+      .findById(businessId)
+      .select('minPartialPayInr')
+      .lean()
+      .exec();
+    const custom = business?.minPartialPayInr;
+    if (typeof custom === 'number' && custom > 0) return custom;
+    return MIN_PARTIAL_INR;
   }
 
   /** Platform default, overridden when business has an explicit boolean (Noida #37). */

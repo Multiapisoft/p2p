@@ -114,7 +114,26 @@ export interface Withdrawal {
   userCanEdit?: boolean;
   userEditExpiresAt?: string;
   tatSecondsRemaining?: number;
+  payments?: WithdrawalSplitPayment[];
   createdAt: string;
+}
+
+export interface WithdrawalSplitPayment {
+  _id: string;
+  referenceId: string;
+  amount: number;
+  currency: string;
+  status: TransactionStatus;
+  utr?: string;
+  proofImageUrl?: string;
+  netCreditedAmount?: number;
+  rejectionReason?: string;
+  createdAt?: string;
+  completedAt?: string;
+  autoApproveAt?: string;
+  notes?: string;
+  disputedAt?: string;
+  disputeTicketId?: string;
 }
 
 export interface CreateWithdrawalPayload {

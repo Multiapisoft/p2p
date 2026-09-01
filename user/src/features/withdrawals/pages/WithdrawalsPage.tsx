@@ -39,12 +39,10 @@ import type {
   WithdrawalSplitPayment,
 } from '@/shared/types/api.types';
 
-const METHODS: { value: PaymentMethod; label: string }[] = [
-  { value: 'upi', label: 'UPI' },
-  { value: 'bank', label: 'Bank' },
-  { value: 'usdt', label: 'USDT' },
-  { value: 'cdm', label: 'CDM' },
-];
+import {
+  filterWithdrawalMethodOptions,
+  resolveUserWithdrawalMethods,
+} from '@/shared/lib/payment-methods';
 
 const STATUS_FILTERS: { value: string; label: string }[] = [
   { value: 'all', label: 'All' },
@@ -200,11 +198,13 @@ export function WithdrawalsPage() {
   });
   /** Business-code users are capped by remaining pay limit (deposits increase it). */
   const isBusinessLinked = Boolean(profile?.referredByBusiness);
-  const enabledMethods = useMemo(() => {
-    const allowed = profile?.referredBusiness?.allowedWithdrawalMethods;
-    if (allowed?.length) return METHODS.filter((m) => allowed.includes(m.value));
-    return METHODS;
-  }, [profile?.referredBusiness?.allowedWithdrawalMethods]);
+  const enabledMethods = useMemo(
+    () =>
+      filterWithdrawalMethodOptions(
+        resolveUserWithdrawalMethods(profile?.referredBusiness?.allowedWithdrawalMethods),
+      ),
+    [profile?.referredBusiness?.allowedWithdrawalMethods],
+  );
 
   useEffect(() => {
     if (!enabledMethods.length) return;

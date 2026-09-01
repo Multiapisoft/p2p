@@ -35,6 +35,7 @@ export const businessApi = {
     allowedPaymentMethods?: PaymentMethod[];
     allowedDepositMethods?: PaymentMethod[];
     allowedWithdrawalMethods?: PaymentMethod[];
+    minPartialPayInr?: number;
     integrationUrls?: IntegrationUrls;
   }) => apiPatch<BusinessProfile>('/business/me', body),
   regenerateKeys: () => apiPost<RegenerateKeysResponse>('/business/me/regenerate-keys'),

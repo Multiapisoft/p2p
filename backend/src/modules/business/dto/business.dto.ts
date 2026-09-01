@@ -98,6 +98,12 @@ export class UpdateBusinessDto {
   @IsBoolean()
   allowPartialPay?: boolean;
 
+  /** Minimum INR split/partial pay for payers on this business's withdrawals. 0 = platform default. */
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  minPartialPayInr?: number;
+
   @IsOptional()
   @IsBoolean()
   allowMobileNumberUpi?: boolean;

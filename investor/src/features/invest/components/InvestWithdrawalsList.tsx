@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { fulfillApi, type AvailableWithdrawal } from '@/features/fulfill/api/fulfill.api';
 import { investorApi } from '@/features/investor/api/investor.api';
@@ -8,43 +9,17 @@ import { Button } from '@/shared/components/ui/Button';
 import { Input } from '@/shared/components/ui/Input';
 import { StatusBadge } from '@/shared/components/ui/Badge';
 import { Modal } from '@/shared/components/ui/Modal';
-import { Pagination } from '@/shared/components/ui/Pagination';
 import { ProofUpload } from '@/shared/components/ProofUpload';
 import { AddressQr } from '@/shared/components/AddressQr';
 import { LoadingScreen, EmptyState } from '@/shared/components/ui/Icon';
 import { apiErrorMessage, formatCurrency, formatDate } from '@/shared/lib/utils';
 import { normalizeUtr, normalizeTxHash, paymentRefErrorForMethod } from '@/shared/lib/validation';
 import { buildUpiPayUri, buildUpiAppLinks, formatSecondsMmSs } from '@/shared/lib/upi-qr';
-import { minPartialAmount, partialPayError } from '@/shared/lib/partial-pay';
+import { partialPayError, investorTailRemaining } from '@/shared/lib/partial-pay';
 import { InvestorLimitPanel } from '@/features/invest/components/InvestorLimitPanel';
-import { InvestAmountModal } from '@/features/invest/components/InvestAmountModal';
 import { apiGet } from '@/shared/api/client';
 import type { PaymentMethod } from '@/shared/types/api.types';
 import { liveQueryOptions } from '@/shared/constants/live-query';
-
-const MATCH_AMOUNT_KEY = 'p2p-match-amount';
-const PAGE_SIZES = [5, 10, 20];
-
-function readStoredMatchAmount() {
-  if (typeof window === 'undefined') return null;
-  const n = Number(sessionStorage.getItem(MATCH_AMOUNT_KEY));
-  return Number.isFinite(n) && n >= 1 ? n : null;
-}
-
-function notifyMatchReady(amount: number) {
-  if (typeof window === 'undefined' || typeof Notification === 'undefined') return;
-  const title = 'Investment match ready';
-  const body = `Withdrawal available for ₹${amount.toLocaleString('en-IN')}. Open Invest to pay.`;
-  if (Notification.permission === 'granted') {
-    try {
-      new Notification(title, { body, tag: 'invest-deposit-match' });
-    } catch {
-      /* ignore */
-    }
-  }
-}
-
-type SortKey = 'amount_desc' | 'amount_asc' | 'remaining_desc' | 'remaining_asc' | 'newest' | 'oldest';
 
 const METHOD_META: Record<PaymentMethod, { label: string; icon: string; color: string }> = {
   upi: { label: 'UPI', icon: 'qr_code_2', color: 'text-blue-600 bg-blue-500/10' },
@@ -57,23 +32,6 @@ function moneyCurrency(w: { currency?: string; method?: string }) {
   if (w.method === 'usdt' || (w.currency || '').toUpperCase() === 'USDT') return 'USDT';
   return w.currency || 'INR';
 }
-
-const METHOD_TABS: { value: PaymentMethod | 'all'; label: string }[] = [
-  { value: 'all', label: 'All' },
-  { value: 'upi', label: 'UPI' },
-  { value: 'bank', label: 'Bank' },
-  { value: 'usdt', label: 'USDT' },
-  { value: 'cdm', label: 'CDM' },
-];
-
-const SORT_OPTIONS: { value: SortKey; label: string }[] = [
-  { value: 'newest', label: 'Newest first' },
-  { value: 'oldest', label: 'Oldest first' },
-  { value: 'amount_desc', label: 'Amount: high to low' },
-  { value: 'amount_asc', label: 'Amount: low to high' },
-  { value: 'remaining_desc', label: 'Open: high to low' },
-  { value: 'remaining_asc', label: 'Open: low to high' },
-];
 
 function CopyBtn({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
@@ -228,13 +186,14 @@ function MiniProgress({
   );
 }
 
+function requiredPayFor(w: AvailableWithdrawal, limitRemaining: number) {
+  if (w.requiredPayAmount != null && w.requiredPayAmount > 0) return w.requiredPayAmount;
+  const cap =
+    w.maxPayable != null ? Math.min(w.maxPayable, w.remainingAmount) : w.remainingAmount;
+  return limitRemaining > 0 ? Math.min(cap, limitRemaining) : cap;
+}
+
 export function InvestWithdrawalsList() {
-  const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(10);
-  const [searchInput, setSearchInput] = useState('');
-  const [search, setSearch] = useState('');
-  const [method, setMethod] = useState<PaymentMethod | 'all'>('all');
-  const [sort, setSort] = useState<SortKey>('newest');
   const [target, setTarget] = useState<AvailableWithdrawal | null>(null);
   const [claimPayDeadline, setClaimPayDeadline] = useState<string | null>(null);
   const [claimingId, setClaimingId] = useState<string | null>(null);
@@ -244,23 +203,7 @@ export function InvestWithdrawalsList() {
   const [proofUrl, setProofUrl] = useState('');
   const [formError, setFormError] = useState('');
   const [now, setNow] = useState(() => Date.now());
-  const [matchAmount, setMatchAmount] = useState<number | null>(null);
-  const [matchInput, setMatchInput] = useState(() => {
-    const stored = readStoredMatchAmount();
-    return stored != null ? String(stored) : '';
-  });
-  const [amountModalOpen, setAmountModalOpen] = useState(false);
-  const [matchReadyOpen, setMatchReadyOpen] = useState(false);
-  const wasWaitingRef = useRef(false);
   const qc = useQueryClient();
-
-  useEffect(() => {
-    const t = setTimeout(() => {
-      setSearch(searchInput.trim());
-      setPage(1);
-    }, 350);
-    return () => clearTimeout(t);
-  }, [searchInput]);
 
   useEffect(() => {
     if (!claimPayDeadline && !target) return;
@@ -268,10 +211,7 @@ export function InvestWithdrawalsList() {
     return () => clearInterval(id);
   }, [claimPayDeadline, target]);
 
-  const listQuery = useMemo(
-    () => ({ page, limit, search, sort, method, amount: matchAmount ?? undefined }),
-    [page, limit, search, sort, method, matchAmount],
-  );
+  const listQuery = useMemo(() => ({ page: 1, limit: 1 }), []);
 
   const payAmountNum = Number(payAmount);
   const { data: creditPreview, isFetching: previewLoading } = useQuery({
@@ -292,45 +232,13 @@ export function InvestWithdrawalsList() {
     ...liveQueryOptions,
   });
 
-  useEffect(() => {
-    if (matchAmount == null || !data) return;
-    const waiting = !!data.waitingForMatch || (data.items?.length ?? 0) === 0;
-    const hasItems = (data.items?.length ?? 0) > 0;
-    if (wasWaitingRef.current && hasItems) {
-      setMatchReadyOpen(true);
-      notifyMatchReady(matchAmount);
-    }
-    wasWaitingRef.current = waiting;
-  }, [data, matchAmount]);
-
   const { data: platformSettings } = useQuery({
     queryKey: ['platform-settings'],
     queryFn: () =>
       apiGet<{
         investorPlanAmounts?: number[];
-        investorAllowedDepositMethods?: PaymentMethod[];
       }>('/platform-settings'),
   });
-
-  const methodTabs = useMemo(() => {
-    const allowed =
-      platformSettings?.investorAllowedDepositMethods ?? data?.investorAllowedDepositMethods;
-    if (!allowed?.length) return METHOD_TABS;
-    return METHOD_TABS.filter((t) => t.value === 'all' || allowed.includes(t.value));
-  }, [platformSettings?.investorAllowedDepositMethods, data?.investorAllowedDepositMethods]);
-
-  const depositMethodsRestricted =
-    (platformSettings?.investorAllowedDepositMethods ?? data?.investorAllowedDepositMethods)
-      ?.length &&
-    methodTabs.filter((t) => t.value !== 'all').length <
-      METHOD_TABS.filter((t) => t.value !== 'all').length;
-
-  useEffect(() => {
-    if (!methodTabs.length) return;
-    if (!methodTabs.some((t) => t.value === method)) {
-      setMethod(methodTabs[0]?.value ?? 'all');
-    }
-  }, [methodTabs, method]);
 
   const addLimit = useMutation({
     mutationFn: (amount: number) => fulfillApi.addInvestorLimit(amount),
@@ -384,26 +292,14 @@ export function InvestWithdrawalsList() {
         setTarget(w);
         setClaimPayDeadline(null);
         resetForm();
-        const maxPay =
-          w.maxPayable != null
-            ? Math.min(w.maxPayable, w.remainingAmount)
-            : w.remainingAmount;
-        const pref =
-          matchAmount != null && matchAmount >= 1 ? Math.min(matchAmount, maxPay) : maxPay;
-        setPayAmount(String(pref > 0 ? pref : maxPay));
+        setPayAmount(String(requiredPayFor(w, data?.limitRemaining ?? 0)));
         return;
       }
       const claimed = await fulfillApi.claimWithdrawal(w._id);
       setTarget({ ...w, ...claimed });
       setClaimPayDeadline(claimed.claimPayDeadline);
       resetForm();
-      const maxPay =
-        claimed.maxPayable != null
-          ? Math.min(claimed.maxPayable, claimed.remainingAmount)
-          : claimed.remainingAmount;
-      const pref =
-        matchAmount != null && matchAmount >= 1 ? Math.min(matchAmount, maxPay) : maxPay;
-      setPayAmount(String(pref > 0 ? pref : maxPay));
+      setPayAmount(String(requiredPayFor({ ...w, ...claimed }, data?.limitRemaining ?? 0)));
       qc.invalidateQueries({ queryKey: ['invest-withdrawals'] });
     } catch (err: unknown) {
       setFormError(apiErrorMessage(err, 'Could not claim this withdrawal'));
@@ -430,9 +326,7 @@ export function InvestWithdrawalsList() {
         : target.remainingAmount;
     if (num > maxPay) {
       setFormError(
-        target.p2pPayRemainingInr != null
-          ? `Max payable is ${formatCurrency(maxPay, moneyCurrency(target))} (business limit remaining ₹${target.p2pPayRemainingInr})`
-          : `Maximum remaining amount is ${formatCurrency(maxPay, moneyCurrency(target))}`,
+        `Maximum payable amount is ${formatCurrency(maxPay, moneyCurrency(target))}`,
       );
       return;
     }
@@ -442,6 +336,8 @@ export function InvestWithdrawalsList() {
       maxPayable: maxPay,
       method: target.method,
       currency: target.currency,
+      allowPartial: false,
+      investorTailRemaining: investorTailRemaining(data?.limitRemaining ?? 0),
     });
     if (partialErr) {
       setFormError(partialErr);
@@ -471,42 +367,20 @@ export function InvestWithdrawalsList() {
   };
 
   const items = data?.items ?? [];
-  const total = data?.total ?? 0;
-  const totalPages = data?.totalPages ?? 1;
+  const nextWithdrawal = items[0] ?? null;
+  const queueTotal = data?.queueTotal ?? data?.total ?? 0;
   const needsLimit = !!(data?.needsLimit ?? data?.needsPlan);
   const showBonus = true;
-  const needsAmount = !needsLimit && (!matchAmount || !!data?.needsAmount);
   const limitLots = data?.lots ?? [];
   const limitRemaining = data?.limitRemaining ?? 0;
   const limitAdded = data?.limitAdded ?? 0;
+  const noMatchReason = data?.noMatchReason;
   const claimLockMinutes = data?.claimLockMinutes ?? 7;
   const paySecondsLeft = claimPayDeadline
     ? Math.max(0, Math.ceil((new Date(claimPayDeadline).getTime() - now) / 1000))
     : 0;
   const payExpired =
     !target?.assignedToMe && !!claimPayDeadline && paySecondsLeft <= 0;
-
-  const applyMatchAmount = (n: number) => {
-    const cap = limitRemaining > 0 ? limitRemaining : null;
-    const amount = cap != null ? Math.min(n, cap) : n;
-    setMatchAmount(amount);
-    setMatchInput(String(amount));
-    setPage(1);
-    setAmountModalOpen(false);
-    sessionStorage.setItem(MATCH_AMOUNT_KEY, String(amount));
-    if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
-      void Notification.requestPermission();
-    }
-  };
-
-  useEffect(() => {
-    if (loadingPortfolio || !data) return;
-    if (needsLimit) {
-      setAmountModalOpen(false);
-      return;
-    }
-    if (matchAmount == null) setAmountModalOpen(true);
-  }, [loadingPortfolio, data, needsLimit, matchAmount]);
 
   if (loadingPortfolio) return <LoadingScreen />;
 
@@ -522,31 +396,15 @@ export function InvestWithdrawalsList() {
       value: formatCurrency(portfolio?.totalInvested ?? 0),
       accent: '',
     },
-    { label: 'Open Req', value: String(total), accent: 'text-secondary' },
+    {
+      label: 'In queue',
+      value: String(queueTotal),
+      accent: 'text-secondary',
+    },
   ];
 
   return (
     <div className="space-y-3">
-      <InvestAmountModal
-        open={amountModalOpen}
-        initialValue={matchInput}
-        cap={limitRemaining > 0 ? limitRemaining : null}
-        title="Enter invest amount"
-        onClose={() => setAmountModalOpen(false)}
-        onApply={applyMatchAmount}
-      />
-      <Modal
-        open={matchReadyOpen}
-        onClose={() => setMatchReadyOpen(false)}
-        title="Withdrawal ready"
-      >
-        <div className="space-y-4">
-          <p className="text-sm text-on-surface-variant">Match found.</p>
-          <Button type="button" className="w-full" onClick={() => setMatchReadyOpen(false)}>
-            View payment details
-          </Button>
-        </div>
-      </Modal>
       {formError && !target && (
         <div className="rounded-lg bg-error-container px-3 py-2 text-xs text-on-error-container">
           {formError}
@@ -557,37 +415,12 @@ export function InvestWithdrawalsList() {
         <div className="rounded-xl border border-secondary/25 bg-secondary-container/15 p-3">
           <InvestorLimitPanel
             compact
+            readOnly
             remaining={limitRemaining}
             added={limitAdded}
             lots={limitLots}
-            planAmounts={platformSettings?.investorPlanAmounts}
-            pending={addLimit.isPending}
-            error={addLimit.error}
-            onAdd={(amount) => addLimit.mutate(amount)}
+            onAdd={() => undefined}
           />
-        </div>
-      )}
-
-      {!needsLimit && (
-        <div className="rounded-xl border border-outline-variant/60 bg-surface-container-lowest p-3">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-on-surface-variant">
-                Amount to pay
-              </p>
-              <p className="text-lg font-bold text-secondary">
-                {matchAmount != null ? formatCurrency(matchAmount) : 'Enter amount first'}
-              </p>
-            </div>
-            <Button
-              type="button"
-              size="sm"
-              variant={matchAmount ? 'outline' : 'primary'}
-              onClick={() => setAmountModalOpen(true)}
-            >
-              {matchAmount != null ? 'Change amount' : 'Enter amount'}
-            </Button>
-          </div>
         </div>
       )}
 
@@ -602,94 +435,14 @@ export function InvestWithdrawalsList() {
         ))}
       </div>
 
-      <div className="rounded-xl border border-outline-variant/60 bg-surface-container-lowest p-3">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-          <div className="flex-1">
-            <Input
-              label="Search"
-              icon="search"
-              value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
-              placeholder="Reference, UPI, name…"
-              className="py-2 text-sm"
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-2">
-            <label className="flex flex-col gap-1 text-xs font-semibold">
-              Sort
-              <select
-                value={sort}
-                onChange={(e) => {
-                  setSort(e.target.value as SortKey);
-                  setPage(1);
-                }}
-                className="rounded-lg border border-outline-variant bg-surface-container-low px-2 py-2 text-xs font-medium"
-              >
-                {SORT_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="flex flex-col gap-1 text-xs font-semibold">
-              Per page
-              <select
-                value={limit}
-                onChange={(e) => {
-                  setLimit(Number(e.target.value));
-                  setPage(1);
-                }}
-                className="rounded-lg border border-outline-variant bg-surface-container-low px-2 py-2 text-xs font-medium"
-              >
-                {PAGE_SIZES.map((n) => (
-                  <option key={n} value={n}>
-                    {n}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-        </div>
-
-        <div className="mt-2 flex flex-wrap gap-1">
-          {methodTabs.map((t) => (
-            <button
-              key={t.value}
-              type="button"
-              onClick={() => {
-                setMethod(t.value);
-                setPage(1);
-              }}
-              className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition-colors ${
-                method === t.value
-                  ? 'bg-primary text-on-primary'
-                  : 'bg-surface-container-high text-on-surface-variant hover:bg-surface-container-highest'
-              }`}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
-        {depositMethodsRestricted ? (
-          <p className="mt-2 text-xs text-on-surface-variant">
-            Only admin-enabled deposit methods are shown (UPI / Bank / USDT / CDM).
-          </p>
-        ) : null}
-      </div>
-
       <div className="overflow-hidden rounded-xl border border-outline-variant/60 bg-surface-container-lowest">
         <div className="flex items-center justify-between border-b border-outline-variant/50 px-3 py-2">
           <p className="text-xs font-semibold text-on-surface-variant">
-            {total} request{total !== 1 ? 's' : ''}
-            {search || method !== 'all' ? ' matching filters' : ''}
+            {nextWithdrawal ? 'Your next payment' : 'Waiting for assignment'}
           </p>
           <Button type="button" size="sm" variant="outline" onClick={() => refetch()}>
             Refresh
           </Button>
-          <p className="text-[10px] text-outline">
-            {items.length} on this page
-          </p>
         </div>
 
         {isLoading ? (
@@ -699,7 +452,7 @@ export function InvestWithdrawalsList() {
         ) : isError ? (
           <div className="p-6 text-center">
             <p className="text-sm font-medium text-on-surface">
-              {apiErrorMessage(error, 'Could not load withdrawal requests')}
+              {apiErrorMessage(error, 'Could not load withdrawal')}
             </p>
             <Button type="button" className="mt-4" size="sm" onClick={() => refetch()}>
               Retry
@@ -707,138 +460,108 @@ export function InvestWithdrawalsList() {
           </div>
         ) : needsLimit ? (
           <div className="p-6">
+            <EmptyState message="Choose an investment plan to start." icon="payments" />
+          </div>
+        ) : !nextWithdrawal ? (
+          <div className="space-y-3 p-6">
             <EmptyState
-              message="Add a pay-limit amount first to see available withdrawals."
+              message={
+                noMatchReason === 'tail_no_wd'
+                  ? `No open withdrawal matches your remaining ${formatCurrency(limitRemaining)}.`
+                  : 'No payable withdrawal right now. Check back soon.'
+              }
               icon="payments"
             />
-          </div>
-        ) : needsAmount && !items.length ? (
-          <div className="p-6">
-            <EmptyState
-              message="Enter amount first."
-              icon="payments"
-            />
-          </div>
-        ) : !items.length ? (
-          <div className="p-6">
-            <EmptyState message="No matches." icon="payments" />
+            {noMatchReason === 'tail_no_wd' && limitRemaining > 0 && (
+              <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-on-surface">
+                <p className="font-semibold">Plan almost complete — {formatCurrency(limitRemaining)} left</p>
+                <p className="mt-1 text-xs text-on-surface-variant">
+                  Create your own withdrawal for this exact amount from{' '}
+                  <Link href="/withdrawals" className="font-semibold text-secondary underline">
+                    My Withdrawals
+                  </Link>
+                  . When someone pays it, your plan completes. Or wait until a matching request appears.
+                </p>
+              </div>
+            )}
           </div>
         ) : (
-          <>
-            <ul className={`divide-y divide-outline-variant/40 ${isFetching ? 'opacity-70' : ''}`}>
-              {items.map((w) => {
-                const meta = METHOD_META[w.method];
-                return (
-                  <li
-                    key={w._id}
-                    className="group flex flex-col gap-2 px-3 py-2.5 transition-colors hover:bg-surface-container-low/60 sm:flex-row sm:items-center sm:gap-3"
-                  >
-                    <div className="flex min-w-0 flex-1 items-center gap-2.5">
-                      <span
-                        className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${meta.color}`}
-                      >
-                        <span className="material-symbols-outlined text-lg">{meta.icon}</span>
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          <span className="text-base font-bold">
-                            {formatCurrency(w.amount, moneyCurrency(w))}
-                          </span>
-                          <StatusBadge status={w.status} />
-                          {w.priority ? (
-                            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-900">
-                              Highlighted
-                            </span>
-                          ) : null}
-                          {w.origin === 'business' ? (
-                            <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
-                              Business
-                            </span>
-                          ) : null}
-                          {w.assignedToMe ? (
-                            <span className="rounded-full bg-secondary/15 px-2 py-0.5 text-[10px] font-semibold text-secondary">
-                              Assigned to you
-                            </span>
-                          ) : null}
-                        </div>
-                        <p className="truncate font-mono text-[10px] text-on-surface-variant">
-                          {w.referenceId} · {formatDate(w.createdAt)}
-                        </p>
-                        <div className="mt-1.5 max-w-xs">
-                          <MiniProgress
-                            total={w.amount}
-                            confirmed={w.paidAmount || 0}
-                            locked={w.reservedAmount || 0}
-                            remaining={w.remainingAmount}
-                          />
-                          <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[10px]">
-                            {(w.paidAmount || 0) > 0 && (
-                              <span className="text-emerald-600">
-                                Received {formatCurrency(w.paidAmount, moneyCurrency(w))}
-                              </span>
-                            )}
-                            {(w.reservedAmount || 0) > 0 && (
-                              <span className="text-amber-600">
-                                Locked {formatCurrency(w.reservedAmount!, moneyCurrency(w))}
-                              </span>
-                            )}
-                            <span className="text-secondary">
-                              Open {formatCurrency(w.remainingAmount, moneyCurrency(w))}
-                              {w.maxPayable != null &&
-                              w.p2pPayRemainingInr != null &&
-                              w.maxPayable < w.remainingAmount
-                                ? ` · Pay up to ${formatCurrency(w.maxPayable, moneyCurrency(w))} (limit ₹${w.p2pPayRemainingInr})`
-                                : ''}
-                            </span>
-                          </div>
-                          {w.creditIfPayFull && w.remainingAmount > 0 && (
-                            <p className="mt-1 text-[11px] font-semibold text-secondary">
-                              You get{' '}
-                              {formatCurrency(
-                                w.creditIfPayFull.netCredited,
-                                w.creditIfPayFull.creditCurrency || 'INR',
-                              )}
-                              {showBonus && w.creditIfPayFull.bonusAmount > 0
-                                ? ` (incl. +${formatCurrency(w.creditIfPayFull.bonusAmount, 'INR')} bonus)`
-                                : ''}
-                              {moneyCurrency(w) === 'USDT' && w.creditIfPayFull.exchangeRate
-                                ? ` · @ ${w.creditIfPayFull.exchangeRate} INR/USDT`
-                                : ''}{' '}
-                              if you pay full open
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                    <Button
-                      size="sm"
-                      className="shrink-0 self-end sm:self-center"
-                      onClick={() => openPay(w)}
-                      loading={claimingId === w._id}
-                      disabled={
-                        w.remainingAmount <= 0 ||
-                        (w.maxPayable != null && w.maxPayable <= 0) ||
-                        claimingId === w._id
-                      }
+          <div className={`p-4 ${isFetching ? 'opacity-70' : ''}`}>
+            {(() => {
+              const w = nextWithdrawal;
+              const meta = METHOD_META[w.method];
+              const payDue = requiredPayFor(w, limitRemaining);
+              return (
+                <div className="space-y-4">
+                  <div className="flex flex-wrap items-start gap-3">
+                    <span
+                      className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${meta.color}`}
                     >
-                      Pay
-                    </Button>
-                  </li>
-                );
-              })}
-            </ul>
+                      <span className="material-symbols-outlined text-xl">{meta.icon}</span>
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-xl font-bold">
+                          Pay {formatCurrency(payDue, moneyCurrency(w))}
+                        </p>
+                        <StatusBadge status={w.status} />
+                        {w.priority ? (
+                          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase text-amber-900">
+                            Highlighted
+                          </span>
+                        ) : null}
+                      </div>
+                      <p className="mt-0.5 font-mono text-xs text-on-surface-variant">
+                        {w.referenceId} · {formatDate(w.createdAt)}
+                      </p>
+                      <p className="mt-1 text-xs text-on-surface-variant">
+                        Withdrawal total {formatCurrency(w.amount, moneyCurrency(w))} · Open{' '}
+                        {formatCurrency(w.remainingAmount, moneyCurrency(w))}
+                      </p>
+                      {queueTotal > 1 && (
+                        <p className="mt-1 text-[11px] font-medium text-secondary">
+                          {queueTotal - 1} more in queue after you complete this payment
+                        </p>
+                      )}
+                    </div>
+                  </div>
 
-            <div className="px-3 pb-2">
-              <Pagination
-                page={page}
-                totalPages={totalPages}
-                total={total}
-                limit={limit}
-                onPageChange={setPage}
-              />
-            </div>
-          </>
+                  <MiniProgress
+                    total={w.amount}
+                    confirmed={w.paidAmount || 0}
+                    locked={w.reservedAmount || 0}
+                    remaining={w.remainingAmount}
+                  />
+
+                  {w.creditIfPayFull && payDue > 0 && (
+                    <p className="text-sm font-semibold text-secondary">
+                      After verify you get{' '}
+                      {formatCurrency(
+                        w.creditIfPayFull.netCredited,
+                        w.creditIfPayFull.creditCurrency || 'INR',
+                      )}
+                      {showBonus && w.creditIfPayFull.bonusAmount > 0
+                        ? ` (incl. +${formatCurrency(w.creditIfPayFull.bonusAmount, 'INR')} bonus)`
+                        : ''}
+                    </p>
+                  )}
+
+                  <Button
+                    className="w-full"
+                    size="lg"
+                    onClick={() => openPay(w)}
+                    loading={claimingId === w._id}
+                    disabled={payDue <= 0 || claimingId === w._id}
+                  >
+                    Pay {formatCurrency(payDue, moneyCurrency(w))} now
+                  </Button>
+                  <p className="text-center text-[11px] text-on-surface-variant">
+                    Amount is fixed. Complete this payment to see the next withdrawal.
+                  </p>
+                </div>
+              );
+            })()}
+          </div>
         )}
       </div>
 
@@ -923,26 +646,17 @@ export function InvestWithdrawalsList() {
                 </p>
               </div>
               <div>
-                <p className="text-[10px] text-secondary">Pay up to</p>
+                <p className="text-[10px] text-secondary">You pay</p>
                 <p className="text-sm font-bold text-secondary">
                   {formatCurrency(
-                    target.maxPayable != null
-                      ? Math.min(target.maxPayable, target.remainingAmount)
-                      : target.remainingAmount,
+                    payAmountNum >= 1
+                      ? payAmountNum
+                      : requiredPayFor(target, limitRemaining),
                     moneyCurrency(target),
                   )}
                 </p>
               </div>
             </div>
-
-            {target.p2pPayRemainingInr != null && (
-              <p className="text-[11px] text-amber-700">
-                Business Platform Payment limit remaining: ₹{target.p2pPayRemainingInr}
-                {target.maxPayable != null && target.maxPayable < target.remainingAmount
-                  ? ` · capped from open ${formatCurrency(target.remainingAmount, moneyCurrency(target))}`
-                  : ''}
-              </p>
-            )}
 
             <PaymentDetailsPanel
               w={target}
@@ -959,8 +673,8 @@ export function InvestWithdrawalsList() {
             <Input
               label={
                 moneyCurrency(target) === 'USDT'
-                  ? 'Payment amount (USDT)'
-                  : 'Payment amount (₹)'
+                  ? 'Payment amount (USDT) — assigned'
+                  : 'Payment amount (₹) — assigned'
               }
               type="number"
               min={1}
@@ -972,28 +686,11 @@ export function InvestWithdrawalsList() {
               value={payAmount}
               onChange={(e) => setPayAmount(e.target.value)}
               required
-              disabled={payExpired}
+              disabled
             />
-            {(() => {
-              const maxPay =
-                target.maxPayable != null
-                  ? Math.min(target.maxPayable, target.remainingAmount)
-                  : target.remainingAmount;
-              const num = Number(payAmount);
-              const isFullPay =
-                Number.isFinite(num) && num >= 1 && num >= maxPay - 0.001;
-              if (isFullPay) return null;
-              return (
-                <p className="text-[11px] text-on-surface-variant">
-                  Min amount{' '}
-                  {formatCurrency(
-                    minPartialAmount(target.method, target.currency),
-                    moneyCurrency(target),
-                  )}
-                  . Smaller leftover only as full pay.
-                </p>
-              );
-            })()}
+            <p className="text-[11px] text-on-surface-variant">
+              Pay the assigned amount shown above. The next withdrawal appears after this is verified.
+            </p>
 
             {payAmountNum >= 1 && (
               <div

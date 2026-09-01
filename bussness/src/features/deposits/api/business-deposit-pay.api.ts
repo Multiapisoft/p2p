@@ -44,6 +44,8 @@ export interface AvailableWithdrawal {
   claimPayDeadline?: string | null;
   origin?: 'user' | 'investor' | 'business';
   assignedToMe?: boolean;
+  allowPartialPay?: boolean;
+  minPartialPay?: number;
   creditIfPayFull?: {
     payAmount: number;
     payCurrency?: string;

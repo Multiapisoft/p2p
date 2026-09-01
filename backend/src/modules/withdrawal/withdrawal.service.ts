@@ -1427,6 +1427,7 @@ export class WithdrawalService {
       rejectionReason: p.rejectionReason,
       createdAt: (p as { createdAt?: Date }).createdAt,
       completedAt: p.completedAt,
+      autoApproveAt: p.autoApproveAt,
       notes: p.notes,
       disputedAt: p.disputedAt,
       disputeTicketId: p.disputeTicketId,
