@@ -866,7 +866,7 @@ export class WithdrawalPaymentService {
             ...next,
             requiredPayAmount,
             maxPayable: requiredPayAmount,
-          },
+          } as unknown as (typeof itemsWithCredit)[number],
         ];
         total = payable.length;
       } else {
