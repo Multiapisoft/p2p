@@ -78,7 +78,7 @@ describe('p2p-settlement-math (ledger + commissions + limits)', () => {
       expect(bizRemaining(A)).toBe(30_000);
       expect(A.used).toBe(20_000);
 
-      // 2) Same-biz pay ₹5k → +5k release, then fees 500+250 from A
+      // 2) Same-biz pay ₹5k → earn +5k, fees 500+250 from A (list reserve stays)
       {
         const r = applyApproveSameBizPay({
           state: A,
@@ -90,8 +90,9 @@ describe('p2p-settlement-math (ledger + commissions + limits)', () => {
         adminBalance = roundMoney(adminBalance + r.adminWalletDelta);
         expect(r.fees.withdrawalFee).toBe(500);
         expect(r.fees.depositFee).toBe(250);
-        // used: 20000 - 5000 + 500 + 250 = 15750 → remaining 50000-15750 = 34250
-        expect(A.used).toBe(15_750);
+        // earned 5000; used: 20000 + 500 + 250 = 20750 → rem 50000+5000-20750 = 34250
+        expect(A.earned).toBe(5000);
+        expect(A.used).toBe(20_750);
         expect(bizRemaining(A)).toBe(34_250);
         expect(adminBalance).toBe(750);
       }
@@ -110,8 +111,8 @@ describe('p2p-settlement-math (ledger + commissions + limits)', () => {
         adminBalance = roundMoney(adminBalance + r.adminWalletDelta);
         expect(r.fees.withdrawalFee).toBe(500); // from A
         expect(r.fees.depositFee).toBe(500); // 10% of 5k from B
-        // A used: 15750 - 5000 + 500 = 11250 → rem 38750
-        expect(A.used).toBe(11_250);
+        // A used: 20750 - 5000 + 500 = 16250 → rem 50000+5000-16250 = 38750
+        expect(A.used).toBe(16_250);
         expect(bizRemaining(A)).toBe(38_750);
         // B: earned 5000, used 500 → rem = 0+5000-500 = 4500
         expect(B.earned).toBe(5000);
@@ -120,7 +121,7 @@ describe('p2p-settlement-math (ledger + commissions + limits)', () => {
         expect(adminBalance).toBe(750 + 1000); // +500 WD +500 dep
       }
 
-      // 4) Investor pays remaining ₹10k
+      // 4) Investor pays remaining ₹10k (no release — remaining must not jump)
       {
         const r = applyApproveInvestorPay({
           wdOwner: A,
@@ -133,17 +134,18 @@ describe('p2p-settlement-math (ledger + commissions + limits)', () => {
         expect(r.fees.withdrawalFee).toBe(1000);
         expect(r.fees.depositFee).toBe(0);
         expect(r.fees.investorBonus).toBe(200);
-        // A used: 11250 - 10000 + 1000 = 2250 → rem 47750
-        expect(A.used).toBe(2250);
-        expect(bizRemaining(A)).toBe(47_750);
+        // A used: 16250 + 1000 = 17250 → rem 50000+5000-17250 = 37750
+        expect(A.used).toBe(17_250);
+        expect(bizRemaining(A)).toBe(37_750);
         // admin: +1000 fee − 200 bonus
         expect(r.adminWalletDelta).toBe(800);
         expect(adminBalance).toBe(1750 + 800);
       }
 
-      // Listed open was 20k; all paid → unpaid reserve left = 0 from list
-      // (remaining used is only fee consumes: 500+250+500+1000 = 2250) ✓
-      expect(A.used).toBe(2250);
+      // List reserve for unpaid is gone via cross release; investor kept its share consumed.
+      // Fee used: 500+250+500+1000 = 2250; plus investor's unpaid list share 10000 → used 17250
+      expect(A.used).toBe(17_250);
+      expect(A.earned).toBe(5000);
     });
 
     it('unlist releases unpaid reserve without fee consume', () => {
@@ -153,7 +155,7 @@ describe('p2p-settlement-math (ledger + commissions + limits)', () => {
       expect(A.used).toBe(0);
     });
 
-    it('partial list unpaid release after one pay keeps fee used', () => {
+    it('partial list unpaid release after one same-biz pay keeps fee used + earn', () => {
       let A = applyListWithdrawal(freshA(), 20_000);
       const paid = applyApproveSameBizPay({
         state: A,
@@ -164,8 +166,10 @@ describe('p2p-settlement-math (ledger + commissions + limits)', () => {
       A = paid.wdOwner;
       // unpaid open still reserved = 15000; unlist releases that
       A = applyUnlistWithdrawal(A, 15_000);
-      // used after unlist: 15750 - 15000 = 750 (fees only)
-      expect(A.used).toBe(750);
+      // used after unlist: 20750 - 15000 = 5750 (paid list share 5k + fees 750)
+      expect(A.used).toBe(5750);
+      expect(A.earned).toBe(5000);
+      // rem = 50000+5000-5750 = 49250
       expect(bizRemaining(A)).toBe(49_250);
     });
   });

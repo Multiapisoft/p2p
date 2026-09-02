@@ -283,6 +283,12 @@ export class DepositService {
             'totalCommissionEarned',
             businessCommission,
           );
+          // Deposit fee also reduces pay-limit (same as P2P deposit-fee consume).
+          await this.businessService.consumeP2pPay(bizId, businessCommission, {
+            referenceType: 'deposit_fee',
+            referenceId: doc._id.toString(),
+            reason: 'deposit_fee',
+          });
         }
       }
 

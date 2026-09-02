@@ -578,8 +578,13 @@ export function FulfillWithdrawals({
       setAmountModalOpen(false);
       return;
     }
+    // Split pay off for investors — never prompt for custom match amount.
+    if (isInvest) {
+      setAmountModalOpen(false);
+      return;
+    }
     if (matchAmount == null) setAmountModalOpen(true);
-  }, [data, needsLimit, matchAmount]);
+  }, [data, needsLimit, matchAmount, isInvest]);
 
   const paymentItems = myPayments?.items ?? [];
   const paymentsTotal = myPayments?.total ?? 0;
@@ -587,14 +592,16 @@ export function FulfillWithdrawals({
 
   return (
     <div className="space-y-6">
-      <InvestAmountModal
-        open={amountModalOpen}
-        initialValue={matchInput}
-        cap={limitRemaining > 0 ? limitRemaining : null}
-        title="Enter amount first"
-        onClose={() => setAmountModalOpen(false)}
-        onApply={applyMatchAmount}
-      />
+      {!isInvest && (
+        <InvestAmountModal
+          open={amountModalOpen}
+          initialValue={matchInput}
+          cap={limitRemaining > 0 ? limitRemaining : null}
+          title="Enter amount first"
+          onClose={() => setAmountModalOpen(false)}
+          onApply={applyMatchAmount}
+        />
+      )}
       {formError && !target && (
         <div className="rounded-lg bg-error-container px-4 py-3 text-sm text-on-error-container">
           {formError}
@@ -611,11 +618,12 @@ export function FulfillWithdrawals({
             pending={addLimit.isPending}
             error={addLimit.error}
             onAdd={(amount) => addLimit.mutate(amount)}
+            readOnly={isInvest}
           />
         </Card>
       )}
 
-      {!needsLimit && (
+      {!needsLimit && !isInvest && (
         <Card>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
@@ -1031,12 +1039,12 @@ export function FulfillWithdrawals({
                   : target.remainingAmount
               }
               value={amount}
-              onChange={(e) => setAmount(e.target.value)}
+              readOnly
               required
               disabled
             />
             <p className="text-[11px] text-on-surface-variant">
-              Investors must pay the full open amount. Split / partial pay is not allowed.
+              Amount is fixed — split / partial pay is off. Investors must pay the full assigned amount.
             </p>
 
             {isInvest && payAmountNum >= 1 && (

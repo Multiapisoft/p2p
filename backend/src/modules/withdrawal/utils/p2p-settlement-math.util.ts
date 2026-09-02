@@ -84,8 +84,12 @@ export type ApprovePayResult = {
 };
 
 /**
- * Same-business user pay: release principal from list reserve, then consume
- * WD fee + deposit fee from the same business limit.
+ * Same-business user pay:
+ * - Keep list reserve consumed (do NOT release)
+ * - Earn +pay on this business (deposit side → limit increases)
+ * - Consume WD fee + deposit fee from the same business limit
+ *
+ * Net remaining vs list: −fees only (same as old release model, clearer ledger).
  */
 export function applyApproveSameBizPay(opts: {
   state: BizQuotaState;
@@ -100,9 +104,10 @@ export function applyApproveSameBizPay(opts: {
     depositFeePercent: opts.depositFeePercent,
     isInvestor: false,
   });
-  const used = roundMoney(opts.state.used - pay + fees.withdrawalFee + fees.depositFee);
+  const earned = roundMoney(opts.state.earned + pay);
+  const used = roundMoney(opts.state.used + fees.withdrawalFee + fees.depositFee);
   return {
-    wdOwner: { ...opts.state, used },
+    wdOwner: { ...opts.state, earned, used },
     payer: null,
     fees,
     adminWalletDelta: fees.adminFeeIn,
@@ -147,8 +152,8 @@ export function applyApproveCrossBizPay(opts: {
 
 /**
  * Investor pays open amount:
- * - WD owner: release pay, consume WD fee
- * - No deposit fee; investor bonus leaves admin commission wallet
+ * - Do NOT release list reserve (investor pays must not boost business remaining)
+ * - Consume WD fee only; no deposit fee; investor bonus leaves admin commission wallet
  */
 export function applyApproveInvestorPay(opts: {
   wdOwner: BizQuotaState;
@@ -166,7 +171,7 @@ export function applyApproveInvestorPay(opts: {
   });
   const wdOwner = {
     ...opts.wdOwner,
-    used: roundMoney(opts.wdOwner.used - pay + fees.withdrawalFee),
+    used: roundMoney(opts.wdOwner.used + fees.withdrawalFee),
   };
   return {
     wdOwner,

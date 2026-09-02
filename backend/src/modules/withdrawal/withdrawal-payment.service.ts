@@ -1308,6 +1308,7 @@ export class WithdrawalPaymentService {
       );
     }
 
+    let payAmount = dto.amount;
     if (!isAdminPayer) {
       const { allowPartial, minPartial } = await this.resolvePartialPayRules({
         isInvestor: !!isInvestor,
@@ -1315,8 +1316,22 @@ export class WithdrawalPaymentService {
         method: withdrawal.method,
         currency: withdrawal.currency,
       });
+      // Investors (and any payer with split off): lock to assigned full amount — no edit/split.
+      if (!allowPartial) {
+        const tail = investorTailRemaining(
+          investorLimit?.remaining,
+          withdrawal.method,
+          withdrawal.currency,
+          minPartial,
+        );
+        const assigned =
+          tail != null && tail > 0 && tail < maxPayable
+            ? Math.min(maxPayable, tail)
+            : maxPayable;
+        payAmount = Math.round(assigned * 100) / 100;
+      }
       const partialErr = partialPayError({
-        amount: dto.amount,
+        amount: payAmount,
         remaining,
         maxPayable,
         method: withdrawal.method,
@@ -1334,7 +1349,7 @@ export class WithdrawalPaymentService {
     }
 
     const estimate = await this.computeCreditBreakdown(
-      dto.amount,
+      payAmount,
       businessId,
       isInvestor ? undefined : payerBusinessId,
       withdrawal.method,
@@ -1364,7 +1379,7 @@ export class WithdrawalPaymentService {
         payerBusinessId: payerBusinessId
           ? new Types.ObjectId(payerBusinessId)
           : undefined,
-        amount: dto.amount,
+        amount: payAmount,
         currency: withdrawal.currency,
         utr: utrNorm,
         proofImageKey: dto.proofImageKey,
@@ -1383,7 +1398,7 @@ export class WithdrawalPaymentService {
     }
 
     // Reserve immediately → Open ↓, Locked ↑ on the request card
-    withdrawal.reservedAmount = (withdrawal.reservedAmount || 0) + dto.amount;
+    withdrawal.reservedAmount = (withdrawal.reservedAmount || 0) + payAmount;
     withdrawal.status = TransactionStatus.PROCESSING;
     // Clear claim so remaining open amount can be claimed by others (lock already served its purpose)
     withdrawal.set('claimLockedBy', null);
@@ -1394,7 +1409,7 @@ export class WithdrawalPaymentService {
     this.p2pRealtime.emitListChanged('updated', { withdrawalId });
 
     const note = paymentReceivedNotification({
-      payAmount: dto.amount,
+      payAmount,
       paidAmount: withdrawal.paidAmount || 0,
       reservedAmount: withdrawal.reservedAmount || 0,
       withdrawalAmount: withdrawal.amount,
@@ -1965,28 +1980,29 @@ export class WithdrawalPaymentService {
     const wdBizId = payment.businessId?.toString();
     const payInr = breakdown.payAmountInr;
 
-    // Limit math:
-    // 1) Release list reserve for USER/BUSINESS payers only — restores WD-owner remaining.
-    //    Investor pays must NOT increase business remaining (keep list reserve consumed).
-    // 2) If payer business ≠ WD owner → earned +pay on payer (never for investors / business-as-payer)
-    // 3) Fees consume from respective businesses' limits (below)
-    if (wdBizId && withdrawal.origin !== 'business' && !isInvestor) {
+    // Limit math on payment verify:
+    // - Cross-biz: release list reserve on WD-owner; earn +pay on payer business
+    // - Same-biz: no release; earn +pay (deposit → limit up); both fees from same biz
+    // - Investor: no release, no earn (list reserve stays consumed); WD fee only
+    const sameBiz =
+      !!wdBizId && !!payerBizId && wdBizId === payerBizId;
+    if (
+      wdBizId &&
+      withdrawal.origin !== 'business' &&
+      !isInvestor &&
+      !sameBiz
+    ) {
       await this.businessService.releaseP2pPay(wdBizId, payInr, {
         referenceType: 'withdrawal_payment',
         referenceId: payment._id.toString(),
         reason: 'list_release',
       });
     }
-    if (
-      !isInvestor &&
-      payerBizId &&
-      !skipP2pPayQuota &&
-      (!wdBizId || payerBizId !== wdBizId)
-    ) {
+    if (!isInvestor && payerBizId && !skipP2pPayQuota) {
       await this.businessService.creditP2pPayQuota(payerBizId, payInr, {
         referenceType: 'withdrawal_payment',
         referenceId: payment._id.toString(),
-        reason: 'user_pay_cross_biz',
+        reason: sameBiz ? 'user_deposit' : 'user_pay_cross_biz',
       });
     }
 

@@ -684,12 +684,12 @@ export function InvestWithdrawalsList() {
                   : target.remainingAmount
               }
               value={payAmount}
-              onChange={(e) => setPayAmount(e.target.value)}
+              readOnly
               required
               disabled
             />
             <p className="text-[11px] text-on-surface-variant">
-              Pay the assigned amount shown above. The next withdrawal appears after this is verified.
+              Amount is fixed — split / partial pay is off. Pay exactly this assigned amount.
             </p>
 
             {payAmountNum >= 1 && (
