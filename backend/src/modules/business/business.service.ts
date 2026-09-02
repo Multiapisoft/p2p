@@ -1052,11 +1052,16 @@ export class BusinessService {
     if (restored > 0) {
       await this.recordQuotaLedger({
         business: updated,
-        action: 'add',
+        action: 'release',
         amount: restored,
         remainingBefore,
         remainingAfter,
-        ref: { referenceType: 'p2p_pay_limit_add', referenceId: businessId, ...ref },
+        ref: {
+          referenceType: 'p2p_pay_limit_add',
+          referenceId: businessId,
+          ...ref,
+          reason: ref?.reason || 'list_release',
+        },
       });
     }
   }
@@ -1081,6 +1086,17 @@ export class BusinessService {
     const refType = opts.ref?.referenceType;
     const feeToAdmin =
       refType === 'withdrawal_payment_fee' || refType === 'withdrawal_payment_deposit_fee';
+    const reason =
+      opts.ref?.reason ||
+      (refType === 'withdrawal_payment_fee'
+        ? 'wd_fee'
+        : refType === 'withdrawal_payment_deposit_fee'
+          ? 'deposit_fee'
+          : refType === 'withdrawal_list'
+            ? 'list_reserve'
+            : refType === 'deposit'
+              ? 'user_deposit'
+              : undefined);
     await this.transactionService.record({
       userId: ownerId,
       type: LedgerType.P2P_LIMIT,
@@ -1099,6 +1115,7 @@ export class BusinessService {
         seedBefore: opts.seedBefore,
         seedAfter: opts.seedAfter,
         feeToAdmin,
+        reason,
       }),
       businessId: opts.business._id.toString(),
       fromParty: direction === LedgerDirection.DEBIT ? opts.business.name : 'Platform',

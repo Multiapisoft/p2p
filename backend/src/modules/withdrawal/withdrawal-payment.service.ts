@@ -1698,11 +1698,9 @@ export class WithdrawalPaymentService {
     ];
     if (status) and.push({ status });
     if (opts.method && opts.method !== 'all') {
+      // Method lives on parent WD — include WDs this biz owns OR that this biz's users paid.
       const matchingWithdrawals = await this.withdrawalModel
-        .find({
-          $or: [{ businessId: bid }, { businessId: businessId }],
-          method: opts.method as PaymentMethod,
-        })
+        .find({ method: opts.method as PaymentMethod })
         .select('_id')
         .lean()
         .exec();
@@ -1711,7 +1709,6 @@ export class WithdrawalPaymentService {
     if (search) {
       const matchingWithdrawals = await this.withdrawalModel
         .find({
-          $or: [{ businessId: bid }, { businessId: businessId }],
           referenceId: { $regex: search, $options: 'i' },
         })
         .select('_id')
@@ -1977,6 +1974,7 @@ export class WithdrawalPaymentService {
       await this.businessService.releaseP2pPay(wdBizId, payInr, {
         referenceType: 'withdrawal_payment',
         referenceId: payment._id.toString(),
+        reason: 'list_release',
       });
     }
     if (
@@ -1988,6 +1986,7 @@ export class WithdrawalPaymentService {
       await this.businessService.creditP2pPayQuota(payerBizId, payInr, {
         referenceType: 'withdrawal_payment',
         referenceId: payment._id.toString(),
+        reason: 'user_pay_cross_biz',
       });
     }
 
@@ -2034,7 +2033,8 @@ export class WithdrawalPaymentService {
             ? ` (${payment.amount} USDT → ₹${principalCredit}${rateNote})`
             : '')
         : `P2P payment — ${withdrawal.referenceId}`,
-      businessId: payment.businessId?.toString(),
+      // Tag payer's own business so cross-biz deposits show on the payer business ledger.
+      businessId: payerBizId || payment.businessId?.toString(),
       fromParty: payer ? `${payer.name} (${payer.role})` : undefined,
       toParty: payer ? `${payer.name} wallet` : undefined,
     });
@@ -2061,6 +2061,7 @@ export class WithdrawalPaymentService {
         await this.businessService.consumeP2pPay(wdBizId, withdrawalFee, {
           referenceType: 'withdrawal_payment_fee',
           referenceId: payment._id.toString(),
+          reason: 'wd_fee',
         });
       }
     }
@@ -2075,6 +2076,7 @@ export class WithdrawalPaymentService {
         await this.businessService.consumeP2pPay(payerBizId, depositFee, {
           referenceType: 'withdrawal_payment_deposit_fee',
           referenceId: payment._id.toString(),
+          reason: 'deposit_fee',
         });
       }
     }

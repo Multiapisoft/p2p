@@ -271,7 +271,11 @@ export class DepositService {
         await this.businessService.creditP2pPayQuota(
           bizId,
           this.quotaAmountInr(doc.amount, doc.currency),
-          { referenceType: 'deposit', referenceId: doc._id.toString() },
+          {
+            referenceType: 'deposit',
+            referenceId: doc._id.toString(),
+            reason: 'user_deposit',
+          },
         );
         if (businessCommission > 0) {
           await this.businessService.incrementStats(

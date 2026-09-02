@@ -142,7 +142,7 @@ export function StatementTable({
                   'whitespace-nowrap text-right text-[10px] font-semibold uppercase tracking-wide',
                 )}
               >
-                Balance
+                Balance / Limit
               </th>
               <th className={cn(cellPad, 'whitespace-nowrap text-[10px] font-semibold uppercase tracking-wide')}>
                 Type
@@ -200,7 +200,12 @@ export function StatementTable({
                       'whitespace-nowrap text-right tabular-nums font-semibold text-on-surface',
                     )}
                   >
-                    {formatCurrency(t.balanceAfter, t.currency)}
+                    <span className="block">{formatCurrency(t.balanceAfter, t.currency)}</span>
+                    {t.type === 'p2p_limit' ? (
+                      <span className="text-[9px] font-medium uppercase tracking-wide text-on-surface-variant">
+                        Pay limit rem
+                      </span>
+                    ) : null}
                   </td>
                   <td className={cellPad}>
                     <span className="inline-flex items-center gap-0.5 rounded-md bg-surface-container-high/80 px-1.5 py-0.5 text-[10px] font-medium capitalize leading-none text-on-surface">
@@ -277,7 +282,8 @@ export function StatementCards({
             <div className="mt-1 flex items-center justify-between gap-2 text-[10px] text-on-surface-variant">
               <span>{formatDate(t.createdAt)}</span>
               <span className="font-medium text-on-surface">
-                Bal {formatCurrency(t.balanceAfter, t.currency)}
+                {t.type === 'p2p_limit' ? 'Limit ' : 'Bal '}
+                {formatCurrency(t.balanceAfter, t.currency)}
               </span>
             </div>
             <p className="mt-1 truncate text-[12px] font-semibold text-on-surface" title={title}>

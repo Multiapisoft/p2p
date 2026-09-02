@@ -850,6 +850,7 @@ export class WithdrawalService {
         await this.businessService.reserveP2pPay(withdrawal.businessId.toString(), openInr, {
           referenceType: 'withdrawal_list',
           referenceId: withdrawal._id.toString(),
+          reason: 'list_reserve',
         });
       }
     }
@@ -957,6 +958,7 @@ export class WithdrawalService {
         await this.businessService.releaseP2pPay(withdrawal.businessId.toString(), openInr, {
           referenceType: 'withdrawal_unlist',
           referenceId: withdrawal._id.toString(),
+          reason: 'list_release',
         });
       }
     }
@@ -1073,6 +1075,7 @@ export class WithdrawalService {
           await this.businessService.reserveP2pPay(withdrawal.businessId.toString(), openInr, {
             referenceType: 'withdrawal_list',
             referenceId: withdrawal._id.toString(),
+            reason: 'list_reserve',
           });
         }
       }

@@ -100,8 +100,12 @@ export function TransactionsPage() {
             Business statement
           </p>
           <h1 className="font-[family-name:var(--font-headline)] text-xl font-bold sm:text-2xl">
-            Combined cashout ledger
+            Business ledger
           </h1>
+          <p className="mt-1 max-w-xl text-xs text-on-surface-variant sm:text-sm">
+            Wallet fees, pay-limit changes, and your users&apos; deposits / withdrawals (same or
+            other business pays).
+          </p>
           <p className="mt-2 text-2xl font-bold tabular-nums tracking-tight sm:text-3xl">
             {formatCurrency(available, currency)}
           </p>
@@ -212,6 +216,7 @@ export function TransactionsPage() {
                 page={page}
                 limit={limit}
                 onRowClick={setSelected}
+                showOwner
               />
             </div>
             <StatementCards

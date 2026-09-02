@@ -39,6 +39,12 @@ export type TransactionListOpts = ListQueryOpts & {
   userId?: string;
   direction?: string;
   businessId?: string;
+  /**
+   * Business portal statement: owner wallet/limit rows PLUS this business's
+   * users' deposit / withdrawal / investment / redemption lines.
+   */
+  businessLedgerOwnerId?: string;
+  businessLedgerBusinessId?: string;
   /** When true, strip fee-cut wording (user/investor self ledger). */
   hideFeeCuts?: boolean;
   /** When true, hide paired P2P fee wallet debits (limit row is the single business line). */
@@ -72,25 +78,73 @@ export class TransactionService {
     return this.findAll({ ...opts, userId });
   }
 
+  /** Owner wallet/limit + users' deposit/WD activity for one business. */
+  async findForBusinessLedger(
+    ownerUserId: string,
+    businessId: string,
+    opts: TransactionListOpts = {},
+  ) {
+    return this.findAll({
+      ...opts,
+      businessLedgerOwnerId: ownerUserId,
+      businessLedgerBusinessId: businessId,
+    });
+  }
+
   async findAll(opts: TransactionListOpts = {}) {
     const { page, limit, skip, search, sort } = normalizeListOpts(opts);
     const and: Record<string, unknown>[] = [];
 
-    if (opts.userId) {
-      const uid = opts.userId;
-      and.push(
-        Types.ObjectId.isValid(uid)
-          ? { $or: [{ userId: new Types.ObjectId(uid) }, { userId: uid }] }
-          : { userId: uid },
-      );
-    }
-    if (opts.businessId) {
-      const bid = opts.businessId;
-      and.push(
-        Types.ObjectId.isValid(bid)
-          ? { $or: [{ businessId: new Types.ObjectId(bid) }, { businessId: bid }] }
-          : { businessId: bid },
-      );
+    if (opts.businessLedgerOwnerId && opts.businessLedgerBusinessId) {
+      const ownerId = opts.businessLedgerOwnerId;
+      const bid = opts.businessLedgerBusinessId;
+      const ownerMatch = Types.ObjectId.isValid(ownerId)
+        ? { $or: [{ userId: new Types.ObjectId(ownerId) }, { userId: ownerId }] }
+        : { userId: ownerId };
+      const bizMatch = Types.ObjectId.isValid(bid)
+        ? { $or: [{ businessId: new Types.ObjectId(bid) }, { businessId: bid }] }
+        : { businessId: bid };
+      const ownerNe = Types.ObjectId.isValid(ownerId)
+        ? { userId: { $nin: [new Types.ObjectId(ownerId), ownerId] } }
+        : { userId: { $ne: ownerId } };
+      and.push({
+        $or: [
+          ownerMatch,
+          {
+            $and: [
+              bizMatch,
+              ownerNe,
+              {
+                type: {
+                  $in: [
+                    LedgerType.DEPOSIT,
+                    LedgerType.WITHDRAWAL,
+                    LedgerType.INVESTMENT,
+                    LedgerType.REDEMPTION,
+                  ],
+                },
+              },
+            ],
+          },
+        ],
+      });
+    } else {
+      if (opts.userId) {
+        const uid = opts.userId;
+        and.push(
+          Types.ObjectId.isValid(uid)
+            ? { $or: [{ userId: new Types.ObjectId(uid) }, { userId: uid }] }
+            : { userId: uid },
+        );
+      }
+      if (opts.businessId) {
+        const bid = opts.businessId;
+        and.push(
+          Types.ObjectId.isValid(bid)
+            ? { $or: [{ businessId: new Types.ObjectId(bid) }, { businessId: bid }] }
+            : { businessId: bid },
+        );
+      }
     }
     if (opts.direction && opts.direction !== 'all') {
       and.push({ direction: opts.direction });
