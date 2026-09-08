@@ -43,15 +43,13 @@ export function typeMeta(type: string) {
 
 export function entryRemark(t: LedgerEntry): string {
   if (t.description?.trim()) return t.description.trim();
-  const flow = [t.fromParty, t.toParty].filter(Boolean).join(' → ');
-  if (flow) return flow;
   if (t.referenceType || t.referenceId) {
     return [t.referenceType, t.referenceId].filter(Boolean).join(' · ');
   }
   return '—';
 }
 
-function parseRemark(t: LedgerEntry): { title: string; from?: string; to?: string } {
+function parseRemark(t: LedgerEntry): { title: string } {
   const raw = entryRemark(t);
 
   let title = raw
@@ -65,14 +63,11 @@ function parseRemark(t: LedgerEntry): { title: string; from?: string; to?: strin
     title = typeMeta(t.type).label;
   }
 
-  const from = t.fromParty?.trim() || undefined;
-  const to = t.toParty?.trim() || undefined;
-
-  return { title, from, to };
+  return { title };
 }
 
 function RemarkCell({ t }: { t: LedgerEntry }) {
-  const { title, from, to } = parseRemark(t);
+  const { title } = parseRemark(t);
   const full = entryRemark(t);
   return (
     <div className="min-w-[180px] max-w-[300px]">
@@ -82,13 +77,6 @@ function RemarkCell({ t }: { t: LedgerEntry }) {
       >
         {title}
       </p>
-      {from || to ? (
-        <p className="mt-0.5 truncate text-[10px] leading-tight text-on-surface-variant" title={`${from || '—'} → ${to || '—'}`}>
-          <span className="font-medium text-on-surface/80">{from || '—'}</span>
-          <span className="mx-1 text-on-surface-variant/70">→</span>
-          <span className="font-medium text-on-surface/80">{to || '—'}</span>
-        </p>
-      ) : null}
     </div>
   );
 }
@@ -253,7 +241,7 @@ export function StatementCards({
         const credit = isCreditEntry(t);
         const meta = typeMeta(t.type);
         const sr = (page - 1) * limit + idx + 1;
-        const { title, from, to } = parseRemark(t);
+        const { title } = parseRemark(t);
         return (
           <button
             key={t._id}
@@ -289,13 +277,6 @@ export function StatementCards({
             <p className="mt-1 truncate text-[12px] font-semibold text-on-surface" title={title}>
               {title}
             </p>
-            {from || to ? (
-              <p className="mt-0.5 truncate text-[10px] text-on-surface-variant">
-                <span className="font-medium text-on-surface/80">{from || '—'}</span>
-                <span className="mx-1">→</span>
-                <span className="font-medium text-on-surface/80">{to || '—'}</span>
-              </p>
-            ) : null}
           </button>
         );
       })}

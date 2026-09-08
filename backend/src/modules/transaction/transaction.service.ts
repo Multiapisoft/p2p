@@ -78,7 +78,7 @@ export class TransactionService {
     return this.findAll({ ...opts, userId });
   }
 
-  /** Owner wallet/limit + users' deposit/WD activity for one business. */
+  /** Business owner wallet / pay-limit rows only (no other users' activity). */
   async findForBusinessLedger(
     ownerUserId: string,
     businessId: string,
@@ -97,37 +97,12 @@ export class TransactionService {
 
     if (opts.businessLedgerOwnerId && opts.businessLedgerBusinessId) {
       const ownerId = opts.businessLedgerOwnerId;
-      const bid = opts.businessLedgerBusinessId;
-      const ownerMatch = Types.ObjectId.isValid(ownerId)
-        ? { $or: [{ userId: new Types.ObjectId(ownerId) }, { userId: ownerId }] }
-        : { userId: ownerId };
-      const bizMatch = Types.ObjectId.isValid(bid)
-        ? { $or: [{ businessId: new Types.ObjectId(bid) }, { businessId: bid }] }
-        : { businessId: bid };
-      const ownerNe = Types.ObjectId.isValid(ownerId)
-        ? { userId: { $nin: [new Types.ObjectId(ownerId), ownerId] } }
-        : { userId: { $ne: ownerId } };
-      and.push({
-        $or: [
-          ownerMatch,
-          {
-            $and: [
-              bizMatch,
-              ownerNe,
-              {
-                type: {
-                  $in: [
-                    LedgerType.DEPOSIT,
-                    LedgerType.WITHDRAWAL,
-                    LedgerType.INVESTMENT,
-                    LedgerType.REDEMPTION,
-                  ],
-                },
-              },
-            ],
-          },
-        ],
-      });
+      // Only the business wallet / pay-limit ledger — not who paid whom.
+      and.push(
+        Types.ObjectId.isValid(ownerId)
+          ? { $or: [{ userId: new Types.ObjectId(ownerId) }, { userId: ownerId }] }
+          : { userId: ownerId },
+      );
     } else {
       if (opts.userId) {
         const uid = opts.userId;
@@ -224,10 +199,28 @@ export class TransactionService {
           }
           return { ...obj, description: desc };
         })
-      : items;
+      : items.map((row) => row.toObject() as unknown as Record<string, unknown>);
+
+    // Business ledger: wallet credit/debit only — never expose who paid.
+    const itemsOut =
+      opts.businessLedgerOwnerId
+        ? mapped.map((obj) => {
+            const {
+              fromParty: _from,
+              toParty: _to,
+              counterpartyUserId: _cp,
+              ...rest
+            } = obj;
+            const userId = rest.userId;
+            if (userId && typeof userId === 'object' && userId !== null && '_id' in userId) {
+              rest.userId = String((userId as { _id: unknown })._id);
+            }
+            return rest;
+          })
+        : mapped;
 
     return {
-      items: mapped,
+      items: itemsOut,
       total,
       page,
       limit,

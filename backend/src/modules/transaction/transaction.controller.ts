@@ -38,9 +38,7 @@ export class TransactionController {
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: TransactionListQueryDto,
   ) {
-    // Owner wallet/limit rows + this business's users' deposit/WD lines.
-    // Do NOT list by businessId alone — that also pulls admin PLATFORM_FEE /
-    // business-fee credits (tagged with businessId) and leaks admin balanceAfter.
+    // Owner wallet / pay-limit rows only — amounts in/out, not who paid.
     const business = await this.businessService.findForActor(user.userId);
     const ownerId = business.ownerId?.toString() || user.userId;
     return this.transactionService.findForBusinessLedger(ownerId, business._id.toString(), {

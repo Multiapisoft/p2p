@@ -103,8 +103,7 @@ export function TransactionsPage() {
             Business ledger
           </h1>
           <p className="mt-1 max-w-xl text-xs text-on-surface-variant sm:text-sm">
-            Wallet fees, pay-limit changes, and your users&apos; deposits / withdrawals (same or
-            other business pays).
+            Your wallet credits, debits, and pay-limit changes only.
           </p>
           <p className="mt-2 text-2xl font-bold tabular-nums tracking-tight sm:text-3xl">
             {formatCurrency(available, currency)}
@@ -216,7 +215,6 @@ export function TransactionsPage() {
                 page={page}
                 limit={limit}
                 onRowClick={setSelected}
-                showOwner
               />
             </div>
             <StatementCards
@@ -263,11 +261,6 @@ export function TransactionsPage() {
                 {formatCurrency(selected.amount, selected.currency)}
               </span>
             </div>
-            {(selected.fromParty || selected.toParty) && (
-              <p className="rounded-lg bg-surface-container-low px-3 py-2 text-sm">
-                {[selected.fromParty || '—', selected.toParty || '—'].join(' → ')}
-              </p>
-            )}
             <div className="rounded-xl border border-outline-variant px-3">
               <DetailRow
                 label="Balance before"
