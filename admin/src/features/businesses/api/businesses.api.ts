@@ -38,7 +38,8 @@ export const businessesApi = {
       withdrawalsEnabled: boolean;
       b2bMatchingEnabled: boolean;
       allowPartialPay: boolean;
-      allowMobileNumberUpi: boolean;
+      allowMobileNumberUpi?: boolean;
+      allowMobileNumberUpiMode?: 'inherit' | 'on' | 'off';
       allowedDepositMethods: string[];
       allowedWithdrawalMethods: string[];
     }>,

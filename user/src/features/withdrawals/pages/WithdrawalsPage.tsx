@@ -22,7 +22,7 @@ import {
   sanitizeAccountNumber,
   upiIdError,
 } from '@/shared/lib/validation';
-import { formatSecondsMmSs } from '@/shared/lib/upi-qr';
+import { formatSecondsMmSs, decodeQrFromImageFile, parseUpiPayPayload } from '@/shared/lib/upi-qr';
 import { liveQueryOptions } from '@/shared/constants/live-query';
 import { Modal } from '@/shared/components/ui/Modal';
 import { toast } from '@/shared/ui/toast/toast.store';
@@ -163,6 +163,8 @@ export function WithdrawalsPage() {
   const [selectedSavedMethodId, setSelectedSavedMethodId] = useState('');
   const [saveCurrentMethod, setSaveCurrentMethod] = useState(false);
   const [saveAsDefault, setSaveAsDefault] = useState(false);
+  const [qrScanError, setQrScanError] = useState('');
+  const [qrScanning, setQrScanning] = useState(false);
   const [actionError, setActionError] = useState('');
   const [disputeFor, setDisputeFor] = useState<WithdrawalSplitPayment | null>(null);
   const [disputeReason, setDisputeReason] = useState('');
@@ -196,6 +198,9 @@ export function WithdrawalsPage() {
     queryFn: () =>
       apiGet<{ allowMobileNumberUpi?: boolean; minTransactionAmount?: number }>('/platform-settings'),
   });
+  const allowMobileNumberUpi = !!(
+    profile?.referredBusiness?.allowMobileNumberUpi ?? platformSettings?.allowMobileNumberUpi
+  );
   /** Business-code users are capped by remaining pay limit (deposits increase it). */
   const isBusinessLinked = Boolean(profile?.referredByBusiness);
   const enabledMethods = useMemo(
@@ -502,7 +507,7 @@ export function WithdrawalsPage() {
 
     if (method === 'upi') {
       const upiErr = upiIdError(upiId, true, {
-        allowMobileNumber: !!platformSettings?.allowMobileNumberUpi,
+        allowMobileNumber: allowMobileNumberUpi,
       });
       if (upiErr) {
         setFormError(upiErr);
@@ -768,14 +773,68 @@ export function WithdrawalsPage() {
             )}
 
             {method === 'upi' && (
-              <div className="grid gap-4 sm:grid-cols-2">
-                <Input label="UPI ID" value={upiId} onChange={(e) => setUpiId(e.target.value)} required />
-                <Input
-                  label="Name of Account Holder *"
-                  value={payerName}
-                  onChange={(e) => setPayerName(e.target.value)}
-                  required
-                />
+              <div className="space-y-3">
+                <div className="rounded-xl border border-dashed border-outline-variant bg-surface-container-low/50 px-3 py-3">
+                  <p className="text-sm font-semibold">Upload UPI QR</p>
+                  <p className="mt-0.5 text-xs text-on-surface-variant">
+                    Scan your UPI QR to auto-fill UPI ID and name.
+                  </p>
+                  <input
+                    type="file"
+                    accept="image/*,.jpg,.jpeg,.png,.webp"
+                    className="mt-2 block w-full text-sm"
+                    disabled={qrScanning}
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      e.target.value = '';
+                      if (!file) return;
+                      setQrScanError('');
+                      setQrScanning(true);
+                      try {
+                        const raw = await decodeQrFromImageFile(file);
+                        if (!raw) {
+                          setQrScanError('Could not read QR. Try a clearer image or enter UPI manually.');
+                          return;
+                        }
+                        const parsed = parseUpiPayPayload(raw);
+                        if (!parsed?.upiId) {
+                          setQrScanError('QR is not a UPI payment code.');
+                          return;
+                        }
+                        setUpiId(parsed.upiId);
+                        if (parsed.payerName) {
+                          const cleaned = parsed.payerName.replace(/[^A-Za-z. ]/g, ' ').replace(/\s+/g, ' ').trim();
+                          if (cleaned) setPayerName(cleaned);
+                        }
+                        setFormError('');
+                      } catch {
+                        setQrScanError('Could not read QR. Enter UPI manually.');
+                      } finally {
+                        setQrScanning(false);
+                      }
+                    }}
+                  />
+                  {qrScanning ? (
+                    <p className="mt-1 text-xs text-on-surface-variant">Reading QR…</p>
+                  ) : null}
+                  {qrScanError ? (
+                    <p className="mt-1 text-xs text-error">{qrScanError}</p>
+                  ) : null}
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Input label="UPI ID" value={upiId} onChange={(e) => setUpiId(e.target.value)} required />
+                  <Input
+                    label="Name of Account Holder *"
+                    value={payerName}
+                    onChange={(e) => setPayerName(e.target.value)}
+                    required
+                  />
+                </div>
+                {allowMobileNumberUpi ? (
+                  <p className="text-[11px] text-on-surface-variant">
+                    Mobile-number UPI is allowed (e.g. 9876543210@paytm).
+                  </p>
+                ) : null}
               </div>
             )}
 

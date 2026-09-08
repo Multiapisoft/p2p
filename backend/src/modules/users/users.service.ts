@@ -407,6 +407,24 @@ export class UsersService {
     };
   }
 
+  private async resolveAllowMobileNumberForUser(
+    user: { referredByBusiness?: Types.ObjectId | string | null },
+  ): Promise<boolean> {
+    const settings = await this.platformSettingsService.get();
+    const platformAllow = !!settings.allowMobileNumberUpi;
+    const bizId = user.referredByBusiness?.toString();
+    if (!bizId) return platformAllow;
+    const business = await this.businessModel
+      .findById(bizId)
+      .select('allowMobileNumberUpi')
+      .lean()
+      .exec();
+    if (!business || typeof business.allowMobileNumberUpi !== 'boolean') {
+      return platformAllow;
+    }
+    return business.allowMobileNumberUpi;
+  }
+
   async saveWithdrawalMethod(
     userId: string,
     dto: UpsertSavedWithdrawalMethodDto,
@@ -415,7 +433,7 @@ export class UsersService {
     const user = await this.usersRepo.findById(userId);
     if (!user) throw new NotFoundException('User not found');
 
-    const settings = await this.platformSettingsService.get();
+    const allowMobileNumber = await this.resolveAllowMobileNumberForUser(user);
     assertValidWithdrawalDestination(
       {
         method: dto.method,
@@ -423,7 +441,7 @@ export class UsersService {
         bankDetails: dto.bankDetails,
         usdtDetails: dto.usdtDetails,
       },
-      { allowMobileNumber: !!settings.allowMobileNumberUpi },
+      { allowMobileNumber },
     );
     if (user.role === UserRole.INVESTOR) {
       await this.platformSettingsService.assertInvestorWithdrawalMethodAllowed(dto.method);
@@ -910,30 +928,57 @@ export class UsersService {
   /** Sanitize and ensure referredBusiness is populated for admin/profile responses. */
   private async sanitizeWithBusiness(user: UserDocument) {
     const obj = this.sanitize(user) as Record<string, unknown>;
-    if (obj.referredBusiness) return obj;
+    const settings = await this.platformSettingsService.get();
+    const platformAllow = !!settings.allowMobileNumberUpi;
 
     let bizId: string | undefined;
-    if (user.referredByBusiness) {
+    const existing = obj.referredBusiness as
+      | {
+          _id?: unknown;
+          name?: string;
+          referralCode?: string;
+          allowedDepositMethods?: string[];
+          allowedWithdrawalMethods?: string[];
+          allowMobileNumberUpi?: boolean;
+        }
+      | undefined;
+
+    if (existing?._id) {
+      bizId = String(existing._id);
+    } else if (user.referredByBusiness) {
       bizId = user.referredByBusiness.toString();
     } else if (typeof obj.referredByBusiness === 'string') {
       bizId = obj.referredByBusiness;
     }
-    if (!bizId) return obj;
 
-    const biz = await this.businessModel
-      .findById(bizId)
-      .select('name referralCode allowedDepositMethods allowedWithdrawalMethods allowedPaymentMethods')
-      .lean()
-      .exec();
-    if (biz) {
-      obj.referredBusiness = {
-        _id: biz._id,
-        name: biz.name,
-        referralCode: biz.referralCode,
-        allowedDepositMethods: resolveDepositMethods(biz),
-        allowedWithdrawalMethods: resolveWithdrawalMethods(biz),
-      };
+    let bizAllow: boolean | undefined;
+    if (bizId) {
+      const biz = await this.businessModel
+        .findById(bizId)
+        .select(
+          'name referralCode allowedDepositMethods allowedWithdrawalMethods allowedPaymentMethods allowMobileNumberUpi',
+        )
+        .lean()
+        .exec();
+      if (biz) {
+        bizAllow =
+          typeof biz.allowMobileNumberUpi === 'boolean'
+            ? biz.allowMobileNumberUpi
+            : undefined;
+        obj.referredBusiness = {
+          _id: biz._id,
+          name: biz.name,
+          referralCode: biz.referralCode,
+          allowedDepositMethods: resolveDepositMethods(biz),
+          allowedWithdrawalMethods: resolveWithdrawalMethods(biz),
+          allowMobileNumberUpi: bizAllow ?? platformAllow,
+        };
+      }
     }
+
+    obj.allowMobileNumberUpi =
+      typeof bizAllow === 'boolean' ? bizAllow : platformAllow;
+
     return obj;
   }
 

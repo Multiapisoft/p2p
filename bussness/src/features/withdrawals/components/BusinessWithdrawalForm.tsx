@@ -44,6 +44,14 @@ export function BusinessWithdrawalForm() {
       apiGet<{ allowMobileNumberUpi?: boolean; minTransactionAmount?: number }>('/platform-settings'),
     enabled: allowed,
   });
+  const { data: businessMe } = useQuery({
+    queryKey: ['business-me'],
+    queryFn: () => businessApi.getMe(),
+    enabled: allowed,
+  });
+  const allowMobileNumberUpi = !!(
+    businessMe?.allowMobileNumberUpi ?? platformSettings?.allowMobileNumberUpi
+  );
   const { data: fx } = useQuery({
     queryKey: ['wallets-exchange-rate'],
     queryFn: () => apiGet<{ usdtInr: number }>('/wallets/exchange-rate'),
@@ -224,7 +232,7 @@ export function BusinessWithdrawalForm() {
 
     if (method === 'upi') {
       const upiErr = upiIdError(upiId, true, {
-        allowMobileNumber: !!platformSettings?.allowMobileNumberUpi,
+        allowMobileNumber: allowMobileNumberUpi,
       });
       const nameErr = personNameError(payerName, true);
       if (upiErr || nameErr) {

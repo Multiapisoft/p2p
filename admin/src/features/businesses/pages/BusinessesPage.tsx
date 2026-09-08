@@ -199,7 +199,7 @@ export function BusinessesPage() {
       withdrawalsEnabled: boolean;
       b2bMatchingEnabled: boolean;
       allowPartialPay: boolean;
-      allowMobileNumberUpi: boolean;
+      allowMobileNumberUpiMode: 'inherit' | 'on' | 'off';
       allowedDepositMethods: string[];
       allowedWithdrawalMethods: string[];
     }) => businessesApi.update(txnFlagsTarget!._id, body),
@@ -808,7 +808,6 @@ export function BusinessesPage() {
                 ['withdrawalsEnabled', 'Withdrawals enabled'],
                 ['b2bMatchingEnabled', 'B2B matching enabled'],
                 ['allowPartialPay', 'Allow partial payments'],
-                ['allowMobileNumberUpi', 'Allow mobile number as UPI'],
               ] as const
             ).map(([key, label]) => (
               <label key={key} className="flex items-center gap-2 text-sm">
@@ -822,6 +821,39 @@ export function BusinessesPage() {
                 {label}
               </label>
             ))}
+
+            <div className="space-y-1">
+              <label className="text-sm font-medium" htmlFor="mobile-upi-mode">
+                Allow mobile number as UPI
+              </label>
+              <select
+                id="mobile-upi-mode"
+                className="w-full rounded-lg border border-outline-variant bg-surface-container-lowest px-2.5 py-2 text-sm"
+                value={
+                  txnFlagsTarget.allowMobileNumberUpi === true
+                    ? 'on'
+                    : txnFlagsTarget.allowMobileNumberUpi === false
+                      ? 'off'
+                      : 'inherit'
+                }
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setTxnFlagsTarget({
+                    ...txnFlagsTarget,
+                    allowMobileNumberUpi:
+                      v === 'on' ? true : v === 'off' ? false : undefined,
+                  });
+                }}
+              >
+                <option value="inherit">Use platform default</option>
+                <option value="on">Enabled for this business</option>
+                <option value="off">Disabled for this business</option>
+              </select>
+              <p className="text-xs text-on-surface-variant">
+                Controls 10-digit mobile UPI IDs (e.g. 9876543210@paytm) for this business&apos;s
+                users.
+              </p>
+            </div>
 
             <div className="space-y-2 border-t border-outline-variant pt-3">
               <p className="text-xs font-semibold uppercase tracking-wide text-on-surface-variant">
@@ -922,7 +954,12 @@ export function BusinessesPage() {
                     withdrawalsEnabled: txnFlagsTarget.withdrawalsEnabled !== false,
                     b2bMatchingEnabled: txnFlagsTarget.b2bMatchingEnabled !== false,
                     allowPartialPay: txnFlagsTarget.allowPartialPay !== false,
-                    allowMobileNumberUpi: txnFlagsTarget.allowMobileNumberUpi !== false,
+                    allowMobileNumberUpiMode:
+                      txnFlagsTarget.allowMobileNumberUpi === true
+                        ? 'on'
+                        : txnFlagsTarget.allowMobileNumberUpi === false
+                          ? 'off'
+                          : 'inherit',
                     allowedDepositMethods: dep,
                     allowedWithdrawalMethods: wd,
                   });

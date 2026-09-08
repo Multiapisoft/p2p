@@ -22,6 +22,8 @@ export interface User {
     referralCode?: string;
     allowedDepositMethods?: PaymentMethod[];
     allowedWithdrawalMethods?: PaymentMethod[];
+    /** Effective: business override or platform default. */
+    allowMobileNumberUpi?: boolean;
   };
   businessUserCode?: string;
   savedWithdrawalMethods?: SavedWithdrawalMethod[];

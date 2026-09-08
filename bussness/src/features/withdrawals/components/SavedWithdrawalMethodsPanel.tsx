@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { usersApi } from '@/features/users/api/users.api';
+import { businessApi } from '@/features/business/api/business.api';
 import { apiGet, getApiErrorMessage } from '@/shared/api/client';
 import { Button } from '@/shared/components/ui/Button';
 import { Input } from '@/shared/components/ui/Input';
@@ -57,6 +58,13 @@ export function SavedWithdrawalMethodsPanel({
     queryKey: ['platform-settings'],
     queryFn: () => apiGet<{ allowMobileNumberUpi?: boolean }>('/platform-settings'),
   });
+  const { data: businessMe } = useQuery({
+    queryKey: ['business-me'],
+    queryFn: () => businessApi.getMe(),
+  });
+  const allowMobileNumberUpi = !!(
+    businessMe?.allowMobileNumberUpi ?? platformSettings?.allowMobileNumberUpi
+  );
 
   const { data } = useQuery({
     queryKey: ['saved-withdrawal-methods'],
@@ -116,7 +124,7 @@ export function SavedWithdrawalMethodsPanel({
     if (addMethod === 'upi') {
       const err =
         upiIdError(upiId, true, {
-          allowMobileNumber: !!platformSettings?.allowMobileNumberUpi,
+          allowMobileNumber: allowMobileNumberUpi,
         }) || personNameError(payerName, true);
       if (err) {
         setFormError(err);

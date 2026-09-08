@@ -294,7 +294,17 @@ export class BusinessService {
   async updateTxnFlags(businessId: string, dto: UpdateBusinessTxnFlagsDto) {
     const business = await this.businessModel.findById(businessId).exec();
     if (!business) throw new NotFoundException('Business not found');
-    this.assignDefined(business, dto);
+    const { allowMobileNumberUpiMode, allowMobileNumberUpi, ...rest } = dto;
+    this.assignDefined(business, rest);
+    if (allowMobileNumberUpiMode === 'inherit') {
+      business.set('allowMobileNumberUpi', undefined);
+    } else if (allowMobileNumberUpiMode === 'on') {
+      business.allowMobileNumberUpi = true;
+    } else if (allowMobileNumberUpiMode === 'off') {
+      business.allowMobileNumberUpi = false;
+    } else if (typeof allowMobileNumberUpi === 'boolean') {
+      business.allowMobileNumberUpi = allowMobileNumberUpi;
+    }
     if (dto.allowedDepositMethods) {
       business.allowedPaymentMethods = [...dto.allowedDepositMethods];
       business.markModified('allowedDepositMethods');

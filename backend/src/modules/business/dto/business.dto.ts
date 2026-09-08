@@ -157,6 +157,14 @@ export class UpdateBusinessTxnFlagsDto {
   @IsBoolean()
   allowMobileNumberUpi?: boolean;
 
+  /**
+   * Explicit mode for mobile-as-UPI override.
+   * inherit = clear business override (use platform setting).
+   */
+  @IsOptional()
+  @IsIn(['inherit', 'on', 'off'])
+  allowMobileNumberUpiMode?: 'inherit' | 'on' | 'off';
+
   @IsOptional()
   @IsArray()
   @IsEnum(PaymentMethod, { each: true })

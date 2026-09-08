@@ -70,6 +70,8 @@ export function ProfilePage() {
   const [depositMethods, setDepositMethods] = useState<PaymentMethod[]>([]);
   const [withdrawalMethods, setWithdrawalMethods] = useState<PaymentMethod[]>([]);
   const [minPartialPayInr, setMinPartialPayInr] = useState('');
+  const [usdtBuyInrRate, setUsdtBuyInrRate] = useState('');
+  const [usdtSellInrRate, setUsdtSellInrRate] = useState('');
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -91,6 +93,16 @@ export function ProfilePage() {
       setMinPartialPayInr(
         business.minPartialPayInr && business.minPartialPayInr > 0
           ? String(business.minPartialPayInr)
+          : '',
+      );
+      setUsdtBuyInrRate(
+        business.usdtBuyInrRate && business.usdtBuyInrRate > 0
+          ? String(business.usdtBuyInrRate)
+          : '',
+      );
+      setUsdtSellInrRate(
+        business.usdtSellInrRate && business.usdtSellInrRate > 0
+          ? String(business.usdtSellInrRate)
           : '',
       );
     }
@@ -116,6 +128,12 @@ export function ProfilePage() {
         allowedWithdrawalMethods: withdrawalMethods,
         minPartialPayInr: minPartialPayInr.trim()
           ? Math.max(0, Number(minPartialPayInr))
+          : 0,
+        usdtBuyInrRate: usdtBuyInrRate.trim()
+          ? Math.max(0, Number(usdtBuyInrRate))
+          : 0,
+        usdtSellInrRate: usdtSellInrRate.trim()
+          ? Math.max(0, Number(usdtSellInrRate))
           : 0,
       });
     },
@@ -318,6 +336,36 @@ export function ProfilePage() {
                 Smallest partial amount payers may send on your withdrawals. Leave empty for
                 platform default (₹5,000). Full remaining can always be paid.
               </p>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <Input
+                  label="USDT buy rate (INR / USDT)"
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={usdtBuyInrRate}
+                  onChange={(e) => setUsdtBuyInrRate(e.target.value)}
+                  placeholder="Platform default"
+                />
+                <p className="mt-1 text-xs text-on-surface-variant">
+                  Used for INR → USDT. Empty = platform default.
+                </p>
+              </div>
+              <div>
+                <Input
+                  label="USDT sell rate (INR / USDT)"
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={usdtSellInrRate}
+                  onChange={(e) => setUsdtSellInrRate(e.target.value)}
+                  placeholder="Platform default"
+                />
+                <p className="mt-1 text-xs text-on-surface-variant">
+                  Used for USDT → INR value. Empty = platform default.
+                </p>
+              </div>
             </div>
           </div>
           <Button type="submit" loading={updateBusiness.isPending}>

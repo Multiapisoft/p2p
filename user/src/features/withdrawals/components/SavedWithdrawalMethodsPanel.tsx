@@ -73,6 +73,9 @@ export function SavedWithdrawalMethodsPanel({
     queryKey: ['platform-settings'],
     queryFn: () => apiGet<{ allowMobileNumberUpi?: boolean }>('/platform-settings'),
   });
+  const allowMobileNumberUpi = !!(
+    profile?.referredBusiness?.allowMobileNumberUpi ?? platformSettings?.allowMobileNumberUpi
+  );
 
   const enabledAddMethods = useMemo(
     () =>
@@ -150,7 +153,7 @@ export function SavedWithdrawalMethodsPanel({
     if (addMethod === 'upi') {
       const err =
         upiIdError(upiId, true, {
-          allowMobileNumber: !!platformSettings?.allowMobileNumberUpi,
+          allowMobileNumber: allowMobileNumberUpi,
         }) || personNameError(payerName, true);
       if (err) {
         setFormError(err);

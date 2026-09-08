@@ -115,6 +115,12 @@ export interface BusinessProfile {
   allowedWithdrawalMethods?: PaymentMethod[];
   /** Minimum INR split pay on your withdrawals. 0 = platform default (₹5,000). */
   minPartialPayInr?: number;
+  /** Per-business mobile UPI override. undefined = platform default. */
+  allowMobileNumberUpi?: boolean;
+  /** INR per 1 USDT buy (INR→USDT). 0 = platform default. */
+  usdtBuyInrRate?: number;
+  /** INR per 1 USDT sell (USDT→INR). 0 = platform default. */
+  usdtSellInrRate?: number;
   status: string;
   integrationUrls?: IntegrationUrls;
   createdAt: string;
