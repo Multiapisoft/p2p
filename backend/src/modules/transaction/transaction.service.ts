@@ -179,7 +179,7 @@ export class TransactionService {
       this.ledgerModel.countDocuments(filter).exec(),
     ]);
 
-    const mapped = opts.hideFeeCuts
+    const mapped: Record<string, unknown>[] = opts.hideFeeCuts
       ? items.map((row) => {
           const obj = row.toObject() as unknown as Record<string, unknown>;
           const desc = stripFeeCutFromDescription(
@@ -202,22 +202,19 @@ export class TransactionService {
       : items.map((row) => row.toObject() as unknown as Record<string, unknown>);
 
     // Business ledger: wallet credit/debit only — never expose who paid.
-    const itemsOut =
-      opts.businessLedgerOwnerId
-        ? mapped.map((obj) => {
-            const {
-              fromParty: _from,
-              toParty: _to,
-              counterpartyUserId: _cp,
-              ...rest
-            } = obj;
-            const userId = rest.userId;
-            if (userId && typeof userId === 'object' && userId !== null && '_id' in userId) {
-              rest.userId = String((userId as { _id: unknown })._id);
-            }
-            return rest;
-          })
-        : mapped;
+    const itemsOut = opts.businessLedgerOwnerId
+      ? mapped.map((obj) => {
+          const next: Record<string, unknown> = { ...obj };
+          delete next.fromParty;
+          delete next.toParty;
+          delete next.counterpartyUserId;
+          const userId = next.userId;
+          if (userId && typeof userId === 'object' && userId !== null && '_id' in userId) {
+            next.userId = String((userId as { _id: unknown })._id);
+          }
+          return next;
+        })
+      : mapped;
 
     return {
       items: itemsOut,
