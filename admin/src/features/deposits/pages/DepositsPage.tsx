@@ -657,6 +657,9 @@ export function DepositsPage() {
                   {depositDetail.method === 'cdm' && depositDetail.cdmDetails ? (
                     <div className="col-span-2 rounded-lg border border-outline-variant px-3 py-2">
                       <p className="text-on-surface-variant">CDM details</p>
+                      {depositDetail.cdmDetails.bankName ? (
+                        <p className="font-medium">Bank: {depositDetail.cdmDetails.bankName}</p>
+                      ) : null}
                       <p className="font-medium">{depositDetail.cdmDetails.payerName || '—'}</p>
                       {depositDetail.cdmDetails.locationHint ? (
                         <p className="text-sm text-on-surface-variant">

@@ -85,7 +85,12 @@ export interface Deposit {
     utr?: string;
   };
   usdtDetails?: { walletAddress?: string; network?: string; txHash?: string };
-  cdmDetails?: { payerName?: string; locationHint?: string; notes?: string };
+  cdmDetails?: {
+    bankName?: string;
+    payerName?: string;
+    locationHint?: string;
+    notes?: string;
+  };
   failureReason?: string;
   completedAt?: string;
   createdAt: string;

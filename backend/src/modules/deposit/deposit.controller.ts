@@ -102,6 +102,42 @@ export class DepositController {
     return this.depositService.findByIdForBusiness(id, business._id.toString());
   }
 
+  @Patch('business/:id/approve')
+  @Roles(UserRole.BUSINESS)
+  @Permissions(Permission.BUSINESS_DEPOSIT_VERIFY)
+  async approveBusinessDeposit(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() dto: ApproveDepositDto,
+  ) {
+    const business = await this.businessService.findForActor(user.userId);
+    return this.depositService.approveForBusiness(
+      id,
+      business._id.toString(),
+      dto,
+      user.email,
+      user.userId,
+    );
+  }
+
+  @Patch('business/:id/reject')
+  @Roles(UserRole.BUSINESS)
+  @Permissions(Permission.BUSINESS_DEPOSIT_VERIFY)
+  async rejectBusinessDeposit(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() dto: RejectDepositDto,
+  ) {
+    const business = await this.businessService.findForActor(user.userId);
+    return this.depositService.rejectForBusiness(
+      id,
+      business._id.toString(),
+      dto,
+      user.email,
+      user.userId,
+    );
+  }
+
   @Get('pending')
   @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN)
   @Permissions(Permission.DEPOSITS_MANAGE)

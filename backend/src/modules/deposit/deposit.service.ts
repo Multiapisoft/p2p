@@ -412,6 +412,38 @@ export class DepositService {
     return approved;
   }
 
+  /** Business owner/staff: approve classic deposit belonging to their business. */
+  async approveForBusiness(
+    depositId: string,
+    businessId: string,
+    dto: ApproveDepositDto,
+    approvedBy: string,
+    actorId?: string,
+  ) {
+    const deposit = await this.depositModel.findById(depositId).exec();
+    if (!deposit) throw new NotFoundException('Deposit not found');
+    if (deposit.businessId?.toString() !== businessId) {
+      throw new ForbiddenException('Deposit does not belong to your business');
+    }
+    return this.approve(depositId, dto, approvedBy, actorId);
+  }
+
+  /** Business owner/staff: reject classic deposit belonging to their business. */
+  async rejectForBusiness(
+    depositId: string,
+    businessId: string,
+    dto: RejectDepositDto,
+    rejectedBy: string,
+    actorId?: string,
+  ) {
+    const deposit = await this.depositModel.findById(depositId).exec();
+    if (!deposit) throw new NotFoundException('Deposit not found');
+    if (deposit.businessId?.toString() !== businessId) {
+      throw new ForbiddenException('Deposit does not belong to your business');
+    }
+    return this.reject(depositId, dto, rejectedBy, actorId);
+  }
+
   async reject(depositId: string, dto: RejectDepositDto, rejectedBy?: string, actorId?: string) {
     const deposit = await this.depositModel
       .findByIdAndUpdate(
@@ -553,6 +585,8 @@ export class DepositService {
           { 'bankDetails.accountNumber': { $regex: search, $options: 'i' } },
           { 'bankDetails.accountHolderName': { $regex: search, $options: 'i' } },
           { 'usdtDetails.walletAddress': { $regex: search, $options: 'i' } },
+          { 'cdmDetails.bankName': { $regex: search, $options: 'i' } },
+          { 'cdmDetails.payerName': { $regex: search, $options: 'i' } },
         ],
       });
     }
@@ -942,8 +976,8 @@ export class DepositService {
         }
         break;
       case PaymentMethod.CDM:
-        if (!dto.cdmDetails?.payerName?.trim()) {
-          throw new BadRequestException('CDM depositor name required');
+        if (!dto.cdmDetails?.bankName?.trim()) {
+          throw new BadRequestException('CDM bank name required');
         }
         break;
       default: {

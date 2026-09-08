@@ -7,6 +7,7 @@ export type DepositListQuery = {
   status?: string;
   search?: string;
   sort?: string;
+  method?: string;
 };
 
 export const depositsApi = {
@@ -17,6 +18,7 @@ export const depositsApi = {
       status: query.status && query.status !== 'all' ? query.status : undefined,
       search: query.search?.trim() || undefined,
       sort: query.sort || 'newest',
+      method: query.method && query.method !== 'all' ? query.method : undefined,
     }),
   getById: (id: string) => apiGet<Deposit>(`/deposits/${id}`),
   create: (payload: CreateDepositPayload) => apiPost<Deposit>('/deposits', payload),

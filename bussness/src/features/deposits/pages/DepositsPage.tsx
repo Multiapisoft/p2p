@@ -18,6 +18,7 @@ import { liveQueryOptions } from '@/shared/constants/live-query';
 import { CsvDownloadButton } from '@/shared/components/CsvDownloadButton';
 import { fetchAllPages } from '@/shared/lib/csv';
 import type { BusinessPlatformPayment } from '@/features/deposits/api/platform-payments.api';
+import { ClassicCdmRequestsPanel } from '@/features/deposits/components/ClassicCdmRequestsPanel';
 
 const STATUS_FILTERS = [
   { value: 'all', label: 'All' },
@@ -167,6 +168,8 @@ export function DepositsPage() {
           />
         }
       />
+
+      <ClassicCdmRequestsPanel />
 
       <section className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div className="rounded-2xl border border-outline-variant bg-surface-container-lowest p-5">

@@ -172,6 +172,12 @@ export interface Deposit {
     utr?: string;
   };
   usdtDetails?: { walletAddress?: string; network?: string; txHash?: string };
+  cdmDetails?: {
+    bankName?: string;
+    payerName?: string;
+    locationHint?: string;
+    notes?: string;
+  };
   commissionAmount?: number;
   externalRef?: string;
   completedAt?: string;

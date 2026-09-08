@@ -57,6 +57,10 @@ export class UsdtDetails {
 
 @Schema({ _id: false })
 export class CdmDetails {
+  /** Bank where cash was / will be deposited via CDM. */
+  @Prop()
+  bankName?: string;
+
   @Prop()
   locationHint?: string;
 

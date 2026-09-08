@@ -1,4 +1,4 @@
-import { apiGet } from '@/shared/api/client';
+import { apiGet, apiPatch } from '@/shared/api/client';
 import type { Deposit, DepositSummaryRow, Paginated } from '@/shared/types/api.types';
 
 export type DepositsListQuery = {
@@ -26,4 +26,8 @@ export const depositsApi = {
     apiGet<Paginated<Deposit>>('/deposits/business', cleanQuery(query)),
   getBusinessSummary: () => apiGet<DepositSummaryRow[]>('/deposits/business/summary'),
   getById: (id: string) => apiGet<Deposit>(`/deposits/business/${id}`),
+  approve: (id: string, utr?: string, txHash?: string) =>
+    apiPatch<Deposit>(`/deposits/business/${id}/approve`, { utr, txHash }),
+  reject: (id: string, reason: string) =>
+    apiPatch<Deposit>(`/deposits/business/${id}/reject`, { reason }),
 };

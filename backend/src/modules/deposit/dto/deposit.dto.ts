@@ -3,10 +3,12 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  Matches,
   Min,
+  MinLength,
   ValidateNested,
 } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Type, Transform } from 'class-transformer';
 import { PaymentMethod } from '../../../common/enums/payment-method.enum';
 import { Currency } from '../../../common/enums/currency.enum';
 import { ListQueryDto } from '../../../common/dto/list-query.dto';
@@ -64,16 +66,31 @@ export class UsdtDetailsDto {
 }
 
 export class DepositCdmDetailsDto {
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @IsString({ message: 'Bank name is required' })
+  @MinLength(2, { message: 'Bank name is required' })
+  @Matches(/^[A-Za-z. ]+$/, {
+    message: 'Bank name may only contain letters, dots, and spaces',
+  })
+  bankName!: string;
+
   @IsOptional()
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   @IsString()
   locationHint?: string;
 
   @IsOptional()
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   @IsString()
   notes?: string;
 
+  @IsOptional()
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   @IsString()
-  payerName!: string;
+  @Matches(/^[A-Za-z. ]+$/, {
+    message: 'Name of Account Holder may only contain letters, dots, and spaces',
+  })
+  payerName?: string;
 }
 
 export class CreateDepositDto {
