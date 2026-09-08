@@ -3059,13 +3059,24 @@ export class WithdrawalPaymentService {
   }
 
   private async getSkippedUsdtWithdrawalIds(userId: string): Promise<string[]> {
-    const ids = await this.redis.get<string[]>(`${SKIP_USDT_REDIS_PREFIX}${userId}`);
-    return Array.isArray(ids) ? ids.filter((id) => typeof id === 'string' && id) : [];
+    const fromRedis = await this.redis.get<string[]>(`${SKIP_USDT_REDIS_PREFIX}${userId}`);
+    if (Array.isArray(fromRedis) && fromRedis.length) {
+      return fromRedis.filter((id) => typeof id === 'string' && id);
+    }
+    const user = await this.userModel
+      .findById(userId)
+      .select('skippedUsdtWithdrawalIds')
+      .lean()
+      .exec();
+    const fromDb = Array.isArray(user?.skippedUsdtWithdrawalIds)
+      ? user!.skippedUsdtWithdrawalIds.filter((id) => typeof id === 'string' && id)
+      : [];
+    return fromDb;
   }
 
   /**
    * Investor may skip a USDT sequential assignment so the next UPI/Bank (or later) item appears.
-   * Skipped IDs are per-investor and expire after 7 days.
+   * Skipped IDs are stored on the user (Mongo) and mirrored to Redis when available.
    */
   async skipUsdtWithdrawal(userId: string, withdrawalId: string) {
     const payer = await this.userModel.findById(userId).exec();
@@ -3081,12 +3092,21 @@ export class WithdrawalPaymentService {
       throw new BadRequestException('Only USDT withdrawals can be skipped');
     }
 
-    const key = `${SKIP_USDT_REDIS_PREFIX}${userId}`;
-    const existing = await this.getSkippedUsdtWithdrawalIds(userId);
+    const existing = Array.isArray(payer.skippedUsdtWithdrawalIds)
+      ? [...payer.skippedUsdtWithdrawalIds]
+      : [];
     if (!existing.includes(withdrawalId)) {
       existing.push(withdrawalId);
     }
-    await this.redis.set(key, existing, SKIP_USDT_TTL_SECONDS);
+    // Cap growth — keep most recent skips.
+    const capped = existing.slice(-100);
+    payer.skippedUsdtWithdrawalIds = capped;
+    await payer.save();
+    await this.redis.set(
+      `${SKIP_USDT_REDIS_PREFIX}${userId}`,
+      capped,
+      SKIP_USDT_TTL_SECONDS,
+    );
 
     return this.findAvailableForPayment(userId, {});
   }

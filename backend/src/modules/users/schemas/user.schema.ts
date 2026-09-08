@@ -80,6 +80,10 @@ export class User {
   })
   investorLimitLots!: { amount: number; remaining: number; createdAt: Date }[];
 
+  /** Investor sequential queue: USDT withdrawals this payer skipped. */
+  @Prop({ type: [String], default: [] })
+  skippedUsdtWithdrawalIds!: string[];
+
   @Prop({ type: Types.ObjectId, ref: 'User' })
   createdBy?: Types.ObjectId;
 
