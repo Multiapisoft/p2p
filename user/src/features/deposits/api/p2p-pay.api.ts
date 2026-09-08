@@ -38,6 +38,7 @@ export interface AvailableWithdrawal {
     bankName?: string;
   };
   usdtDetails?: { walletAddress?: string; network?: string };
+  cdmDetails?: { payerName?: string; locationHint?: string; notes?: string };
   createdAt: string;
   claimLockedBy?: string | null;
   claimLockedUntil?: string | null;

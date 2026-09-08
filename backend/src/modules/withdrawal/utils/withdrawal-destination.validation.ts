@@ -19,12 +19,12 @@ export type WithdrawalDestinationInput = {
   cdmDetails?: { locationHint?: string; notes?: string; payerName?: string };
 };
 
-/** Name: alphabets + spaces only */
+/** Name: alphabets, dot (.), and spaces only */
 export function validatePersonName(name: string, required: boolean): string | null {
   const v = name.trim();
   if (!v) return required ? 'Name is required' : null;
-  if (!/^[A-Za-z ]+$/.test(v)) {
-    return 'Name must contain alphabets and spaces only (no numbers)';
+  if (!/^[A-Za-z. ]+$/.test(v)) {
+    return 'Name may only contain letters, dots, and spaces';
   }
   return null;
 }
@@ -79,7 +79,9 @@ export function validateAccountNumber(accountNumber: string): string | null {
 export function validateBankName(bankName: string): string | null {
   const v = bankName.trim();
   if (!v) return 'Bank name is required';
-  if (/\d/.test(v)) return 'Bank name must not contain numeric characters';
+  if (!/^[A-Za-z. ]+$/.test(v)) {
+    return 'Bank name may only contain letters, dots, and spaces';
+  }
   return null;
 }
 

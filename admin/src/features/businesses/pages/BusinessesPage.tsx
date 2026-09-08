@@ -67,6 +67,8 @@ export function BusinessesPage() {
     emptyRule({ percentage: 1, feeMode: 'percentage' }),
   ]);
   const [p2pPayLimit, setP2pPayLimit] = useState('0');
+  const [usdtBuyInrRate, setUsdtBuyInrRate] = useState('');
+  const [usdtSellInrRate, setUsdtSellInrRate] = useState('');
   const [limitDraft, setLimitDraft] = useState('0');
   const [limitMode, setLimitMode] = useState<'set' | 'add' | 'deduct'>('set');
   const [limitError, setLimitError] = useState('');
@@ -135,6 +137,16 @@ export function BusinessesPage() {
     );
     setInvestorBonus(rulesFromConfigs(businessCommission.investorBonus));
     setP2pPayLimit(String(businessCommission.p2pPayLimit ?? 0));
+    setUsdtBuyInrRate(
+      commissionTarget.usdtBuyInrRate && commissionTarget.usdtBuyInrRate > 0
+        ? String(commissionTarget.usdtBuyInrRate)
+        : '',
+    );
+    setUsdtSellInrRate(
+      commissionTarget.usdtSellInrRate && commissionTarget.usdtSellInrRate > 0
+        ? String(commissionTarget.usdtSellInrRate)
+        : '',
+    );
     setCommissionError('');
   }, [commissionTarget, businessCommission]);
 
@@ -202,13 +214,23 @@ export function BusinessesPage() {
   });
 
   const saveCommissions = useMutation({
-    mutationFn: () =>
-      commissionsApi.upsertBusiness(commissionTarget!._id, {
+    mutationFn: async () => {
+      const buy = usdtBuyInrRate.trim() === '' ? 0 : Number(usdtBuyInrRate);
+      const sell = usdtSellInrRate.trim() === '' ? 0 : Number(usdtSellInrRate);
+      if (!Number.isFinite(buy) || buy < 0 || !Number.isFinite(sell) || sell < 0) {
+        throw new Error('USDT rates must be empty (platform default) or ≥ 0');
+      }
+      await businessesApi.updateAdmin(commissionTarget!._id, {
+        usdtBuyInrRate: buy,
+        usdtSellInrRate: sell,
+      });
+      return commissionsApi.upsertBusiness(commissionTarget!._id, {
         businessTakeDeposit,
         businessTakeWithdrawal,
         investorBonus,
         p2pPayLimit: Number(p2pPayLimit) || 0,
-      }),
+      });
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['business-commission'] });
       qc.invalidateQueries({ queryKey: ['business-stats'] });
@@ -688,6 +710,43 @@ export function BusinessesPage() {
                 value={p2pPayLimit}
                 onChange={(e) => setP2pPayLimit(e.target.value)}
               />
+            </div>
+
+            <div className="grid gap-3 rounded-xl border border-outline-variant bg-surface-container-low/40 p-3 sm:grid-cols-2">
+              <div className="space-y-2">
+                <label className="text-sm font-semibold" htmlFor="usdt-buy-rate">
+                  USDT buy rate (INR / USDT)
+                </label>
+                <p className="text-xs text-on-surface-variant">
+                  Empty = platform default. Used for INR → USDT conversion.
+                </p>
+                <Input
+                  id="usdt-buy-rate"
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  placeholder="Platform default"
+                  value={usdtBuyInrRate}
+                  onChange={(e) => setUsdtBuyInrRate(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-semibold" htmlFor="usdt-sell-rate">
+                  USDT sell rate (INR / USDT)
+                </label>
+                <p className="text-xs text-on-surface-variant">
+                  Empty = platform default. Used for USDT → INR value.
+                </p>
+                <Input
+                  id="usdt-sell-rate"
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  placeholder="Platform default"
+                  value={usdtSellInrRate}
+                  onChange={(e) => setUsdtSellInrRate(e.target.value)}
+                />
+              </div>
             </div>
 
             <CommissionRulesEditor

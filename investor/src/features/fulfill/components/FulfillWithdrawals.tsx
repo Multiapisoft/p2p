@@ -164,6 +164,26 @@ function DestinationInfo({
       </div>
     );
   }
+  if (w.method === 'cdm') {
+    return (
+      <div className="space-y-1 rounded-lg bg-surface-container-low p-3 text-sm">
+        <p>
+          <span className="font-semibold">Depositor name:</span>{' '}
+          {w.cdmDetails?.payerName || '—'}
+        </p>
+        {w.cdmDetails?.locationHint ? (
+          <p>
+            <span className="font-semibold">Location:</span> {w.cdmDetails.locationHint}
+          </p>
+        ) : null}
+        {w.cdmDetails?.notes ? (
+          <p>
+            <span className="font-semibold">Notes:</span> {w.cdmDetails.notes}
+          </p>
+        ) : null}
+      </div>
+    );
+  }
   return null;
 }
 

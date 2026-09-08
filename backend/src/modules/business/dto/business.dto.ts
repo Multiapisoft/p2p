@@ -104,6 +104,20 @@ export class UpdateBusinessDto {
   @Min(0)
   minPartialPayInr?: number;
 
+  /** INR per 1 USDT buy rate for this business. 0 = platform default. */
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  usdtBuyInrRate?: number;
+
+  /** INR per 1 USDT sell rate for this business. 0 = platform default. */
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  usdtSellInrRate?: number;
+
   @IsOptional()
   @IsBoolean()
   allowMobileNumberUpi?: boolean;

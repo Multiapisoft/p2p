@@ -123,6 +123,20 @@ export class Business {
   minPartialPayInr!: number;
 
   /**
+   * Per-business USDT buy rate (INR per 1 USDT). 0 / missing = platform `USDT_INR_RATE`.
+   * Used when converting INR → USDT (budget / debit).
+   */
+  @Prop({ default: 0 })
+  usdtBuyInrRate!: number;
+
+  /**
+   * Per-business USDT sell rate (INR per 1 USDT). 0 / missing = platform `USDT_INR_RATE`.
+   * Used when converting USDT → INR (limit consumption / display).
+   */
+  @Prop({ default: 0 })
+  usdtSellInrRate!: number;
+
+  /**
    * Per-business mobile-as-UPI override (Noida #37).
    * undefined/missing = inherit platform `allowMobileNumberUpi`.
    */

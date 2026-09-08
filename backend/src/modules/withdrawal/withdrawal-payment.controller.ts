@@ -98,6 +98,15 @@ export class WithdrawalPaymentController {
     return this.paymentService.claimWithdrawal(user.userId, withdrawalId);
   }
 
+  @Post('withdrawal/:withdrawalId/skip-usdt')
+  @Roles(UserRole.INVESTOR)
+  skipUsdtWithdrawal(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('withdrawalId') withdrawalId: string,
+  ) {
+    return this.paymentService.skipUsdtWithdrawal(user.userId, withdrawalId);
+  }
+
   @Post('withdrawal/:withdrawalId')
   submitPayment(
     @CurrentUser() user: AuthenticatedUser,

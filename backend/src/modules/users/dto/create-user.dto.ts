@@ -1,4 +1,4 @@
-import { IsEnum, IsIn, IsNumber, IsOptional, IsString, Min, MinLength, IsArray, ValidateIf } from 'class-validator';
+import { IsEnum, IsIn, IsNumber, IsOptional, IsString, Min, MinLength, IsArray, Matches, ValidateIf } from 'class-validator';
 import { Type } from 'class-transformer';
 import { UserRole } from '../../../common/enums/role.enum';
 import { UserStatus } from '../../../common/enums/currency.enum';
@@ -133,6 +133,10 @@ export class SavedWithdrawalUpiDetailsDto {
   upiId!: string;
 
   @IsString()
+  @MinLength(2)
+  @Matches(/^[A-Za-z. ]+$/, {
+    message: 'Name of Account Holder may only contain letters, dots, and spaces',
+  })
   payerName!: string;
 }
 
@@ -144,9 +148,17 @@ export class SavedWithdrawalBankDetailsDto {
   ifscCode!: string;
 
   @IsString()
+  @MinLength(2)
+  @Matches(/^[A-Za-z. ]+$/, {
+    message: 'Name of Account Holder may only contain letters, dots, and spaces',
+  })
   accountHolderName!: string;
 
   @IsString()
+  @MinLength(2)
+  @Matches(/^[A-Za-z. ]+$/, {
+    message: 'Bank name may only contain letters, dots, and spaces',
+  })
   bankName!: string;
 }
 

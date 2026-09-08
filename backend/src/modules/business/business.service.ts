@@ -916,6 +916,24 @@ export class BusinessService {
     };
   }
 
+  /** Per-business USDT buy/sell rates (0 / missing = platform default). */
+  async getUsdtRates(businessId?: string | null): Promise<{
+    usdtBuyInrRate?: number | null;
+    usdtSellInrRate?: number | null;
+  }> {
+    if (!businessId || !Types.ObjectId.isValid(businessId)) return {};
+    const business = await this.businessModel
+      .findById(businessId)
+      .select('usdtBuyInrRate usdtSellInrRate')
+      .lean()
+      .exec();
+    if (!business) return {};
+    return {
+      usdtBuyInrRate: Number(business.usdtBuyInrRate) || null,
+      usdtSellInrRate: Number(business.usdtSellInrRate) || null,
+    };
+  }
+
   /** Business IDs that still accept investor pays (remaining quota > 0). */
   async findBusinessIdsOpenForP2pPay(): Promise<Types.ObjectId[]> {
     const rows = await this.businessModel

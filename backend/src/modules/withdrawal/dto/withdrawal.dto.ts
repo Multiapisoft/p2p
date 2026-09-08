@@ -39,8 +39,8 @@ export class WithdrawalUpiDetailsDto {
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   @IsString({ message: 'Name of Account Holder is required' })
   @MinLength(2, { message: 'Name of Account Holder is required' })
-  @Matches(/^[A-Za-z ]+$/, {
-    message: 'Name of Account Holder must contain letters and spaces only (no numbers)',
+  @Matches(/^[A-Za-z. ]+$/, {
+    message: 'Name of Account Holder may only contain letters, dots, and spaces',
   })
   payerName!: string;
 
@@ -67,8 +67,8 @@ export class WithdrawalCdmDetailsDto {
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   @IsString({ message: 'Name of Account Holder is required' })
   @MinLength(2)
-  @Matches(/^[A-Za-z ]+$/, {
-    message: 'Name of Account Holder must contain letters and spaces only (no numbers)',
+  @Matches(/^[A-Za-z. ]+$/, {
+    message: 'Name of Account Holder may only contain letters, dots, and spaces',
   })
   payerName!: string;
 }
@@ -93,14 +93,17 @@ export class WithdrawalBankDetailsDto {
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   @IsString({ message: 'Account holder name is required' })
   @MinLength(2, { message: 'Account holder name is required' })
-  @Matches(/^[A-Za-z ]+$/, {
-    message: 'Account holder name must contain letters and spaces only (no numbers)',
+  @Matches(/^[A-Za-z. ]+$/, {
+    message: 'Account holder name may only contain letters, dots, and spaces',
   })
   accountHolderName!: string;
 
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   @IsString()
   @MinLength(2, { message: 'Bank name is required' })
+  @Matches(/^[A-Za-z. ]+$/, {
+    message: 'Bank name may only contain letters, dots, and spaces',
+  })
   bankName!: string;
 }
 

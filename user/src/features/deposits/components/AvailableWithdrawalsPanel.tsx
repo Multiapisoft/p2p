@@ -174,6 +174,26 @@ function PaymentDetails({
           )}
         </div>
       )}
+      {w.method === 'cdm' && (
+        <div className="space-y-1">
+          <div className="flex justify-between gap-2">
+            <span className="text-on-surface-variant">Depositor name</span>
+            <span className="font-medium">{w.cdmDetails?.payerName || '—'}</span>
+          </div>
+          {w.cdmDetails?.locationHint ? (
+            <div className="flex justify-between gap-2">
+              <span className="text-on-surface-variant">Location</span>
+              <span className="font-medium">{w.cdmDetails.locationHint}</span>
+            </div>
+          ) : null}
+          {w.cdmDetails?.notes ? (
+            <div className="flex justify-between gap-2">
+              <span className="text-on-surface-variant">Notes</span>
+              <span className="font-medium">{w.cdmDetails.notes}</span>
+            </div>
+          ) : null}
+        </div>
+      )}
     </div>
   );
 }

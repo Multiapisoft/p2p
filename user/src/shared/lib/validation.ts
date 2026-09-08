@@ -123,12 +123,12 @@ export function paymentRefErrorForMethod(
   return utrError(v, true);
 }
 
-/** Name: alphabets + spaces only */
+/** Name: alphabets, dot (.), and spaces only */
 export function personNameError(value: string, required = true): string | null {
   const v = value.trim();
   if (!v) return required ? 'Name of Account Holder is required' : null;
-  if (!/^[A-Za-z ]+$/.test(v)) {
-    return 'Name of Account Holder must contain letters and spaces only (no numbers)';
+  if (!/^[A-Za-z. ]+$/.test(v)) {
+    return 'Name of Account Holder may only contain letters, dots, and spaces';
   }
   return null;
 }
@@ -186,6 +186,8 @@ export function ifscError(value: string, required = true): string | null {
 export function bankNameError(value: string, required = true): string | null {
   const v = value.trim();
   if (!v) return required ? 'Bank name is required' : null;
-  if (/\d/.test(v)) return 'Bank name must not contain numeric characters';
+  if (!/^[A-Za-z. ]+$/.test(v)) {
+    return 'Bank name may only contain letters, dots, and spaces';
+  }
   return null;
 }

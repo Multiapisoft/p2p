@@ -80,6 +80,8 @@ import {
 
 const VERIFICATION_WINDOW_MS = 24 * 60 * 60 * 1000;
 const CLAIM_REDIS_PREFIX = 'withdrawal-claim:';
+const SKIP_USDT_REDIS_PREFIX = 'investor-skip-usdt:';
+const SKIP_USDT_TTL_SECONDS = 7 * 24 * 60 * 60;
 
 export type WithdrawalPaymentListOpts = ListQueryOpts & {
   method?: string;
@@ -216,6 +218,7 @@ export class WithdrawalPaymentService {
     }
 
     const isInvestor = payer.role === UserRole.INVESTOR;
+    const bizRates = await this.businessService.getUsdtRates(wdBusinessId);
     const { maxPayable: businessMax, p2pPayRemainingInr } = isBusinessOrigin
       ? { maxPayable: withdrawalRemaining ?? amount, p2pPayRemainingInr: null }
       : await this.businessService.getMaxPayableAmount(
@@ -223,7 +226,7 @@ export class WithdrawalPaymentService {
           withdrawalRemaining ?? amount,
           payCurrency,
           method,
-          (inr) => this.exchangeRateService.inrBudgetToUsdt(inr),
+          (inr) => this.exchangeRateService.inrBudgetToUsdt(inr, bizRates),
         );
 
     let maxPayable = businessMax;
@@ -236,6 +239,7 @@ export class WithdrawalPaymentService {
         limitView.remaining,
         payCurrency,
         method,
+        bizRates,
       );
     }
 
@@ -592,6 +596,20 @@ export class WithdrawalPaymentService {
     } else if (opts.method && opts.method !== 'all') {
       and.push({ method: opts.method as PaymentMethod });
     }
+
+    if (isInvestor) {
+      const skippedUsdtIds = await this.getSkippedUsdtWithdrawalIds(userId);
+      if (skippedUsdtIds.length) {
+        and.push({
+          _id: {
+            $nin: skippedUsdtIds
+              .filter((id) => Types.ObjectId.isValid(id))
+              .map((id) => new Types.ObjectId(id)),
+          },
+        });
+      }
+    }
+
     if (matchAmount != null) {
       const remainingExpr = {
         $subtract: [
@@ -610,10 +628,24 @@ export class WithdrawalPaymentService {
         limitView.remaining > 0 &&
         limitView.remaining < MIN_PARTIAL_INR;
       // Investors: full pay only unless finishing plan tail (quota below ₹5k).
+      // Compare USDT remaining in INR terms so USDT WDs are not mis-filtered.
       if (!(isInvestor && investorTailPay)) {
+        const usdtInrRate = this.exchangeRateService.getUsdtInrRate();
+        const remainingInrExpr = {
+          $cond: [
+            {
+              $or: [
+                { $eq: ['$method', PaymentMethod.USDT] },
+                { $eq: [{ $toUpper: { $ifNull: ['$currency', ''] } }, 'USDT'] },
+              ],
+            },
+            { $multiply: [remainingExpr, usdtInrRate] },
+            remainingExpr,
+          ],
+        };
         and.push({
           $expr: isInvestor
-            ? { $lte: [remainingExpr, matchAmount] }
+            ? { $lte: [remainingInrExpr, matchAmount] }
             : {
                 $or: [
                   { $lte: [remainingExpr, matchAmount] },
@@ -789,6 +821,7 @@ export class WithdrawalPaymentService {
           };
         }
         const businessId = w.businessId?.toString() || payerBusinessId;
+        const bizRates = await this.businessService.getUsdtRates(businessId);
         const { maxPayable: businessMax, p2pPayRemainingInr } =
           w.origin === 'business' || isBusinessPayer
             ? { maxPayable: remaining, p2pPayRemainingInr: null }
@@ -797,7 +830,7 @@ export class WithdrawalPaymentService {
                 remaining,
                 w.currency,
                 w.method,
-                (inr) => this.exchangeRateService.inrBudgetToUsdt(inr),
+                (inr) => this.exchangeRateService.inrBudgetToUsdt(inr, bizRates),
               );
 
         let maxPayable = businessMax;
@@ -807,6 +840,7 @@ export class WithdrawalPaymentService {
             limitView.remaining,
             w.currency,
             w.method,
+            bizRates,
           );
         }
 
@@ -860,12 +894,22 @@ export class WithdrawalPaymentService {
       const payable = itemsWithCredit.filter((i) => (i.maxPayable ?? 0) > 0);
       const next = payable[0] ?? null;
       if (next && limitView) {
-        const requiredPayAmount = Math.min(next.remainingAmount, limitView.remaining);
+        const payIsUsdt =
+          (next.currency || '').toUpperCase() === Currency.USDT ||
+          next.method === PaymentMethod.USDT;
+        const bizRates = await this.businessService.getUsdtRates(next.businessId);
+        const requiredPayAmount = payIsUsdt
+          ? Math.min(
+              next.remainingAmount,
+              this.exchangeRateService.inrBudgetToUsdt(limitView.remaining, bizRates),
+            )
+          : Math.min(next.remainingAmount, limitView.remaining);
         itemsWithCreditOut = [
           {
             ...next,
             requiredPayAmount,
             maxPayable: requiredPayAmount,
+            canSkipUsdt: payIsUsdt,
           } as unknown as (typeof itemsWithCredit)[number],
         ];
         total = payable.length;
@@ -1279,13 +1323,14 @@ export class WithdrawalPaymentService {
 
     let maxPayable = remaining;
     let p2pPayRemainingInr: number | null = null;
+    const bizRates = await this.businessService.getUsdtRates(businessId);
     if (!isBusinessOrigin && !skipP2pPayQuota) {
       const cap = await this.businessService.getMaxPayableAmount(
         businessId,
         remaining,
         withdrawal.currency,
         withdrawal.method,
-        (inr) => this.exchangeRateService.inrBudgetToUsdt(inr),
+        (inr) => this.exchangeRateService.inrBudgetToUsdt(inr, bizRates),
       );
       maxPayable = cap.maxPayable;
       p2pPayRemainingInr = cap.p2pPayRemainingInr;
@@ -1296,6 +1341,7 @@ export class WithdrawalPaymentService {
         investorLimit.remaining,
         withdrawal.currency,
         withdrawal.method,
+        bizRates,
       );
     }
     if (dto.amount > maxPayable) {
@@ -2752,6 +2798,7 @@ export class WithdrawalPaymentService {
       businessId: w.businessId?.toString(),
       upiDetails: w.upiDetails,
       bankDetails: w.bankDetails,
+      cdmDetails: w.cdmDetails,
       usdtDetails: w.usdtDetails,
       createdAt: (w as unknown as { createdAt: Date }).createdAt,
       claimLockedBy: claimActive ? w.claimLockedBy?.toString() : null,
@@ -2995,6 +3042,7 @@ export class WithdrawalPaymentService {
     remainingInr: number,
     payCurrency: string,
     method?: string,
+    businessRates?: { usdtBuyInrRate?: number | null; usdtSellInrRate?: number | null } | null,
   ) {
     const rounded = Math.round(Math.max(0, remainingInr) * 100) / 100;
     if (rounded <= 0 || maxPayable <= 0) return 0;
@@ -3002,9 +3050,45 @@ export class WithdrawalPaymentService {
       (payCurrency || '').toUpperCase() === Currency.USDT ||
       method === PaymentMethod.USDT;
     const cap = payIsUsdt
-      ? this.exchangeRateService.inrBudgetToUsdt(rounded)
+      ? this.exchangeRateService.inrBudgetToUsdt(rounded, businessRates)
       : rounded;
-    return Math.min(maxPayable, Math.round(cap * 100) / 100);
+    return Math.min(
+      maxPayable,
+      payIsUsdt ? Math.round(cap * 1e6) / 1e6 : Math.round(cap * 100) / 100,
+    );
+  }
+
+  private async getSkippedUsdtWithdrawalIds(userId: string): Promise<string[]> {
+    const ids = await this.redis.get<string[]>(`${SKIP_USDT_REDIS_PREFIX}${userId}`);
+    return Array.isArray(ids) ? ids.filter((id) => typeof id === 'string' && id) : [];
+  }
+
+  /**
+   * Investor may skip a USDT sequential assignment so the next UPI/Bank (or later) item appears.
+   * Skipped IDs are per-investor and expire after 7 days.
+   */
+  async skipUsdtWithdrawal(userId: string, withdrawalId: string) {
+    const payer = await this.userModel.findById(userId).exec();
+    if (!payer || payer.role !== UserRole.INVESTOR) {
+      throw new ForbiddenException('Only investors can skip USDT investments');
+    }
+    const withdrawal = await this.withdrawalModel.findById(withdrawalId).exec();
+    if (!withdrawal) throw new NotFoundException('Withdrawal not found');
+    const isUsdt =
+      withdrawal.method === PaymentMethod.USDT ||
+      (withdrawal.currency || '').toUpperCase() === Currency.USDT;
+    if (!isUsdt) {
+      throw new BadRequestException('Only USDT withdrawals can be skipped');
+    }
+
+    const key = `${SKIP_USDT_REDIS_PREFIX}${userId}`;
+    const existing = await this.getSkippedUsdtWithdrawalIds(userId);
+    if (!existing.includes(withdrawalId)) {
+      existing.push(withdrawalId);
+    }
+    await this.redis.set(key, existing, SKIP_USDT_TTL_SECONDS);
+
+    return this.findAvailableForPayment(userId, {});
   }
 
   private async restoreInvestorPayLimit(

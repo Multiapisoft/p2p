@@ -153,6 +153,17 @@ function PaymentDetailsPanel({
             ) : null}
           </>
         )}
+        {w.method === 'cdm' && (
+          <>
+            <DetailRow label="Depositor name" value={w.cdmDetails?.payerName || '—'} />
+            {w.cdmDetails?.locationHint ? (
+              <DetailRow label="Location" value={w.cdmDetails.locationHint} />
+            ) : null}
+            {w.cdmDetails?.notes ? (
+              <DetailRow label="Notes" value={w.cdmDetails.notes} />
+            ) : null}
+          </>
+        )}
       </div>
     </div>
   );
@@ -307,6 +318,13 @@ export function InvestWithdrawalsList() {
       setClaimingId(null);
     }
   };
+
+  const skipUsdt = useMutation({
+    mutationFn: (withdrawalId: string) => fulfillApi.skipUsdtWithdrawal(withdrawalId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['invest-withdrawals'] });
+    },
+  });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -551,12 +569,26 @@ export function InvestWithdrawalsList() {
                     size="lg"
                     onClick={() => openPay(w)}
                     loading={claimingId === w._id}
-                    disabled={payDue <= 0 || claimingId === w._id}
+                    disabled={payDue <= 0 || claimingId === w._id || skipUsdt.isPending}
                   >
                     Pay {formatCurrency(payDue, moneyCurrency(w))} now
                   </Button>
+                  {(w.canSkipUsdt || w.method === 'usdt') && (
+                    <Button
+                      className="w-full"
+                      variant="outline"
+                      onClick={() => skipUsdt.mutate(w._id)}
+                      loading={skipUsdt.isPending}
+                      disabled={claimingId === w._id || skipUsdt.isPending}
+                    >
+                      Skip this USDT investment
+                    </Button>
+                  )}
                   <p className="text-center text-[11px] text-on-surface-variant">
                     Amount is fixed. Complete this payment to see the next withdrawal.
+                    {(w.canSkipUsdt || w.method === 'usdt')
+                      ? ' Or skip USDT to take the next UPI/Bank request.'
+                      : ''}
                   </p>
                 </div>
               );

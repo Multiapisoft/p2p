@@ -222,6 +222,13 @@ export function WithdrawalsPage() {
         w.usdtDetails.network ? `Network: ${w.usdtDetails.network}` : '',
       ].filter(Boolean);
     }
+    if (w.method === 'cdm') {
+      return [
+        w.cdmDetails?.payerName ? `Depositor: ${w.cdmDetails.payerName}` : 'CDM',
+        w.cdmDetails?.locationHint ? `Location: ${w.cdmDetails.locationHint}` : '',
+        w.cdmDetails?.notes ? `Notes: ${w.cdmDetails.notes}` : '',
+      ].filter(Boolean);
+    }
     return [];
   }
 
@@ -233,6 +240,8 @@ export function WithdrawalsPage() {
         return 'account_balance';
       case 'usdt':
         return 'currency_bitcoin';
+      case 'cdm':
+        return 'atm';
       default:
         return 'payments';
     }

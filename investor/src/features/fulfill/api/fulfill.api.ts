@@ -45,6 +45,7 @@ export interface AvailableWithdrawal {
     bankName?: string;
   };
   usdtDetails?: { walletAddress?: string; network?: string };
+  cdmDetails?: { payerName?: string; locationHint?: string; notes?: string };
   createdAt: string;
   claimLockedBy?: string | null;
   claimLockedUntil?: string | null;
@@ -67,6 +68,8 @@ export interface AvailableWithdrawal {
   } | null;
   /** Investor sequential mode: exact amount required for this payment. */
   requiredPayAmount?: number;
+  /** Investor sequential mode: this item is USDT and can be skipped. */
+  canSkipUsdt?: boolean;
 }
 
 export interface InvestorLimitLot {
@@ -180,6 +183,10 @@ export const fulfillApi = {
   claimWithdrawal: (withdrawalId: string) =>
     apiPost<ClaimWithdrawalResult>(
       `/withdrawal-payments/withdrawal/${withdrawalId}/claim`,
+    ),
+  skipUsdtWithdrawal: (withdrawalId: string) =>
+    apiPost<AvailableWithdrawalsResponse>(
+      `/withdrawal-payments/withdrawal/${withdrawalId}/skip-usdt`,
     ),
   previewCredit: (amount: number, withdrawalId?: string) =>
     apiGet<CreditPreview>('/withdrawal-payments/credit-preview', {

@@ -185,6 +185,8 @@ export interface Business {
   allowedDepositMethods?: string[];
   allowedWithdrawalMethods?: string[];
   allowedPaymentMethods?: string[];
+  usdtBuyInrRate?: number;
+  usdtSellInrRate?: number;
   createdAt: string;
 }
 

@@ -43,4 +43,14 @@ export const businessesApi = {
       allowedWithdrawalMethods: string[];
     }>,
   ) => apiPatch<Business>(`/business/${id}/txn-flags`, body),
+  updateAdmin: (
+    id: string,
+    body: Partial<{
+      usdtBuyInrRate: number;
+      usdtSellInrRate: number;
+      name: string;
+      commissionRate: number;
+      minPartialPayInr: number;
+    }>,
+  ) => apiPatch<Business>(`/business/${id}`, body),
 };
