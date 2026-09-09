@@ -8,5 +8,12 @@ export function p2pSocketOrigin(): string {
   if (typeof window !== 'undefined' && window.location.hostname === 'localhost') {
     return 'http://localhost:9091';
   }
+  // Never use the panel origin for sockets — Next rewrites only /api, not socket.io.
+  if (typeof window !== 'undefined') {
+    const host = window.location.hostname;
+    if (host.includes('paysecure247.com') || host.includes('fairplayoffical.com') || host.includes('invespro.xyz')) {
+      return 'https://dev.payment.fairplayoffical.com';
+    }
+  }
   return typeof window !== 'undefined' ? window.location.origin : 'http://localhost:9091';
 }

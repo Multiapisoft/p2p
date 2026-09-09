@@ -17,7 +17,13 @@ function backendBaseUrl() {
 
 const nextConfig: NextConfig = {
   env: {
-    NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || '/api/v1',
+    // Absolute API/WS on Vercel avoids same-origin bot challenge blocking /api rewrites.
+    NEXT_PUBLIC_API_URL:
+      process.env.NEXT_PUBLIC_API_URL ||
+      (process.env.VERCEL ? 'https://dev.payment.fairplayoffical.com/api/v1' : '/api/v1'),
+    NEXT_PUBLIC_WS_URL:
+      process.env.NEXT_PUBLIC_WS_URL ||
+      (process.env.VERCEL ? 'https://dev.payment.fairplayoffical.com' : ''),
     NEXT_PUBLIC_USER_APP_URL:
       process.env.NEXT_PUBLIC_USER_APP_URL ||
       (process.env.VERCEL
