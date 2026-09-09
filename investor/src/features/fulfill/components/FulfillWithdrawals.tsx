@@ -439,6 +439,18 @@ export function FulfillWithdrawals({
     },
   });
 
+  const skipUsdt = useMutation({
+    mutationFn: (withdrawalId: string) => fulfillApi.skipUsdtWithdrawal(withdrawalId),
+    onSuccess: () => {
+      setFormError('');
+      closePay();
+      qc.invalidateQueries({ queryKey: ['fulfill-available'] });
+    },
+    onError: (err: unknown) => {
+      setFormError(apiErrorMessage(err, 'Could not skip this USDT request'));
+    },
+  });
+
   const submit = useMutation({
     mutationFn: () =>
       fulfillApi.submitPayment(target!._id, {
@@ -796,26 +808,43 @@ export function FulfillWithdrawals({
                         </p>
                       )}
                     </div>
-                    <div className="flex items-center gap-2">
-                      <StatusBadge status={w.status} />
-                      {w.priority ? (
-                        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-900">
-                          Highlighted
-                        </span>
-                      ) : null}
-                      {w.origin === 'business' ? (
-                        <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
-                          Business
-                        </span>
-                      ) : null}
-                      <Button
-                        size="sm"
-                        onClick={() => openPay(w)}
-                        loading={claimingId === w._id}
-                        disabled={claimingId === w._id}
-                      >
-                        {labels.fulfillBtn}
-                      </Button>
+                    <div className="flex flex-col items-stretch gap-2 sm:items-end">
+                      <div className="flex flex-wrap items-center justify-end gap-2">
+                        <StatusBadge status={w.status} />
+                        {w.priority ? (
+                          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-900">
+                            Highlighted
+                          </span>
+                        ) : null}
+                        {w.origin === 'business' ? (
+                          <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
+                            Business
+                          </span>
+                        ) : null}
+                      </div>
+                      <div className="flex flex-wrap justify-end gap-2">
+                        {(w.canSkipUsdt ||
+                          w.method === 'usdt' ||
+                          (w.currency || '').toUpperCase() === 'USDT') ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => skipUsdt.mutate(w._id)}
+                            loading={skipUsdt.isPending}
+                            disabled={claimingId === w._id || skipUsdt.isPending}
+                          >
+                            Skip USDT
+                          </Button>
+                        ) : null}
+                        <Button
+                          size="sm"
+                          onClick={() => openPay(w)}
+                          loading={claimingId === w._id}
+                          disabled={claimingId === w._id || skipUsdt.isPending}
+                        >
+                          {labels.fulfillBtn}
+                        </Button>
+                      </div>
                     </div>
                   </div>
                   <div className="mt-3">

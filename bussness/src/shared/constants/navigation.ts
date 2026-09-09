@@ -11,6 +11,7 @@ export const NAV_ITEMS: NavItem[] = [
   { to: '/integration', label: 'Integration', icon: 'api', description: 'API keys & partner setup' },
   { to: '/users', label: 'Users', icon: 'group', description: 'Integrated users' },
   { to: '/deposits', label: 'Deposits', icon: 'south_west', description: 'Deposit activity' },
+  { to: '/cdm-requests', label: 'CDM Requests', icon: 'atm', description: 'Classic CDM deposit requests' },
   { to: '/my-deposits', label: 'My Deposits', icon: 'account_balance_wallet', description: 'Pay & your deposit history' },
   { to: '/withdrawals', label: 'Withdrawals', icon: 'north_east', description: 'User withdrawal requests' },
   { to: '/my-withdrawals', label: 'My Withdrawals', icon: 'payments', description: 'Your payout requests' },
@@ -29,6 +30,7 @@ export const MOBILE_PRIMARY_NAV: NavItem[] = [
 ];
 
 export const MOBILE_MORE_NAV: NavItem[] = [
+  { to: '/cdm-requests', label: 'CDM', icon: 'atm' },
   { to: '/my-deposits', label: 'My Deposits', icon: 'account_balance_wallet' },
   { to: '/my-withdrawals', label: 'My Withdraw', icon: 'payments' },
   { to: '/integration', label: 'API', icon: 'api' },
@@ -50,7 +52,7 @@ export function navItemsForUser(user?: {
   if (!user?.staffBusinessId) return NAV_ITEMS;
   const perms = user.permissions ?? [];
   return NAV_ITEMS.filter((item) => {
-    if (item.to === '/deposits' || item.to === '/my-deposits') {
+    if (item.to === '/deposits' || item.to === '/my-deposits' || item.to === '/cdm-requests') {
       return perms.includes('business.deposit_verify');
     }
     if (item.to === '/withdrawals' || item.to === '/my-withdrawals') {

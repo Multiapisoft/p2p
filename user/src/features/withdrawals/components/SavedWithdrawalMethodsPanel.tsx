@@ -17,6 +17,7 @@ import {
   sanitizeAccountNumber,
   upiIdError,
 } from '@/shared/lib/validation';
+import { decodeQrFromImageFile, parseUpiPayPayload } from '@/shared/lib/upi-qr';
 import type { PaymentMethod, SavedWithdrawalMethod } from '@/shared/types/api.types';
 
 import {
@@ -63,6 +64,8 @@ export function SavedWithdrawalMethodsPanel({
   const [walletAddress, setWalletAddress] = useState('');
   const [saveAsDefault, setSaveAsDefault] = useState(true);
   const [formError, setFormError] = useState('');
+  const [qrScanning, setQrScanning] = useState(false);
+  const [qrScanError, setQrScanError] = useState('');
 
   const { data: profile } = useQuery({
     queryKey: ['profile-me'],
@@ -104,6 +107,8 @@ export function SavedWithdrawalMethodsPanel({
     setWalletAddress('');
     setSaveAsDefault(true);
     setFormError('');
+    setQrScanning(false);
+    setQrScanError('');
   };
 
   const closeAdd = () => {
@@ -292,6 +297,56 @@ export function SavedWithdrawalMethodsPanel({
         <form className="space-y-3" onSubmit={submitAdd}>
           {addMethod === 'upi' ? (
             <>
+              <div className="rounded-xl border border-dashed border-outline-variant bg-surface-container-low/50 px-3 py-3">
+                <p className="text-sm font-semibold">Upload UPI QR</p>
+                <p className="mt-0.5 text-xs text-on-surface-variant">
+                  Scan your UPI QR to auto-fill UPI ID and name, or type them below.
+                </p>
+                <input
+                  type="file"
+                  accept="image/*,.jpg,.jpeg,.png,.webp"
+                  className="mt-2 block w-full text-sm"
+                  disabled={qrScanning || saveMethod.isPending}
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = '';
+                    if (!file) return;
+                    setQrScanError('');
+                    setQrScanning(true);
+                    try {
+                      const raw = await decodeQrFromImageFile(file);
+                      if (!raw) {
+                        setQrScanError(
+                          'Could not read QR. Try a clearer image or enter UPI manually.',
+                        );
+                        return;
+                      }
+                      const parsed = parseUpiPayPayload(raw);
+                      if (!parsed?.upiId) {
+                        setQrScanError('QR is not a UPI payment code.');
+                        return;
+                      }
+                      setUpiId(parsed.upiId);
+                      if (parsed.payerName) {
+                        const cleaned = parsed.payerName
+                          .replace(/[^A-Za-z. ]/g, ' ')
+                          .replace(/\s+/g, ' ')
+                          .trim();
+                        if (cleaned) setPayerName(cleaned);
+                      }
+                      setFormError('');
+                    } catch {
+                      setQrScanError('Could not read QR. Enter UPI manually.');
+                    } finally {
+                      setQrScanning(false);
+                    }
+                  }}
+                />
+                {qrScanning ? (
+                  <p className="mt-1 text-xs text-on-surface-variant">Reading QR…</p>
+                ) : null}
+                {qrScanError ? <p className="mt-1 text-xs text-error">{qrScanError}</p> : null}
+              </div>
               <Input
                 label="UPI ID *"
                 value={upiId}

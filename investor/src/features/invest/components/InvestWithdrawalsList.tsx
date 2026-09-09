@@ -204,6 +204,14 @@ function requiredPayFor(w: AvailableWithdrawal, limitRemaining: number) {
   return limitRemaining > 0 ? Math.min(cap, limitRemaining) : cap;
 }
 
+function isUsdtWithdrawal(w: AvailableWithdrawal) {
+  return (
+    !!w.canSkipUsdt ||
+    w.method === 'usdt' ||
+    (w.currency || '').toUpperCase() === 'USDT'
+  );
+}
+
 export function InvestWithdrawalsList() {
   const [target, setTarget] = useState<AvailableWithdrawal | null>(null);
   const [claimPayDeadline, setClaimPayDeadline] = useState<string | null>(null);
@@ -322,7 +330,12 @@ export function InvestWithdrawalsList() {
   const skipUsdt = useMutation({
     mutationFn: (withdrawalId: string) => fulfillApi.skipUsdtWithdrawal(withdrawalId),
     onSuccess: () => {
+      setFormError('');
+      closePay();
       qc.invalidateQueries({ queryKey: ['invest-withdrawals'] });
+    },
+    onError: (err: unknown) => {
+      setFormError(apiErrorMessage(err, 'Could not skip this USDT request'));
     },
   });
 
@@ -573,20 +586,28 @@ export function InvestWithdrawalsList() {
                   >
                     Pay {formatCurrency(payDue, moneyCurrency(w))} now
                   </Button>
-                  {(w.canSkipUsdt || w.method === 'usdt') && (
+                  {isUsdtWithdrawal(w) ? (
                     <Button
                       className="w-full"
                       variant="outline"
-                      onClick={() => skipUsdt.mutate(w._id)}
+                      onClick={() => {
+                        setFormError('');
+                        skipUsdt.mutate(w._id);
+                      }}
                       loading={skipUsdt.isPending}
                       disabled={claimingId === w._id || skipUsdt.isPending}
                     >
-                      Skip this USDT investment
+                      Skip this USDT request
                     </Button>
-                  )}
+                  ) : null}
+                  {formError && !target ? (
+                    <p className="rounded-lg bg-error-container px-3 py-2 text-center text-xs text-on-error-container">
+                      {formError}
+                    </p>
+                  ) : null}
                   <p className="text-center text-[11px] text-on-surface-variant">
                     Amount is fixed. Complete this payment to see the next withdrawal.
-                    {(w.canSkipUsdt || w.method === 'usdt')
+                    {isUsdtWithdrawal(w)
                       ? ' Or skip USDT to take the next UPI/Bank request.'
                       : ''}
                   </p>
@@ -622,15 +643,29 @@ export function InvestWithdrawalsList() {
         className="sm:max-w-md"
         footer={
           target ? (
-            <Button
-              type="submit"
-              form="invest-pay-form"
-              className="w-full"
-              loading={submit.isPending}
-              disabled={payExpired}
-            >
-              {payExpired ? 'Time expired' : 'Submit Payment'}
-            </Button>
+            <div className="flex w-full flex-col gap-2">
+              {isUsdtWithdrawal(target) ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full"
+                  loading={skipUsdt.isPending}
+                  disabled={submit.isPending || skipUsdt.isPending}
+                  onClick={() => skipUsdt.mutate(target._id)}
+                >
+                  Skip this USDT request
+                </Button>
+              ) : null}
+              <Button
+                type="submit"
+                form="invest-pay-form"
+                className="w-full"
+                loading={submit.isPending}
+                disabled={payExpired || skipUsdt.isPending}
+              >
+                {payExpired ? 'Time expired' : 'Submit Payment'}
+              </Button>
+            </div>
           ) : null
         }
       >

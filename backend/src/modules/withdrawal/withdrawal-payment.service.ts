@@ -3059,19 +3059,15 @@ export class WithdrawalPaymentService {
   }
 
   private async getSkippedUsdtWithdrawalIds(userId: string): Promise<string[]> {
-    const fromRedis = await this.redis.get<string[]>(`${SKIP_USDT_REDIS_PREFIX}${userId}`);
-    if (Array.isArray(fromRedis) && fromRedis.length) {
-      return fromRedis.filter((id) => typeof id === 'string' && id);
-    }
+    // Mongo is source of truth — Redis is only a write-through cache.
     const user = await this.userModel
       .findById(userId)
       .select('skippedUsdtWithdrawalIds')
       .lean()
       .exec();
-    const fromDb = Array.isArray(user?.skippedUsdtWithdrawalIds)
+    return Array.isArray(user?.skippedUsdtWithdrawalIds)
       ? user!.skippedUsdtWithdrawalIds.filter((id) => typeof id === 'string' && id)
       : [];
-    return fromDb;
   }
 
   /**
@@ -3092,6 +3088,15 @@ export class WithdrawalPaymentService {
       throw new BadRequestException('Only USDT withdrawals can be skipped');
     }
 
+    // Release this investor's claim so others can still take the USDT request.
+    if (withdrawal.claimLockedBy?.toString() === userId) {
+      withdrawal.set('claimLockedBy', null);
+      withdrawal.set('claimLockedUntil', null);
+      withdrawal.set('claimPayDeadline', null);
+      await withdrawal.save();
+      await this.clearClaimRedis(withdrawalId);
+    }
+
     const existing = Array.isArray(payer.skippedUsdtWithdrawalIds)
       ? [...payer.skippedUsdtWithdrawalIds]
       : [];
@@ -3108,6 +3113,7 @@ export class WithdrawalPaymentService {
       SKIP_USDT_TTL_SECONDS,
     );
 
+    this.p2pRealtime.emitListChanged('skipped-usdt');
     return this.findAvailableForPayment(userId, {});
   }
 
