@@ -6,7 +6,13 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 export function formatCurrency(amount: number, currency = 'INR') {
-  if (currency === 'USDT') return `${amount.toLocaleString()} USDT`;
+  const cur = (currency || 'INR').toUpperCase();
+  if (cur === 'USDT') {
+    return `₮${Number(amount).toLocaleString('en-IN', {
+      maximumFractionDigits: 6,
+      minimumFractionDigits: 0,
+    })}`;
+  }
   return new Intl.NumberFormat('en-IN', {
     style: 'currency',
     currency: 'INR',

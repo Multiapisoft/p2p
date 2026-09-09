@@ -1574,7 +1574,7 @@ export class WithdrawalPaymentService {
         ])
         .exec(),
       this.withdrawalModel
-        .aggregate<{ count: number; remainingAmount: number }>([
+        .aggregate<{ _id: string; count: number; remainingAmount: number }>([
           {
             $match: {
               $and: [
@@ -1589,6 +1589,9 @@ export class WithdrawalPaymentService {
           },
           {
             $project: {
+              currency: {
+                $toUpper: { $ifNull: ['$currency', 'INR'] },
+              },
               remaining: {
                 $max: [
                   0,
@@ -1601,7 +1604,7 @@ export class WithdrawalPaymentService {
           },
           {
             $group: {
-              _id: null,
+              _id: '$currency',
               count: { $sum: 1 },
               remainingAmount: { $sum: '$remaining' },
             },
@@ -1609,7 +1612,7 @@ export class WithdrawalPaymentService {
         ])
         .exec(),
       this.paymentModel
-        .aggregate<{ count: number; amount: number }>([
+        .aggregate<{ _id: string; count: number; amount: number }>([
           {
             $match: {
               status: TransactionStatus.PENDING,
@@ -1632,7 +1635,7 @@ export class WithdrawalPaymentService {
           },
           {
             $group: {
-              _id: null,
+              _id: { $toUpper: { $ifNull: ['$currency', 'INR'] } },
               count: { $sum: 1 },
               amount: { $sum: '$amount' },
             },
@@ -1704,8 +1707,20 @@ export class WithdrawalPaymentService {
       }
     }
 
-    const openRemaining = openRemainingAgg[0];
-    const awaitingConfirm = awaitingConfirmAgg[0];
+    const openRemainingDisplay = this.summarizeCurrencyBuckets(
+      openRemainingAgg.map((row) => ({
+        currency: row._id,
+        amount: row.remainingAmount,
+        count: row.count,
+      })),
+    );
+    const awaitingConfirmDisplay = this.summarizeCurrencyBuckets(
+      awaitingConfirmAgg.map((row) => ({
+        currency: row._id,
+        amount: row.amount,
+        count: row.count,
+      })),
+    );
     const pendingDeposits = dep.pending + dep.processing;
     const openWithdrawals = wd.pending + wd.processing;
 
@@ -1725,18 +1740,53 @@ export class WithdrawalPaymentService {
         total: withdrawalCount,
         completed: wd.completed,
         open: openWithdrawals,
-        remainingAmount: openRemaining?.remainingAmount ?? 0,
-        remainingCount: openRemaining?.count ?? 0,
+        remainingAmount: openRemainingDisplay.amount,
+        remainingCurrency: openRemainingDisplay.currency,
+        remainingCount: openRemainingDisplay.count,
         rejected: wd.rejected,
         cancelled: wd.cancelled,
         failed: wd.failed,
         completedAmount: completedWithdrawalAmount,
         requestedAmount: totalWithdrawalRequested,
-        awaitingConfirmCount: awaitingConfirm?.count ?? 0,
-        awaitingConfirmAmount: awaitingConfirm?.amount ?? 0,
+        awaitingConfirmCount: awaitingConfirmDisplay.count,
+        awaitingConfirmAmount: awaitingConfirmDisplay.amount,
+        awaitingConfirmCurrency: awaitingConfirmDisplay.currency,
       },
       recentDeposits,
       recentWithdrawals,
+    };
+  }
+
+  /**
+   * Dashboard totals: if every open amount is USDT, keep USDT for display;
+   * otherwise convert USDT→INR so mixed totals are not falsely shown as ₹.
+   */
+  private summarizeCurrencyBuckets(
+    rows: Array<{ currency?: string; amount: number; count?: number }>,
+  ): { amount: number; currency: Currency.INR | Currency.USDT; count: number } {
+    let inr = 0;
+    let usdt = 0;
+    let count = 0;
+    for (const row of rows) {
+      count += row.count ?? 0;
+      const cur = (row.currency || Currency.INR).toUpperCase();
+      if (cur === Currency.USDT) usdt += row.amount || 0;
+      else inr += row.amount || 0;
+    }
+    if (usdt > 0 && inr <= 0) {
+      return {
+        amount: Math.round(usdt * 1e6) / 1e6,
+        currency: Currency.USDT,
+        count,
+      };
+    }
+    if (usdt > 0) {
+      inr += this.exchangeRateService.usdtToInr(usdt);
+    }
+    return {
+      amount: Math.round(inr * 100) / 100,
+      currency: Currency.INR,
+      count,
     };
   }
 

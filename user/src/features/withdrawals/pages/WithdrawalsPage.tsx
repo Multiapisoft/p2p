@@ -159,6 +159,8 @@ export function WithdrawalsPage() {
   const [network, setNetwork] = useState('TRC20');
   const [formError, setFormError] = useState('');
   const [pendingPayload, setPendingPayload] = useState<CreateWithdrawalPayload | null>(null);
+  /** INR the user typed when method is USDT (API amount is converted USDT). */
+  const [pendingInrAmount, setPendingInrAmount] = useState<number | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [selectedSavedMethodId, setSelectedSavedMethodId] = useState('');
   const [saveCurrentMethod, setSaveCurrentMethod] = useState(false);
@@ -385,6 +387,7 @@ export function WithdrawalsPage() {
     setWalletAddress('');
     setFormError('');
     setPendingPayload(null);
+    setPendingInrAmount(null);
     setEditingId(null);
     setSelectedSavedMethodId('');
     setSaveCurrentMethod(false);
@@ -406,6 +409,7 @@ export function WithdrawalsPage() {
     setNetwork(w.usdtDetails?.network || 'TRC20');
     setFormError('');
     setPendingPayload(null);
+    setPendingInrAmount(null);
     setSelectedSavedMethodId('');
   };
 
@@ -437,40 +441,47 @@ export function WithdrawalsPage() {
   const displayCurrency = balance?.currency || 'INR';
   const walletIsUsdt = (displayCurrency || '').toUpperCase() === 'USDT';
   const usdtInrRate = balance?.usdtInrRate ?? 90;
-  /** UPI/Bank/CDM from USDT wallet: enter INR to receive. USDT method: always enter USDT. */
-  const amountIsInrPayout = walletIsUsdt && method !== 'usdt';
-  const amountCurrency = method === 'usdt' ? 'USDT' : amountIsInrPayout ? 'INR' : displayCurrency;
+  /** Match backend ExchangeRateService.inrToUsdt (buy/default rate, ceil 6 dp). */
+  const inrToUsdt = (inrAmount: number) =>
+    Math.ceil((inrAmount / usdtInrRate) * 1e6) / 1e6;
+  /**
+   * Amount field is INR when creating:
+   * - method is USDT (INR in → USDT out at rate), or
+   * - USDT wallet paying out to UPI/Bank/CDM.
+   * While editing, amount stays as stored currency (read-only).
+   */
+  const amountIsInrEntry =
+    !editingId && (method === 'usdt' || (walletIsUsdt && method !== 'usdt'));
+  const amountIsInrPayout = !editingId && walletIsUsdt && method !== 'usdt';
+  const amountCurrency =
+    method === 'usdt' ? 'USDT' : amountIsInrPayout ? 'INR' : displayCurrency;
   const amountFieldLabel =
-    method === 'usdt'
+    editingId && method === 'usdt'
       ? 'Amount (USDT)'
-      : amountIsInrPayout
-        ? 'Amount (INR to receive)'
+      : amountIsInrEntry
+        ? method === 'usdt'
+          ? 'Amount (INR)'
+          : 'Amount (INR to receive)'
         : `Amount (${displayCurrency})`;
   const payRemaining = balance?.p2pPayRemainingInr;
-  const remainingUsdtMax =
-    typeof payRemaining === 'number'
-      ? Math.floor((payRemaining / usdtInrRate) * 1e6) / 1e6
-      : undefined;
   const maxInr =
     balance?.approxInrAvailable ??
     (walletIsUsdt ? Math.floor((balance?.availableBalance ?? 0) * usdtInrRate * 100) / 100 : undefined);
   const amountMax = isBusinessLinked
-    ? method === 'usdt'
-      ? remainingUsdtMax
-      : payRemaining
-    : amountIsInrPayout
-      ? maxInr
+    ? payRemaining
+    : amountIsInrEntry
+      ? walletIsUsdt
+        ? maxInr
+        : balance?.availableBalance
       : balance?.availableBalance;
-  const usdtToSpend =
-    amountIsInrPayout && Number(amount) > 0
-      ? Math.ceil((Number(amount) / usdtInrRate) * 1e6) / 1e6
-      : 0;
+  const enteredInr = Number(amount) > 0 ? Number(amount) : 0;
+  const usdtFromInr = enteredInr > 0 ? inrToUsdt(enteredInr) : 0;
+  const usdtToSpend = amountIsInrPayout && enteredInr > 0 ? usdtFromInr : 0;
 
   const items = data?.items ?? [];
   const total = data?.total ?? 0;
   const totalPages = data?.totalPages ?? 1;
-  const minWithdrawal =
-    method === 'usdt' ? 1 : Math.max(300, Number(platformSettings?.minTransactionAmount) || 300);
+  const minWithdrawal = Math.max(300, Number(platformSettings?.minTransactionAmount) || 300);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -480,13 +491,22 @@ export function WithdrawalsPage() {
       setFormError('Enter a valid amount');
       return;
     }
-    if (method !== 'usdt' && numAmount < minWithdrawal) {
+    if (amountIsInrEntry && numAmount < minWithdrawal) {
       setFormError(`Minimum withdrawal is ₹${minWithdrawal}`);
       return;
     }
+    if (!amountIsInrEntry && numAmount < 1) {
+      setFormError('Enter a valid amount');
+      return;
+    }
+    const usdtAmount =
+      !editingId && method === 'usdt' ? inrToUsdt(numAmount) : 0;
+    if (!editingId && method === 'usdt' && usdtAmount <= 0) {
+      setFormError('Amount is too small for USDT conversion at the current rate');
+      return;
+    }
     if (isBusinessLinked && typeof payRemaining === 'number') {
-      const needInr = method === 'usdt' ? Math.round(numAmount * usdtInrRate * 100) / 100 : numAmount;
-      if (needInr > payRemaining) {
+      if (numAmount > payRemaining) {
         setFormError(
           payRemaining < 1
             ? 'No remaining pay limit. Deposit first — deposits increase the limit. Withdrawal must stay within remaining.'
@@ -496,8 +516,15 @@ export function WithdrawalsPage() {
       }
     }
     if (balance && !isBusinessLinked && !editingId) {
-      if (amountIsInrPayout) {
-        const needUsdt = Math.ceil((numAmount / usdtInrRate) * 1e6) / 1e6;
+      if (method === 'usdt' && walletIsUsdt) {
+        if (usdtAmount > balance.availableBalance) {
+          setFormError(
+            `Insufficient USDT. Need ${usdtAmount} USDT for ₹${numAmount} at ${usdtInrRate} INR/USDT`,
+          );
+          return;
+        }
+      } else if (amountIsInrPayout) {
+        const needUsdt = inrToUsdt(numAmount);
         if (needUsdt > balance.availableBalance) {
           setFormError(
             `Insufficient USDT. Need ~${needUsdt} USDT for ₹${numAmount} at ${usdtInrRate} INR/USDT`,
@@ -510,7 +537,15 @@ export function WithdrawalsPage() {
       }
     }
 
-    const payload: CreateWithdrawalPayload = { amount: numAmount, method };
+    const payload: CreateWithdrawalPayload = {
+      amount: !editingId && method === 'usdt' ? usdtAmount : numAmount,
+      method,
+    };
+    if (!editingId && method === 'usdt') {
+      setPendingInrAmount(numAmount);
+    } else {
+      setPendingInrAmount(null);
+    }
 
     if (method === 'upi') {
       const upiErr = upiIdError(upiId, true, {
@@ -682,6 +717,8 @@ export function WithdrawalsPage() {
                     if (editingId) return;
                     setMethod(m.value);
                     setSelectedSavedMethodId('');
+                    setAmount('');
+                    setFormError('');
                   }}
                   className={`rounded-full px-3 py-1.5 text-xs font-semibold transition sm:px-4 sm:py-2 sm:text-sm ${
                     method === m.value
@@ -745,7 +782,7 @@ export function WithdrawalsPage() {
               </div>
             )}
 
-            {walletIsUsdt && method !== 'usdt' && (
+            {walletIsUsdt && method !== 'usdt' && !editingId && (
               <div className="rounded-xl border border-outline-variant bg-surface-container-low px-4 py-3 text-sm">
                 <p className="font-semibold text-on-surface">USDT → INR conversion</p>
                 <p className="mt-1 text-on-surface-variant">
@@ -756,17 +793,46 @@ export function WithdrawalsPage() {
               </div>
             )}
 
+            {method === 'usdt' && !editingId && (
+              <div className="rounded-xl border border-outline-variant bg-surface-container-low px-4 py-3 text-sm">
+                <p className="font-semibold text-on-surface">INR → USDT conversion</p>
+                <p className="mt-1 text-on-surface-variant">
+                  Enter the amount in <span className="font-medium text-on-surface">INR</span>. We
+                  convert it to USDT at{' '}
+                  <span className="font-medium text-on-surface">1 USDT = ₹{usdtInrRate}</span>.
+                </p>
+              </div>
+            )}
+
             <Input
               label={amountFieldLabel}
               type="number"
-              min={minWithdrawal}
+              min={amountIsInrEntry ? minWithdrawal : 1}
               max={amountMax}
-              step={amountIsInrPayout ? '1' : 'any'}
+              step={amountIsInrEntry ? '1' : 'any'}
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               required
               disabled={!!editingId}
+              suffix={
+                editingId && method === 'usdt'
+                  ? 'USDT'
+                  : amountIsInrEntry
+                    ? 'INR'
+                    : displayCurrency
+              }
             />
+
+            {method === 'usdt' && !editingId && enteredInr > 0 && (
+              <p className="rounded-xl border border-secondary/30 bg-secondary-container/40 px-4 py-3 text-sm text-on-secondary-container">
+                USDT to send:{' '}
+                <span className="font-bold">{formatCurrency(usdtFromInr, 'USDT')}</span>
+                <span className="mt-0.5 block text-xs opacity-90">
+                  ₹{enteredInr.toLocaleString('en-IN')} ÷ {usdtInrRate} ={' '}
+                  {formatCurrency(usdtFromInr, 'USDT')}
+                </span>
+              </p>
+            )}
 
             {amountIsInrPayout && !isBusinessLinked && Number(amount) > 0 && (
               <p className="text-sm text-on-surface-variant">
@@ -1387,7 +1453,10 @@ export function WithdrawalsPage() {
       <Modal
         open={!!pendingPayload}
         onClose={() => {
-          if (!create.isPending && !updateDestination.isPending) setPendingPayload(null);
+          if (!create.isPending && !updateDestination.isPending) {
+            setPendingPayload(null);
+            setPendingInrAmount(null);
+          }
         }}
         title={editingId ? 'Confirm updated details' : 'Confirm withdrawal'}
       >
@@ -1399,10 +1468,17 @@ export function WithdrawalsPage() {
             <dl className="space-y-2 rounded-xl border border-outline-variant bg-surface-container-low/50 px-4 py-3 text-sm">
               <div className="flex justify-between gap-3">
                 <dt className="text-on-surface-variant">Amount</dt>
-                <dd className="font-semibold">
-                  {formatCurrency(
-                    pendingPayload.amount,
-                    amountCurrency,
+                <dd className="font-semibold text-right">
+                  {pendingPayload.method === 'usdt' && pendingInrAmount != null ? (
+                    <span className="block">
+                      {formatCurrency(pendingInrAmount, 'INR')}
+                      <span className="mt-0.5 block text-xs font-medium text-on-surface-variant">
+                        → {formatCurrency(pendingPayload.amount, 'USDT')} at 1 USDT = ₹
+                        {usdtInrRate}
+                      </span>
+                    </span>
+                  ) : (
+                    formatCurrency(pendingPayload.amount, amountCurrency)
                   )}
                 </dd>
               </div>
@@ -1481,7 +1557,10 @@ export function WithdrawalsPage() {
                 type="button"
                 variant="outline"
                 disabled={create.isPending || updateDestination.isPending}
-                onClick={() => setPendingPayload(null)}
+                onClick={() => {
+                  setPendingPayload(null);
+                  setPendingInrAmount(null);
+                }}
               >
                 Back
               </Button>

@@ -108,6 +108,7 @@ export interface UserDashboardSummary {
     completed: number;
     open: number;
     remainingAmount: number;
+    remainingCurrency?: string;
     remainingCount: number;
     rejected: number;
     cancelled: number;
@@ -116,6 +117,7 @@ export interface UserDashboardSummary {
     requestedAmount: number;
     awaitingConfirmCount: number;
     awaitingConfirmAmount: number;
+    awaitingConfirmCurrency?: string;
   };
   recentDeposits: Array<{
     _id: string;

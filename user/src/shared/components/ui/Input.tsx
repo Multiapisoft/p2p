@@ -6,14 +6,17 @@ import { useState, type InputHTMLAttributes } from 'react';
 interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   label?: string;
   icon?: string;
+  /** Right-side currency / unit badge (e.g. USDT, ₹). */
+  suffix?: string;
   error?: string;
 }
 
-export function Input({ label, icon, error, className, id, type, ...props }: InputProps) {
+export function Input({ label, icon, suffix, error, className, id, type, ...props }: InputProps) {
   const [visible, setVisible] = useState(false);
   const inputId = id || label?.toLowerCase().replace(/\s/g, '-');
   const isPassword = type === 'password';
   const inputType = isPassword && visible ? 'text' : type;
+  const rightPad = isPassword || suffix ? 'pr-12 sm:pr-14' : 'pr-3 sm:pr-4';
 
   return (
     <div className="flex flex-col gap-1">
@@ -34,12 +37,17 @@ export function Input({ label, icon, error, className, id, type, ...props }: Inp
           className={cn(
             'w-full rounded-lg border border-outline-variant bg-surface-container-lowest py-2.5 text-sm text-on-surface transition-all focus:border-secondary focus:ring-2 focus:ring-secondary/20 focus:outline-none sm:py-3 sm:text-base',
             icon ? 'pl-10' : 'pl-3 sm:pl-4',
-            isPassword ? 'pr-10' : 'pr-3 sm:pr-4',
+            rightPad,
             error && 'border-error',
             className,
           )}
           {...props}
         />
+        {suffix && !isPassword ? (
+          <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold tracking-wide text-on-surface-variant sm:text-sm">
+            {suffix}
+          </span>
+        ) : null}
         {isPassword ? (
           <button
             type="button"

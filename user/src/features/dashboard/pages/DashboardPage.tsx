@@ -40,7 +40,10 @@ export function DashboardPage() {
   const inrWallet = wallets?.find((w) => w.currency === 'INR');
   const isPartner = balance?.source === 'partner';
   const displayCurrency = balance?.currency || 'INR';
-  const pendingLocked = inrWallet?.lockedBalance ?? balance?.lockedBalance ?? 0;
+  const activeWallet =
+    wallets?.find((w) => (w.currency || '').toUpperCase() === displayCurrency.toUpperCase()) ||
+    inrWallet;
+  const pendingLocked = activeWallet?.lockedBalance ?? balance?.lockedBalance ?? 0;
   const dep = summary?.deposits;
   const wd = summary?.withdrawals;
   const needsAttention =
@@ -76,7 +79,7 @@ export function DashboardPage() {
         />
         <StatCard
           label="Locked"
-          value={formatCurrency(pendingLocked, 'INR')}
+          value={formatCurrency(pendingLocked, displayCurrency)}
           icon="lock"
           trend={pendingLocked > 0 ? 'In open withdrawals' : 'Nothing locked'}
         />
@@ -110,6 +113,7 @@ export function DashboardPage() {
               label="Payments to confirm received"
               count={wd?.awaitingConfirmCount ?? 0}
               amount={wd?.awaitingConfirmAmount}
+              currency={wd?.awaitingConfirmCurrency}
             />
             <AttentionLink
               href="/withdrawals?status=pending"
@@ -117,6 +121,7 @@ export function DashboardPage() {
               label="Open withdrawals"
               count={wd?.open ?? 0}
               amount={wd?.remainingAmount}
+              currency={wd?.remainingCurrency}
             />
           </div>
         </Card>
@@ -169,7 +174,7 @@ export function DashboardPage() {
             <MiniStat label="Open" value={String(wd?.open ?? 0)} tone="warn" />
             <MiniStat
               label="Remaining amt"
-              value={formatCurrency(wd?.remainingAmount ?? 0)}
+              value={formatCurrency(wd?.remainingAmount ?? 0, wd?.remainingCurrency || 'INR')}
               tone="warn"
             />
           </div>
@@ -177,7 +182,10 @@ export function DashboardPage() {
             Awaiting your confirm:{' '}
             <span className="font-semibold text-amber-700">
               {wd?.awaitingConfirmCount ?? 0} ·{' '}
-              {formatCurrency(wd?.awaitingConfirmAmount ?? 0)}
+              {formatCurrency(
+                wd?.awaitingConfirmAmount ?? 0,
+                wd?.awaitingConfirmCurrency || 'INR',
+              )}
             </span>
           </p>
           <Link href="/withdrawals" className="mt-3 inline-block">
@@ -313,12 +321,14 @@ function AttentionLink({
   label,
   count,
   amount,
+  currency = 'INR',
 }: {
   href: string;
   icon: string;
   label: string;
   count: number;
   amount?: number;
+  currency?: string;
 }) {
   return (
     <Link
@@ -330,7 +340,9 @@ function AttentionLink({
         <div className="min-w-0">
           <p className="truncate text-sm font-medium">{label}</p>
           {amount != null && amount > 0 && (
-            <p className="text-[11px] text-on-surface-variant">{formatCurrency(amount)}</p>
+            <p className="text-[11px] text-on-surface-variant">
+              {formatCurrency(amount, currency)}
+            </p>
           )}
         </div>
       </div>
