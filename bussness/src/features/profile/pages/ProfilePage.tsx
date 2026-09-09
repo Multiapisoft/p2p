@@ -70,6 +70,7 @@ export function ProfilePage() {
   const [depositMethods, setDepositMethods] = useState<PaymentMethod[]>([]);
   const [withdrawalMethods, setWithdrawalMethods] = useState<PaymentMethod[]>([]);
   const [minPartialPayInr, setMinPartialPayInr] = useState('');
+  const [allowPartialPay, setAllowPartialPay] = useState(true);
   const [usdtBuyInrRate, setUsdtBuyInrRate] = useState('');
   const [usdtSellInrRate, setUsdtSellInrRate] = useState('');
   const [currentPassword, setCurrentPassword] = useState('');
@@ -95,6 +96,7 @@ export function ProfilePage() {
           ? String(business.minPartialPayInr)
           : '',
       );
+      setAllowPartialPay(business.allowPartialPay !== false);
       setUsdtBuyInrRate(
         business.usdtBuyInrRate && business.usdtBuyInrRate > 0
           ? String(business.usdtBuyInrRate)
@@ -126,8 +128,11 @@ export function ProfilePage() {
         webhookUrl: webhookUrl || undefined,
         allowedDepositMethods: depositMethods,
         allowedWithdrawalMethods: withdrawalMethods,
-        minPartialPayInr: minPartialPayInr.trim()
-          ? Math.max(0, Number(minPartialPayInr))
+        allowPartialPay,
+        minPartialPayInr: allowPartialPay
+          ? minPartialPayInr.trim()
+            ? Math.max(0, Number(minPartialPayInr))
+            : 0
           : 0,
         usdtBuyInrRate: usdtBuyInrRate.trim()
           ? Math.max(0, Number(usdtBuyInrRate))
@@ -322,20 +327,38 @@ export function ProfilePage() {
                 ))}
               </div>
             </div>
-            <div>
-              <Input
-                label="Minimum split pay (₹)"
-                type="number"
-                min={0}
-                step={100}
-                value={minPartialPayInr}
-                onChange={(e) => setMinPartialPayInr(e.target.value)}
-                placeholder="5000 (platform default)"
-              />
-              <p className="mt-1 text-xs text-on-surface-variant">
-                Smallest partial amount payers may send on your withdrawals. Leave empty for
-                platform default (₹5,000). Full remaining can always be paid.
-              </p>
+            <div className="space-y-3 rounded-xl border border-outline-variant bg-surface-container-low/40 p-3">
+              <label className="flex items-start gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  className="mt-0.5"
+                  checked={allowPartialPay}
+                  onChange={(e) => setAllowPartialPay(e.target.checked)}
+                />
+                <span>
+                  <span className="font-semibold">Allow partial / split pay</span>
+                  <span className="mt-0.5 block text-xs text-on-surface-variant">
+                    When on, payers can pay your users&apos; withdrawals in parts (min amount
+                    below). When off, only full open amount is accepted.
+                  </span>
+                </span>
+              </label>
+              <div>
+                <Input
+                  label="Minimum split pay (₹)"
+                  type="number"
+                  min={0}
+                  step={100}
+                  value={minPartialPayInr}
+                  onChange={(e) => setMinPartialPayInr(e.target.value)}
+                  placeholder="5000 (platform default)"
+                  disabled={!allowPartialPay}
+                />
+                <p className="mt-1 text-xs text-on-surface-variant">
+                  Smallest partial amount payers may send on your withdrawals. Leave empty for
+                  platform default (₹5,000). Full remaining can always be paid.
+                </p>
+              </div>
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
               <div>

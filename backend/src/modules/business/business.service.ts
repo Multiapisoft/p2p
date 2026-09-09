@@ -248,13 +248,16 @@ export class BusinessService {
       depositsEnabled: _d,
       withdrawalsEnabled: _w,
       b2bMatchingEnabled: _b,
-      allowPartialPay: _p,
       allowMobileNumberUpi: _m,
+      allowPartialPay,
       allowedDepositMethods,
       allowedWithdrawalMethods,
       ...rest
     } = dto;
     this.assignDefined(business, rest);
+    if (typeof allowPartialPay === 'boolean') {
+      business.allowPartialPay = allowPartialPay;
+    }
     if (integrationUrls) {
       business.integrationUrls = { ...(business.integrationUrls || {}), ...integrationUrls };
       business.markModified('integrationUrls');
@@ -294,8 +297,23 @@ export class BusinessService {
   async updateTxnFlags(businessId: string, dto: UpdateBusinessTxnFlagsDto) {
     const business = await this.businessModel.findById(businessId).exec();
     if (!business) throw new NotFoundException('Business not found');
-    const { allowMobileNumberUpiMode, allowMobileNumberUpi, ...rest } = dto;
+    const {
+      allowMobileNumberUpiMode,
+      allowMobileNumberUpi,
+      allowPartialPayMode,
+      allowPartialPay,
+      ...rest
+    } = dto;
     this.assignDefined(business, rest);
+    if (allowPartialPayMode === 'inherit') {
+      business.set('allowPartialPay', undefined);
+    } else if (allowPartialPayMode === 'on') {
+      business.allowPartialPay = true;
+    } else if (allowPartialPayMode === 'off') {
+      business.allowPartialPay = false;
+    } else if (typeof allowPartialPay === 'boolean') {
+      business.allowPartialPay = allowPartialPay;
+    }
     if (allowMobileNumberUpiMode === 'inherit') {
       business.set('allowMobileNumberUpi', undefined);
     } else if (allowMobileNumberUpiMode === 'on') {

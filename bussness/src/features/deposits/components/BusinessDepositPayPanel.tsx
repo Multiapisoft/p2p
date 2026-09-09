@@ -618,29 +618,35 @@ export function BusinessDepositPayPanel() {
               value={payAmount}
               onChange={(e) => setPayAmount(e.target.value)}
               required
-              disabled={payExpired}
+              disabled={payExpired || target.allowPartialPay === false}
             />
-            {(() => {
-              const maxPay =
-                target.maxPayable != null
-                  ? Math.min(target.maxPayable, target.remainingAmount)
-                  : target.remainingAmount;
-              const isFullPay =
-                Number.isFinite(payAmountNum) &&
-                payAmountNum >= 1 &&
-                payAmountNum >= maxPay - 0.001;
-              if (isFullPay) return null;
-              return (
-                <p className="text-[11px] text-on-surface-variant">
-                  Min amount{' '}
-                  {formatCurrency(
-                    minPartialAmount(target.method, target.currency, target.minPartialPay),
-                    moneyCurrency(target),
-                  )}
-                  .
-                </p>
-              );
-            })()}
+            {target.allowPartialPay === false ? (
+              <p className="text-[11px] font-medium text-amber-800">
+                Partial pay is disabled for this request — pay the full open amount.
+              </p>
+            ) : (
+              (() => {
+                const maxPay =
+                  target.maxPayable != null
+                    ? Math.min(target.maxPayable, target.remainingAmount)
+                    : target.remainingAmount;
+                const isFullPay =
+                  Number.isFinite(payAmountNum) &&
+                  payAmountNum >= 1 &&
+                  payAmountNum >= maxPay - 0.001;
+                if (isFullPay) return null;
+                return (
+                  <p className="text-[11px] text-on-surface-variant">
+                    Min amount{' '}
+                    {formatCurrency(
+                      minPartialAmount(target.method, target.currency, target.minPartialPay),
+                      moneyCurrency(target),
+                    )}
+                    .
+                  </p>
+                );
+              })()
+            )}
 
             {payAmountNum >= 1 && creditPreview && (
               <div

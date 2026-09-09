@@ -198,7 +198,8 @@ export function BusinessesPage() {
       depositsEnabled: boolean;
       withdrawalsEnabled: boolean;
       b2bMatchingEnabled: boolean;
-      allowPartialPay: boolean;
+      allowPartialPayMode: 'inherit' | 'on' | 'off';
+      minPartialPayInr?: number;
       allowMobileNumberUpiMode: 'inherit' | 'on' | 'off';
       allowedDepositMethods: string[];
       allowedWithdrawalMethods: string[];
@@ -807,7 +808,6 @@ export function BusinessesPage() {
                 ['depositsEnabled', 'Deposits enabled'],
                 ['withdrawalsEnabled', 'Withdrawals enabled'],
                 ['b2bMatchingEnabled', 'B2B matching enabled'],
-                ['allowPartialPay', 'Allow partial payments'],
               ] as const
             ).map(([key, label]) => (
               <label key={key} className="flex items-center gap-2 text-sm">
@@ -821,6 +821,69 @@ export function BusinessesPage() {
                 {label}
               </label>
             ))}
+
+            <div className="space-y-1">
+              <label className="text-sm font-medium" htmlFor="partial-pay-mode">
+                Allow partial / split payments
+              </label>
+              <select
+                id="partial-pay-mode"
+                className="w-full rounded-lg border border-outline-variant bg-surface-container-lowest px-2.5 py-2 text-sm"
+                value={
+                  txnFlagsTarget.allowPartialPay === true
+                    ? 'on'
+                    : txnFlagsTarget.allowPartialPay === false
+                      ? 'off'
+                      : 'inherit'
+                }
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setTxnFlagsTarget({
+                    ...txnFlagsTarget,
+                    allowPartialPay:
+                      v === 'on' ? true : v === 'off' ? false : undefined,
+                  });
+                }}
+              >
+                <option value="inherit">Use platform default</option>
+                <option value="on">Enabled for this business</option>
+                <option value="off">Disabled for this business</option>
+              </select>
+              <p className="text-xs text-on-surface-variant">
+                Controls whether payers can split-pay this business&apos;s user withdrawals.
+              </p>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-sm font-medium" htmlFor="min-partial-pay">
+                Minimum split pay (₹)
+              </label>
+              <input
+                id="min-partial-pay"
+                type="number"
+                min={0}
+                step={100}
+                className="w-full rounded-lg border border-outline-variant bg-surface-container-lowest px-2.5 py-2 text-sm"
+                value={
+                  txnFlagsTarget.minPartialPayInr && txnFlagsTarget.minPartialPayInr > 0
+                    ? String(txnFlagsTarget.minPartialPayInr)
+                    : ''
+                }
+                onChange={(e) =>
+                  setTxnFlagsTarget({
+                    ...txnFlagsTarget,
+                    minPartialPayInr: e.target.value.trim()
+                      ? Math.max(0, Number(e.target.value))
+                      : 0,
+                  })
+                }
+                placeholder="5000 (platform default)"
+                disabled={txnFlagsTarget.allowPartialPay === false}
+              />
+              <p className="text-xs text-on-surface-variant">
+                Empty / 0 = platform default ₹5,000. Applies only when partial pay is allowed.
+              </p>
+            </div>
 
             <div className="space-y-1">
               <label className="text-sm font-medium" htmlFor="mobile-upi-mode">
@@ -953,7 +1016,16 @@ export function BusinessesPage() {
                     depositsEnabled: txnFlagsTarget.depositsEnabled !== false,
                     withdrawalsEnabled: txnFlagsTarget.withdrawalsEnabled !== false,
                     b2bMatchingEnabled: txnFlagsTarget.b2bMatchingEnabled !== false,
-                    allowPartialPay: txnFlagsTarget.allowPartialPay !== false,
+                    allowPartialPayMode:
+                      txnFlagsTarget.allowPartialPay === true
+                        ? 'on'
+                        : txnFlagsTarget.allowPartialPay === false
+                          ? 'off'
+                          : 'inherit',
+                    minPartialPayInr:
+                      txnFlagsTarget.minPartialPayInr && txnFlagsTarget.minPartialPayInr > 0
+                        ? txnFlagsTarget.minPartialPayInr
+                        : 0,
                     allowMobileNumberUpiMode:
                       txnFlagsTarget.allowMobileNumberUpi === true
                         ? 'on'

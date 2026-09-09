@@ -35,6 +35,7 @@ export const businessApi = {
     allowedPaymentMethods?: PaymentMethod[];
     allowedDepositMethods?: PaymentMethod[];
     allowedWithdrawalMethods?: PaymentMethod[];
+    allowPartialPay?: boolean;
     minPartialPayInr?: number;
     usdtBuyInrRate?: number;
     usdtSellInrRate?: number;

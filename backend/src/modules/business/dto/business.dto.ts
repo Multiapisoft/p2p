@@ -153,6 +153,21 @@ export class UpdateBusinessTxnFlagsDto {
   @IsBoolean()
   allowPartialPay?: boolean;
 
+  /**
+   * Explicit mode for partial-pay override.
+   * inherit = clear business override (use platform setting).
+   */
+  @IsOptional()
+  @IsIn(['inherit', 'on', 'off'])
+  allowPartialPayMode?: 'inherit' | 'on' | 'off';
+
+  /** Minimum INR split/partial pay. 0 = platform default (₹5,000). */
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  minPartialPayInr?: number;
+
   @IsOptional()
   @IsBoolean()
   allowMobileNumberUpi?: boolean;

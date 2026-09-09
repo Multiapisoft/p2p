@@ -38,6 +38,8 @@ export const businessesApi = {
       withdrawalsEnabled: boolean;
       b2bMatchingEnabled: boolean;
       allowPartialPay: boolean;
+      allowPartialPayMode?: 'inherit' | 'on' | 'off';
+      minPartialPayInr?: number;
       allowMobileNumberUpi?: boolean;
       allowMobileNumberUpiMode?: 'inherit' | 'on' | 'off';
       allowedDepositMethods: string[];

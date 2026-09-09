@@ -113,6 +113,8 @@ export interface BusinessProfile {
   allowedPaymentMethods: PaymentMethod[];
   allowedDepositMethods?: PaymentMethod[];
   allowedWithdrawalMethods?: PaymentMethod[];
+  /** Allow split/partial pays on this business's withdrawals. */
+  allowPartialPay?: boolean;
   /** Minimum INR split pay on your withdrawals. 0 = platform default (₹5,000). */
   minPartialPayInr?: number;
   /** Per-business mobile UPI override. undefined = platform default. */
