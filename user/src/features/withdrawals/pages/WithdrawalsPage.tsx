@@ -519,14 +519,7 @@ export function WithdrawalsPage() {
       }
     }
     if (balance && !isBusinessLinked && !editingId) {
-      if (method === 'usdt' && walletIsUsdt) {
-        if (usdtAmount > balance.availableBalance) {
-          setFormError(
-            `Insufficient USDT. Need ${usdtAmount} USDT for ₹${numAmount} at ${usdtInrRate} INR/USDT`,
-          );
-          return;
-        }
-      } else if (amountIsInrPayout) {
+      if (amountIsInrPayout || (isUsdtMethod && walletIsUsdt)) {
         const needUsdt = inrToUsdt(numAmount);
         if (needUsdt > balance.availableBalance) {
           setFormError(
@@ -540,11 +533,12 @@ export function WithdrawalsPage() {
       }
     }
 
+    // USDT method: send INR — backend converts with the business buy rate.
     const payload: CreateWithdrawalPayload = {
-      amount: !editingId && method === 'usdt' ? usdtAmount : numAmount,
+      amount: numAmount,
       method,
     };
-    if (!editingId && method === 'usdt') {
+    if (!editingId && isUsdtMethod) {
       setPendingInrAmount(numAmount);
     } else {
       setPendingInrAmount(null);
@@ -1476,8 +1470,11 @@ export function WithdrawalsPage() {
                     <span className="block">
                       {formatCurrency(pendingInrAmount, 'INR')}
                       <span className="mt-0.5 block text-xs font-medium text-on-surface-variant">
-                        → {formatCurrency(pendingPayload.amount, 'USDT')} at 1 USDT = ₹
-                        {usdtInrRate}
+                        →{' '}
+                        {inrToUsdt(pendingInrAmount).toLocaleString('en-IN', {
+                          maximumFractionDigits: 6,
+                        })}{' '}
+                        USDT at 1 USDT = ₹{usdtInrRate}
                       </span>
                     </span>
                   ) : (

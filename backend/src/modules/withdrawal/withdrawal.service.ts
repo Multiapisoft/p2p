@@ -124,10 +124,8 @@ export class WithdrawalService {
       ? await this.businessService.getUsdtRates(businessId)
       : null;
     if (businessId && !isInvestor) {
-      const needInr = isUsdtMethod
-        ? this.exchangeRateService.usdtToInr(dto.amount, businessRates)
-        : dto.amount;
-      await this.businessService.assertP2pPayAmountAllowed(businessId, needInr);
+      // User panel sends INR for every method, including USDT (converted server-side).
+      await this.businessService.assertP2pPayAmountAllowed(businessId, dto.amount);
     }
     let currency = isUsdtMethod ? Currency.USDT : Currency.INR;
     let payoutAmount = dto.amount;
@@ -140,20 +138,24 @@ export class WithdrawalService {
     let p2pAdvanceCredited = false;
     let p2pAdvanceAmount = 0;
 
-    // Investor points are INR — USDT method converts INR → USDT open request, locks INR.
-    if (isInvestor && isUsdtMethod) {
+    /**
+     * USDT method: amount is INR. Convert to USDT payout and lock INR
+     * (same as investor). Partner USDT wallets debit/lock USDT instead.
+     */
+    let walletCurrency: Currency = currency;
+    if (isUsdtMethod) {
       exchangeRate = this.exchangeRateService.resolveUsdtInrRate('buy', businessRates);
       sourceCurrency = Currency.INR;
       sourceAmount = dto.amount;
       lockAmount = dto.amount;
       currency = Currency.USDT;
       payoutAmount = this.exchangeRateService.inrToUsdt(dto.amount, businessRates);
+      walletCurrency = Currency.INR;
       if (payoutAmount <= 0) {
         throw new BadRequestException('Amount too small for USDT conversion');
       }
     }
 
-    const walletCurrency = isInvestor && isUsdtMethod ? Currency.INR : currency;
     const isBusinessLinkedUser = Boolean(businessId) && !isInvestor;
 
     // Partner SSO users: spend partner wallet when funded; otherwise P2P request
@@ -183,11 +185,24 @@ export class WithdrawalService {
             partnerDebitAmount = sourceAmount;
             currency = Currency.INR;
             payoutAmount = dto.amount;
+            walletCurrency = Currency.INR;
+            canDebitPartner = partnerBal.availableBalance >= partnerDebitAmount;
+          } else if (partnerCurrency === 'USDT' && isUsdtMethod) {
+            exchangeRate = this.exchangeRateService.resolveUsdtInrRate(
+              'buy',
+              businessRates,
+            );
+            sourceCurrency = Currency.USDT;
+            sourceAmount = payoutAmount;
+            partnerDebitAmount = payoutAmount;
+            lockAmount = payoutAmount;
+            walletCurrency = Currency.USDT;
             canDebitPartner = partnerBal.availableBalance >= partnerDebitAmount;
           } else {
-            sourceCurrency = partnerCurrency === 'USDT' ? Currency.USDT : Currency.INR;
+            sourceCurrency = Currency.INR;
             sourceAmount = dto.amount;
             partnerDebitAmount = dto.amount;
+            walletCurrency = Currency.INR;
             canDebitPartner = partnerBal.availableBalance >= partnerDebitAmount;
           }
 
@@ -198,16 +213,26 @@ export class WithdrawalService {
               partnerDebitAmount,
               `P2P withdrawal ${dto.method.toUpperCase()}` +
                 (exchangeRate
-                  ? ` — ${partnerDebitAmount} USDT → ₹${payoutAmount} @ ${exchangeRate}`
+                  ? isUsdtMethod
+                    ? ` — ₹${dto.amount} → ${payoutAmount} USDT @ ${exchangeRate}`
+                    : ` — ${partnerDebitAmount} USDT → ₹${payoutAmount} @ ${exchangeRate}`
                   : ''),
               partnerUserId,
             );
             partnerDebited = true;
 
-            // Mirror payout currency into FinGuard so lock / cancel / approve flows keep working.
+            // Mirror lock currency into FinGuard so lock / cancel / approve flows keep working.
             // Do NOT bump totalDeposited — this is not a user deposit.
-            const mirrorWallet = await this.walletService.getOrCreate(userId, currency, businessId);
-            await this.walletService.credit(mirrorWallet._id.toString(), payoutAmount, false);
+            const mirrorWallet = await this.walletService.getOrCreate(
+              userId,
+              walletCurrency,
+              businessId,
+            );
+            await this.walletService.credit(
+              mirrorWallet._id.toString(),
+              lockAmount,
+              false,
+            );
           }
         } catch {
           // Partner unreachable / not funded — business-code users may still open P2P requests.

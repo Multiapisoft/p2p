@@ -28,18 +28,25 @@ export class ExchangeRateService {
    * Resolve effective rate for a business.
    * buy = INR→USDT (need more USDT when buy rate is lower).
    * sell = USDT→INR (limit consumption / display value).
-   * Missing/invalid business override falls back to platform default.
+   * Missing/invalid business override falls back to the other side, then platform default.
    */
   resolveUsdtInrRate(
     side: UsdtRateSide = 'sell',
     business?: BusinessUsdtRates | null,
   ): number {
-    const override =
+    const primary =
       side === 'buy'
         ? Number(business?.usdtBuyInrRate)
         : Number(business?.usdtSellInrRate);
-    if (Number.isFinite(override) && override > 0) {
-      return override;
+    if (Number.isFinite(primary) && primary > 0) {
+      return primary;
+    }
+    const fallback =
+      side === 'buy'
+        ? Number(business?.usdtSellInrRate)
+        : Number(business?.usdtBuyInrRate);
+    if (Number.isFinite(fallback) && fallback > 0) {
+      return fallback;
     }
     return this.getUsdtInrRate();
   }

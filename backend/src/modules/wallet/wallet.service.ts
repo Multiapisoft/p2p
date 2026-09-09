@@ -87,13 +87,25 @@ export class WalletService {
   }
 
   async lock(walletId: string, amount: number, session?: ClientSession) {
-    const wallet = await this.walletModel.findById(walletId).session(session || null);
-    if (!wallet) throw new NotFoundException('Wallet not found');
-    if (wallet.balance - wallet.lockedBalance < amount) {
+    if (amount <= 0) throw new BadRequestException('Amount must be positive');
+    // Atomic lock avoids float races after advance credit.
+    const wallet = await this.walletModel
+      .findOneAndUpdate(
+        {
+          _id: walletId,
+          $expr: {
+            $gte: [{ $subtract: ['$balance', '$lockedBalance'] }, amount],
+          },
+        },
+        { $inc: { lockedBalance: amount } },
+        { new: true, session: session || null },
+      )
+      .exec();
+    if (!wallet) {
+      const exists = await this.walletModel.findById(walletId).session(session || null);
+      if (!exists) throw new NotFoundException('Wallet not found');
       throw new BadRequestException('Insufficient balance to lock');
     }
-    wallet.lockedBalance += amount;
-    await wallet.save({ session });
     await this.invalidateCache(wallet.userId.toString());
     return wallet;
   }
