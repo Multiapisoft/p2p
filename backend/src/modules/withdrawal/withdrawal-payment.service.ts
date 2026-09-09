@@ -3113,7 +3113,7 @@ export class WithdrawalPaymentService {
       SKIP_USDT_TTL_SECONDS,
     );
 
-    this.p2pRealtime.emitListChanged('skipped-usdt');
+    this.p2pRealtime.emitListChanged('updated', { withdrawalId });
     return this.findAvailableForPayment(userId, {});
   }
 
