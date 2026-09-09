@@ -110,7 +110,7 @@ describe('PlatformCommissionService', () => {
     });
 
     expect(walletService.credit).toHaveBeenCalledWith('admin-wallet', 8, false, undefined);
-    expect(entry?.description).toContain('Withdrawal fee ₹8 received from Rahul (user)');
+    expect(entry?.description).toContain('Business fee ₹8 received from Rahul (user)');
   });
 
   it('without businessId credits platform then business fees to admin only', async () => {
@@ -158,7 +158,7 @@ describe('PlatformCommissionService', () => {
         userId: 'owner-1',
         direction: LedgerDirection.DEBIT,
         amount: 10,
-        description: expect.stringContaining('Deposit fee ₹10 paid to'),
+        description: expect.stringContaining('Platform fee ₹10 paid to'),
       }),
     );
     expect(transactionService.record).toHaveBeenCalledWith(
@@ -286,7 +286,7 @@ describe('PlatformCommissionService', () => {
         userId: 'admin-id',
         direction: LedgerDirection.CREDIT,
         amount: 500,
-        description: expect.stringContaining('Withdrawal fee ₹500'),
+        description: expect.stringContaining('Business fee ₹500'),
       }),
     );
   });

@@ -21,7 +21,7 @@ export function businessFeeInDescription(params: {
   fromName: string;
   referenceLabel: string;
 }): string {
-  return `Withdrawal fee ${moneyLabel(params.amount, params.currency)} received from ${params.fromName} (${params.referenceLabel})`;
+  return `Business fee ${moneyLabel(params.amount, params.currency)} received from ${params.fromName} (${params.referenceLabel})`;
 }
 
 export function platformFeeOutFromBusinessDescription(params: {
@@ -30,7 +30,7 @@ export function platformFeeOutFromBusinessDescription(params: {
   toName: string;
   referenceLabel: string;
 }): string {
-  return `Deposit fee ${moneyLabel(params.amount, params.currency)} paid to ${params.toName} (${params.referenceLabel})`;
+  return `Platform fee ${moneyLabel(params.amount, params.currency)} paid to ${params.toName} (${params.referenceLabel})`;
 }
 
 export function businessFeeOutFromBusinessDescription(params: {
@@ -39,7 +39,7 @@ export function businessFeeOutFromBusinessDescription(params: {
   toName: string;
   referenceLabel: string;
 }): string {
-  return `Withdrawal fee ${moneyLabel(params.amount, params.currency)} paid to ${params.toName} (${params.referenceLabel})`;
+  return `Business fee ${moneyLabel(params.amount, params.currency)} paid to ${params.toName} (${params.referenceLabel})`;
 }
 
 export function feeCutNote(

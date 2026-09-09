@@ -55,7 +55,7 @@ describe('platform-commission-ledger.util', () => {
       fromName: 'Rahul (user)',
       referenceLabel: 'DEP-1',
     });
-    expect(text).toBe('Withdrawal fee ₹8 received from Rahul (user) (DEP-1)');
+    expect(text).toBe('Business fee ₹8 received from Rahul (user) (DEP-1)');
   });
 
   it('describes deposit given to a user', () => {

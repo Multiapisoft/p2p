@@ -144,7 +144,7 @@ export class TransactionService {
     }
 
     if (opts.hideP2pFeeDuplicates) {
-      // P2P payment fees write both a wallet debit (commission) and a pay-limit deduct.
+      // Fees write both a wallet debit (commission) and a pay-limit deduct.
       // Business ledger shows only the limit row — same amount, clearer for operators.
       and.push({
         $nor: [
@@ -152,7 +152,7 @@ export class TransactionService {
             type: LedgerType.COMMISSION,
             flow: LedgerFlow.PLATFORM_FEE,
             direction: LedgerDirection.DEBIT,
-            referenceType: 'withdrawal_payment',
+            referenceType: { $in: ['withdrawal_payment', 'deposit'] },
           },
         ],
       });
