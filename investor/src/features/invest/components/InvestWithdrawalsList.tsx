@@ -329,10 +329,12 @@ export function InvestWithdrawalsList() {
 
   const skipUsdt = useMutation({
     mutationFn: (withdrawalId: string) => fulfillApi.skipUsdtWithdrawal(withdrawalId),
-    onSuccess: () => {
+    onSuccess: (res) => {
       setFormError('');
       closePay();
-      qc.invalidateQueries({ queryKey: ['invest-withdrawals'] });
+      qc.setQueryData(['invest-withdrawals', listQuery], res);
+      void qc.invalidateQueries({ queryKey: ['invest-withdrawals'] });
+      void qc.invalidateQueries({ queryKey: ['portfolio'] });
     },
     onError: (err: unknown) => {
       setFormError(apiErrorMessage(err, 'Could not skip this USDT request'));

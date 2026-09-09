@@ -200,16 +200,17 @@ export class WithdrawalPaymentService {
     let wdBusinessId = payerBusinessId;
     let withdrawalRemaining: number | null = null;
     let isBusinessOrigin = false;
+    let withdrawalDoc: WithdrawalDocument | null = null;
     if (withdrawalId) {
-      const withdrawal = await this.withdrawalModel.findById(withdrawalId).exec();
-      if (!withdrawal) throw new NotFoundException('Withdrawal not found');
-      method = withdrawal.method;
-      payCurrency = (withdrawal.currency as Currency) || Currency.INR;
-      if (withdrawal.businessId) {
-        wdBusinessId = withdrawal.businessId.toString();
+      withdrawalDoc = await this.withdrawalModel.findById(withdrawalId).exec();
+      if (!withdrawalDoc) throw new NotFoundException('Withdrawal not found');
+      method = withdrawalDoc.method;
+      payCurrency = (withdrawalDoc.currency as Currency) || Currency.INR;
+      if (withdrawalDoc.businessId) {
+        wdBusinessId = withdrawalDoc.businessId.toString();
       }
-      isBusinessOrigin = withdrawal.origin === 'business';
-      withdrawalRemaining = this.getRemaining(withdrawal);
+      isBusinessOrigin = withdrawalDoc.origin === 'business';
+      withdrawalRemaining = this.getRemaining(withdrawalDoc);
       if (amount > withdrawalRemaining) {
         throw new BadRequestException(
           `Amount exceeds remaining ${withdrawalRemaining}`,
@@ -234,11 +235,10 @@ export class WithdrawalPaymentService {
     if (isInvestor) {
       const limitView = this.usersService.getInvestorLimitSnapshot(payer);
       investorLimitRemaining = limitView.remaining;
-      maxPayable = this.capMaxPayableByInvestorLimit(
+      maxPayable = this.capInvestorMaxPayable(
         maxPayable,
         limitView.remaining,
-        payCurrency,
-        method,
+        withdrawalDoc || { currency: payCurrency, method },
         bizRates,
       );
     }
@@ -628,24 +628,64 @@ export class WithdrawalPaymentService {
         limitView.remaining > 0 &&
         limitView.remaining < MIN_PARTIAL_INR;
       // Investors: full pay only unless finishing plan tail (quota below ₹5k).
-      // Compare USDT remaining in INR terms so USDT WDs are not mis-filtered.
+      // USDT open amount is in USDT — prefer sourceAmount (INR locked at create) so
+      // rate float (e.g. 3.333334×90) does not hide WDs from the investor queue.
       if (!(isInvestor && investorTailPay)) {
         const usdtInrRate = this.exchangeRateService.getUsdtInrRate();
+        const isUsdtDoc = {
+          $or: [
+            { $eq: ['$method', PaymentMethod.USDT] },
+            { $eq: [{ $toUpper: { $ifNull: ['$currency', ''] } }, 'USDT'] },
+          ],
+        };
         const remainingInrExpr = {
           $cond: [
+            isUsdtDoc,
             {
-              $or: [
-                { $eq: ['$method', PaymentMethod.USDT] },
-                { $eq: [{ $toUpper: { $ifNull: ['$currency', ''] } }, 'USDT'] },
+              $cond: [
+                {
+                  $and: [
+                    {
+                      $eq: [
+                        { $toUpper: { $ifNull: ['$sourceCurrency', ''] } },
+                        'INR',
+                      ],
+                    },
+                    { $gt: [{ $ifNull: ['$sourceAmount', 0] }, 0] },
+                    { $gt: ['$amount', 0] },
+                  ],
+                },
+                {
+                  $round: [
+                    {
+                      $multiply: [
+                        { $ifNull: ['$sourceAmount', 0] },
+                        { $divide: [remainingExpr, '$amount'] },
+                      ],
+                    },
+                    2,
+                  ],
+                },
+                {
+                  $round: [
+                    {
+                      $multiply: [
+                        remainingExpr,
+                        { $ifNull: ['$exchangeRate', usdtInrRate] },
+                      ],
+                    },
+                    2,
+                  ],
+                },
               ],
             },
-            { $multiply: [remainingExpr, usdtInrRate] },
-            remainingExpr,
+            { $round: [remainingExpr, 2] },
           ],
         };
         and.push({
           $expr: isInvestor
-            ? { $lte: [remainingInrExpr, matchAmount] }
+            ? // Tiny INR slack absorbs USDT↔rate float so WDs are not hidden.
+              { $lte: [remainingInrExpr, { $add: [matchAmount, 0.05] }] }
             : {
                 $or: [
                   { $lte: [remainingExpr, matchAmount] },
@@ -835,11 +875,10 @@ export class WithdrawalPaymentService {
 
         let maxPayable = businessMax;
         if (isInvestor && limitView) {
-          maxPayable = this.capMaxPayableByInvestorLimit(
+          maxPayable = this.capInvestorMaxPayable(
             maxPayable,
             limitView.remaining,
-            w.currency,
-            w.method,
+            w,
             bizRates,
           );
         }
@@ -892,18 +931,32 @@ export class WithdrawalPaymentService {
     let noMatchReason: 'tail_no_wd' | 'no_open_wd' | null = null;
     if (investorSequential) {
       const payable = itemsWithCredit.filter((i) => (i.maxPayable ?? 0) > 0);
-      const next = payable[0] ?? null;
+      // Prefer payable; if only USDT survived with 0 max due to rate floor, still
+      // surface it so the investor can skip to the next request.
+      const next =
+        payable[0] ??
+        itemsWithCredit.find(
+          (i) =>
+            i.remainingAmount > 0 &&
+            ((i.currency || '').toUpperCase() === Currency.USDT ||
+              i.method === PaymentMethod.USDT),
+        ) ??
+        null;
       if (next && limitView) {
         const payIsUsdt =
           (next.currency || '').toUpperCase() === Currency.USDT ||
           next.method === PaymentMethod.USDT;
-        const bizRates = await this.businessService.getUsdtRates(next.businessId);
-        const requiredPayAmount = payIsUsdt
-          ? Math.min(
-              next.remainingAmount,
-              this.exchangeRateService.inrBudgetToUsdt(limitView.remaining, bizRates),
-            )
-          : Math.min(next.remainingAmount, limitView.remaining);
+        let requiredPayAmount: number;
+        if (payIsUsdt) {
+          const remInr = this.openAmountInr(next, next.remainingAmount);
+          // Full USDT open only when its INR (source) fits the plan; otherwise skip-only.
+          requiredPayAmount =
+            remInr > 0 && remInr <= limitView.remaining + 0.05
+              ? next.remainingAmount
+              : 0;
+        } else {
+          requiredPayAmount = Math.min(next.remainingAmount, limitView.remaining);
+        }
         itemsWithCreditOut = [
           {
             ...next,
@@ -912,7 +965,7 @@ export class WithdrawalPaymentService {
             canSkipUsdt: payIsUsdt,
           } as unknown as (typeof itemsWithCredit)[number],
         ];
-        total = payable.length;
+        total = Math.max(payable.length, itemsWithCreditOut.length);
       } else {
         itemsWithCreditOut = [];
         const tail =
@@ -1336,11 +1389,10 @@ export class WithdrawalPaymentService {
       p2pPayRemainingInr = cap.p2pPayRemainingInr;
     }
     if (isInvestor && investorLimit) {
-      maxPayable = this.capMaxPayableByInvestorLimit(
+      maxPayable = this.capInvestorMaxPayable(
         maxPayable,
         investorLimit.remaining,
-        withdrawal.currency,
-        withdrawal.method,
+        withdrawal,
         bizRates,
       );
     }
@@ -1374,7 +1426,12 @@ export class WithdrawalPaymentService {
           tail != null && tail > 0 && tail < maxPayable
             ? Math.min(maxPayable, tail)
             : maxPayable;
-        payAmount = Math.round(assigned * 100) / 100;
+        const payIsUsdt =
+          withdrawal.method === PaymentMethod.USDT ||
+          (withdrawal.currency || '').toUpperCase() === Currency.USDT;
+        payAmount = payIsUsdt
+          ? Math.round(assigned * 1e6) / 1e6
+          : Math.round(assigned * 100) / 100;
       }
       const partialErr = partialPayError({
         amount: payAmount,
@@ -2850,6 +2907,9 @@ export class WithdrawalPaymentService {
       bankDetails: w.bankDetails,
       cdmDetails: w.cdmDetails,
       usdtDetails: w.usdtDetails,
+      sourceAmount: w.sourceAmount,
+      sourceCurrency: w.sourceCurrency,
+      exchangeRate: w.exchangeRate,
       createdAt: (w as unknown as { createdAt: Date }).createdAt,
       claimLockedBy: claimActive ? w.claimLockedBy?.toString() : null,
       claimLockedUntil: claimActive ? w.claimLockedUntil : null,
@@ -3085,6 +3145,83 @@ export class WithdrawalPaymentService {
       ? this.exchangeRateService.usdtToInr(payment.amount)
       : payment.amount;
     return Math.round(inr * 100) / 100;
+  }
+
+  /**
+   * Open INR value for matching / investor limit — prefer locked sourceAmount
+   * so USDT ceil/floor float does not hide or block full pays.
+   */
+  private openAmountInr(
+    w: {
+      amount?: number;
+      currency?: string;
+      method?: string;
+      sourceAmount?: number;
+      sourceCurrency?: string;
+      exchangeRate?: number;
+    },
+    openAmount: number,
+  ): number {
+    const payIsUsdt =
+      (w.currency || '').toUpperCase() === Currency.USDT ||
+      w.method === PaymentMethod.USDT;
+    if (!payIsUsdt) return Math.round(Math.max(0, openAmount) * 100) / 100;
+    const total = Number(w.amount) || 0;
+    const src = Number(w.sourceAmount) || 0;
+    if (
+      (w.sourceCurrency || '').toUpperCase() === Currency.INR &&
+      src > 0 &&
+      total > 0
+    ) {
+      return Math.round(src * (openAmount / total) * 100) / 100;
+    }
+    const rate = Number(w.exchangeRate);
+    if (Number.isFinite(rate) && rate > 0) {
+      return Math.round(openAmount * rate * 100) / 100;
+    }
+    return this.exchangeRateService.usdtToInr(openAmount);
+  }
+
+  /**
+   * When source INR for the open USDT fits the investor plan, allow the full
+   * remaining USDT (do not floor via inrBudgetToUsdt — that blocks full pay).
+   */
+  private capInvestorMaxPayable(
+    maxPayable: number,
+    remainingInr: number,
+    w: {
+      amount?: number;
+      currency?: string;
+      method?: string;
+      sourceAmount?: number;
+      sourceCurrency?: string;
+      exchangeRate?: number;
+    },
+    businessRates?: { usdtBuyInrRate?: number | null; usdtSellInrRate?: number | null } | null,
+  ) {
+    const payIsUsdt =
+      (w.currency || '').toUpperCase() === Currency.USDT ||
+      w.method === PaymentMethod.USDT;
+    if (!payIsUsdt) {
+      return this.capMaxPayableByInvestorLimit(
+        maxPayable,
+        remainingInr,
+        w.currency || Currency.INR,
+        w.method,
+        businessRates,
+      );
+    }
+    const remInr = this.openAmountInr(w, maxPayable);
+    if (remInr > 0 && remInr <= remainingInr + 0.05) {
+      return maxPayable;
+    }
+    return this.capMaxPayableByInvestorLimit(
+      maxPayable,
+      remainingInr,
+      w.currency || Currency.USDT,
+      w.method,
+      businessRates,
+    );
   }
 
   private capMaxPayableByInvestorLimit(

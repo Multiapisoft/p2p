@@ -441,10 +441,11 @@ export function FulfillWithdrawals({
 
   const skipUsdt = useMutation({
     mutationFn: (withdrawalId: string) => fulfillApi.skipUsdtWithdrawal(withdrawalId),
-    onSuccess: () => {
+    onSuccess: (res) => {
       setFormError('');
       closePay();
-      qc.invalidateQueries({ queryKey: ['fulfill-available'] });
+      qc.setQueryData(['fulfill-available', availableQuery], res);
+      void qc.invalidateQueries({ queryKey: ['fulfill-available'] });
     },
     onError: (err: unknown) => {
       setFormError(apiErrorMessage(err, 'Could not skip this USDT request'));
