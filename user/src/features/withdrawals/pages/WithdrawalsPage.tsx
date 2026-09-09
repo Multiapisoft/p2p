@@ -444,22 +444,25 @@ export function WithdrawalsPage() {
   /** Match backend ExchangeRateService.inrToUsdt (buy/default rate, ceil 6 dp). */
   const inrToUsdt = (inrAmount: number) =>
     Math.ceil((inrAmount / usdtInrRate) * 1e6) / 1e6;
+  const isUsdtMethod = method === 'usdt';
   /**
    * Amount field is INR when creating:
    * - method is USDT (INR in → USDT out at rate), or
    * - USDT wallet paying out to UPI/Bank/CDM.
    * While editing, amount stays as stored currency (read-only).
    */
-  const amountIsInrEntry =
-    !editingId && (method === 'usdt' || (walletIsUsdt && method !== 'usdt'));
-  const amountIsInrPayout = !editingId && walletIsUsdt && method !== 'usdt';
-  const amountCurrency =
-    method === 'usdt' ? 'USDT' : amountIsInrPayout ? 'INR' : displayCurrency;
+  const amountIsInrEntry = !editingId && (isUsdtMethod || walletIsUsdt);
+  const amountIsInrPayout = !editingId && walletIsUsdt && !isUsdtMethod;
+  const amountCurrency = isUsdtMethod
+    ? 'USDT'
+    : amountIsInrPayout
+      ? 'INR'
+      : displayCurrency;
   const amountFieldLabel =
-    editingId && method === 'usdt'
+    editingId && isUsdtMethod
       ? 'Amount (USDT)'
       : amountIsInrEntry
-        ? method === 'usdt'
+        ? isUsdtMethod
           ? 'Amount (INR)'
           : 'Amount (INR to receive)'
         : `Amount (${displayCurrency})`;
