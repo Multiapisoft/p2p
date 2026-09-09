@@ -36,7 +36,7 @@ export function CdmDepositForm() {
         amount: Number(amount),
         method: 'cdm',
         cdmDetails: {
-          bankName: bankName.trim(),
+          bankName: bankName.trim().replace(/\s+/g, ' ').toUpperCase(),
           payerName: payerName.trim() || undefined,
           locationHint: locationHint.trim() || undefined,
           notes: notes.trim() || undefined,
@@ -126,9 +126,10 @@ export function CdmDepositForm() {
             <Input
               label="Bank name"
               value={bankName}
-              onChange={(e) => setBankName(e.target.value)}
-              placeholder="e.g. State Bank of India"
+              onChange={(e) => setBankName(e.target.value.toUpperCase())}
+              placeholder="e.g. STATE BANK OF INDIA"
               required
+              className="uppercase"
             />
             <Input
               label="Depositor name (optional)"

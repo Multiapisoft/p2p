@@ -109,11 +109,14 @@ export class DepositService {
   async create(userId: string, dto: CreateDepositDto, businessFromApi?: BusinessDocument) {
     this.validatePaymentDetails(dto);
 
-    const paymentConfig = await this.paymentConfigService.findByMethod(
-      dto.method,
-      dto.method === PaymentMethod.USDT ? Currency.USDT : dto.currency || Currency.INR,
-    );
-    this.paymentConfigService.validateAmount(paymentConfig, dto.amount);
+    const currency =
+      dto.method === PaymentMethod.USDT ? Currency.USDT : dto.currency || Currency.INR;
+
+    // Classic CDM is a cash request — no platform payee config required.
+    if (dto.method !== PaymentMethod.CDM) {
+      const paymentConfig = await this.paymentConfigService.findByMethod(dto.method, currency);
+      this.paymentConfigService.validateAmount(paymentConfig, dto.amount);
+    }
     if (dto.method !== PaymentMethod.USDT) {
       const minAmt = await this.platformSettingsService.getMinTransactionAmount();
       if (dto.amount < minAmt) {
@@ -153,8 +156,6 @@ export class DepositService {
       await this.businessService.assertDepositMethodAllowed(businessId, dto.method);
     }
 
-    const currency =
-      dto.method === PaymentMethod.USDT ? Currency.USDT : dto.currency || Currency.INR;
     const wallet = await this.walletService.getOrCreate(userId, currency, businessId);
 
     const referenceId = `DEP-${Date.now()}-${uuidv4().slice(0, 8).toUpperCase()}`;
@@ -171,6 +172,16 @@ export class DepositService {
       }
     }
 
+    const cdmDetails = dto.cdmDetails
+      ? {
+          ...dto.cdmDetails,
+          bankName: dto.cdmDetails.bankName.trim().replace(/\s+/g, ' ').toUpperCase(),
+          payerName: dto.cdmDetails.payerName?.trim() || undefined,
+          locationHint: dto.cdmDetails.locationHint?.trim() || undefined,
+          notes: dto.cdmDetails.notes?.trim() || undefined,
+        }
+      : undefined;
+
     const deposit = await this.depositModel.create({
       referenceId,
       userId,
@@ -183,7 +194,7 @@ export class DepositService {
       upiDetails: dto.upiDetails,
       bankDetails: dto.bankDetails,
       usdtDetails: dto.usdtDetails,
-      cdmDetails: dto.cdmDetails,
+      cdmDetails,
       externalRef: dto.externalRef,
       metadata: businessFloatLock ? { businessFloatLock } : undefined,
     });

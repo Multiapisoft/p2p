@@ -66,10 +66,12 @@ export class UsdtDetailsDto {
 }
 
 export class DepositCdmDetailsDto {
-  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @Transform(({ value }) =>
+    typeof value === 'string' ? value.trim().replace(/\s+/g, ' ').toUpperCase() : value,
+  )
   @IsString({ message: 'Bank name is required' })
   @MinLength(2, { message: 'Bank name is required' })
-  @Matches(/^[A-Za-z. ]+$/, {
+  @Matches(/^[A-Z. ]+$/, {
     message: 'Bank name may only contain letters, dots, and spaces',
   })
   bankName!: string;

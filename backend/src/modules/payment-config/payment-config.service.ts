@@ -18,37 +18,63 @@ export class PaymentConfigService implements OnModuleInit {
 
   async onModuleInit() {
     const count = await this.configModel.countDocuments().exec();
-    if (count > 0) return;
-
-    await this.configModel.insertMany([
-      {
-        method: PaymentMethod.UPI,
-        currency: Currency.INR,
-        label: 'Platform UPI',
-        details: { upiId: 'platform@upi', displayName: 'P2P Platform' },
-        instructions: 'Send payment to the UPI ID and submit UTR',
-      },
-      {
-        method: PaymentMethod.BANK,
-        currency: Currency.INR,
-        label: 'Platform Bank Account',
-        details: {
-          accountNumber: '0000000000',
-          ifscCode: 'SBIN0000000',
-          accountHolderName: 'P2P Platform Pvt Ltd',
-          bankName: 'State Bank of India',
+    if (count === 0) {
+      await this.configModel.insertMany([
+        {
+          method: PaymentMethod.UPI,
+          currency: Currency.INR,
+          label: 'Platform UPI',
+          details: { upiId: 'platform@upi', displayName: 'P2P Platform' },
+          instructions: 'Send payment to the UPI ID and submit UTR',
         },
-        instructions: 'Transfer to bank account and submit UTR',
-      },
-      {
-        method: PaymentMethod.USDT,
-        currency: Currency.USDT,
-        label: 'Platform USDT Wallet',
-        details: { walletAddress: 'TXxx...platform', network: 'TRC20' },
-        instructions: 'Send USDT to platform wallet and submit tx hash',
-      },
-    ]);
-    this.logger.log('Default payment configs seeded');
+        {
+          method: PaymentMethod.BANK,
+          currency: Currency.INR,
+          label: 'Platform Bank Account',
+          details: {
+            accountNumber: '0000000000',
+            ifscCode: 'SBIN0000000',
+            accountHolderName: 'P2P Platform Pvt Ltd',
+            bankName: 'State Bank of India',
+          },
+          instructions: 'Transfer to bank account and submit UTR',
+        },
+        {
+          method: PaymentMethod.USDT,
+          currency: Currency.USDT,
+          label: 'Platform USDT Wallet',
+          details: { walletAddress: 'TXxx...platform', network: 'TRC20' },
+          instructions: 'Send USDT to platform wallet and submit tx hash',
+        },
+        {
+          method: PaymentMethod.CDM,
+          currency: Currency.INR,
+          label: 'Classic CDM deposit',
+          details: { type: 'cdm' },
+          instructions: 'Cash CDM at bank; submit bank name and amount for verification',
+        },
+      ]);
+      this.logger.log('Default payment configs seeded');
+    } else {
+      await this.ensureCdmConfig();
+    }
+  }
+
+  /** Existing installs may lack CDM row — upsert so admin UI / findByMethod stay consistent. */
+  private async ensureCdmConfig() {
+    const existing = await this.configModel
+      .findOne({ method: PaymentMethod.CDM, currency: Currency.INR })
+      .exec();
+    if (existing) return;
+    await this.configModel.create({
+      method: PaymentMethod.CDM,
+      currency: Currency.INR,
+      label: 'Classic CDM deposit',
+      details: { type: 'cdm' },
+      instructions: 'Cash CDM at bank; submit bank name and amount for verification',
+    });
+    await this.redis.del('payment-configs:active');
+    this.logger.log('CDM payment config added');
   }
 
   async create(dto: CreatePaymentConfigDto) {
