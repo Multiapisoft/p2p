@@ -437,8 +437,15 @@ export function WithdrawalsPage() {
   const displayCurrency = balance?.currency || 'INR';
   const walletIsUsdt = (displayCurrency || '').toUpperCase() === 'USDT';
   const usdtInrRate = balance?.usdtInrRate ?? 90;
-  /** UPI/Bank: enter INR to receive; USDT method or INR wallet: enter wallet currency */
+  /** UPI/Bank/CDM from USDT wallet: enter INR to receive. USDT method: always enter USDT. */
   const amountIsInrPayout = walletIsUsdt && method !== 'usdt';
+  const amountCurrency = method === 'usdt' ? 'USDT' : amountIsInrPayout ? 'INR' : displayCurrency;
+  const amountFieldLabel =
+    method === 'usdt'
+      ? 'Amount (USDT)'
+      : amountIsInrPayout
+        ? 'Amount (INR to receive)'
+        : `Amount (${displayCurrency})`;
   const payRemaining = balance?.p2pPayRemainingInr;
   const remainingUsdtMax =
     typeof payRemaining === 'number'
@@ -750,7 +757,7 @@ export function WithdrawalsPage() {
             )}
 
             <Input
-              label={amountIsInrPayout ? 'Amount (INR to receive)' : `Amount (${displayCurrency})`}
+              label={amountFieldLabel}
               type="number"
               min={minWithdrawal}
               max={amountMax}
@@ -1395,7 +1402,7 @@ export function WithdrawalsPage() {
                 <dd className="font-semibold">
                   {formatCurrency(
                     pendingPayload.amount,
-                    amountIsInrPayout ? 'INR' : displayCurrency,
+                    amountCurrency,
                   )}
                 </dd>
               </div>
