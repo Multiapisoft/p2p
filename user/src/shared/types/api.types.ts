@@ -76,8 +76,10 @@ export interface WalletBalance {
   currency?: string;
   lockedBalance?: number;
   balance?: number;
-  /** INR per 1 USDT (config) */
+  /** Effective buy rate (INR per 1 USDT) — business override when set, else platform. */
   usdtInrRate?: number;
+  usdtBuyInrRate?: number;
+  usdtSellInrRate?: number;
   /** Approx INR you can withdraw via UPI/Bank when wallet is USDT */
   approxInrAvailable?: number;
   /** Business pay-limit remaining (INR). Linked users cannot withdraw above this. */

@@ -120,9 +120,12 @@ export class WithdrawalService {
     }
 
     const isUsdtMethod = dto.method === PaymentMethod.USDT;
+    const businessRates = businessId
+      ? await this.businessService.getUsdtRates(businessId)
+      : null;
     if (businessId && !isInvestor) {
       const needInr = isUsdtMethod
-        ? this.exchangeRateService.usdtToInr(dto.amount)
+        ? this.exchangeRateService.usdtToInr(dto.amount, businessRates)
         : dto.amount;
       await this.businessService.assertP2pPayAmountAllowed(businessId, needInr);
     }
@@ -139,12 +142,12 @@ export class WithdrawalService {
 
     // Investor points are INR — USDT method converts INR → USDT open request, locks INR.
     if (isInvestor && isUsdtMethod) {
-      exchangeRate = this.exchangeRateService.getUsdtInrRate();
+      exchangeRate = this.exchangeRateService.resolveUsdtInrRate('buy', businessRates);
       sourceCurrency = Currency.INR;
       sourceAmount = dto.amount;
       lockAmount = dto.amount;
       currency = Currency.USDT;
-      payoutAmount = this.exchangeRateService.inrToUsdt(dto.amount);
+      payoutAmount = this.exchangeRateService.inrToUsdt(dto.amount, businessRates);
       if (payoutAmount <= 0) {
         throw new BadRequestException('Amount too small for USDT conversion');
       }
@@ -168,9 +171,15 @@ export class WithdrawalService {
 
           let canDebitPartner = false;
           if (partnerCurrency === 'USDT' && !isUsdtMethod) {
-            exchangeRate = this.exchangeRateService.getUsdtInrRate();
+            exchangeRate = this.exchangeRateService.resolveUsdtInrRate(
+              'buy',
+              businessRates,
+            );
             sourceCurrency = Currency.USDT;
-            sourceAmount = this.exchangeRateService.inrToUsdt(dto.amount);
+            sourceAmount = this.exchangeRateService.inrToUsdt(
+              dto.amount,
+              businessRates,
+            );
             partnerDebitAmount = sourceAmount;
             currency = Currency.INR;
             payoutAmount = dto.amount;

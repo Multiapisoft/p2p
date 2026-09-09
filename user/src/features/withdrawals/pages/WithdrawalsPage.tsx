@@ -440,7 +440,7 @@ export function WithdrawalsPage() {
 
   const displayCurrency = balance?.currency || 'INR';
   const walletIsUsdt = (displayCurrency || '').toUpperCase() === 'USDT';
-  const usdtInrRate = balance?.usdtInrRate ?? 90;
+  const usdtInrRate = balance?.usdtBuyInrRate ?? balance?.usdtInrRate ?? 90;
   /** Match backend ExchangeRateService.inrToUsdt (buy/default rate, ceil 6 dp). */
   const inrToUsdt = (inrAmount: number) =>
     Math.ceil((inrAmount / usdtInrRate) * 1e6) / 1e6;
@@ -832,7 +832,7 @@ export function WithdrawalsPage() {
                 <span className="font-bold">{formatCurrency(usdtFromInr, 'USDT')}</span>
                 <span className="mt-0.5 block text-xs opacity-90">
                   ₹{enteredInr.toLocaleString('en-IN')} ÷ {usdtInrRate} ={' '}
-                  {formatCurrency(usdtFromInr, 'USDT')}
+                  {usdtFromInr.toLocaleString('en-IN', { maximumFractionDigits: 6 })} USDT
                 </span>
               </p>
             )}

@@ -8,10 +8,10 @@ export function cn(...inputs: ClassValue[]) {
 export function formatCurrency(amount: number, currency = 'INR') {
   const cur = (currency || 'INR').toUpperCase();
   if (cur === 'USDT') {
-    return `₮${Number(amount).toLocaleString('en-IN', {
+    return `${Number(amount).toLocaleString('en-IN', {
       maximumFractionDigits: 6,
       minimumFractionDigits: 0,
-    })}`;
+    })} USDT`;
   }
   return new Intl.NumberFormat('en-IN', {
     style: 'currency',

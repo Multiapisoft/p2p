@@ -86,7 +86,8 @@ export class WalletController {
 
   @Get('balance')
   async getBalance(@CurrentUser() user: AuthenticatedUser) {
-    const partner = await this.tryPartnerBalance(user.userId);
+    const rates = await this.resolveUserUsdtRates(user.userId);
+    const partner = await this.tryPartnerBalance(user.userId, rates);
     if (partner) return this.withP2pPayRemaining(user.userId, partner);
 
     const balance = await this.walletService.getAvailableBalance(user.userId);
@@ -95,8 +96,33 @@ export class WalletController {
       availableBalance: balance,
       redeemableAmount: redeemable,
       currency: 'INR',
-      usdtInrRate: this.exchangeRateService.getUsdtInrRate(),
+      /** Buy rate — used for INR → USDT withdrawal conversion. */
+      usdtInrRate: rates.buy,
+      usdtBuyInrRate: rates.buy,
+      usdtSellInrRate: rates.sell,
     });
+  }
+
+  private async resolveUserUsdtRates(userId: string): Promise<{
+    buy: number;
+    sell: number;
+    businessRates: { usdtBuyInrRate?: number | null; usdtSellInrRate?: number | null } | null;
+  }> {
+    try {
+      const doc = await this.usersRepo.findById(userId);
+      const bizId = await this.businessService.findBusinessIdForUser(doc);
+      const businessRates = bizId
+        ? await this.businessService.getUsdtRates(bizId)
+        : null;
+      return {
+        buy: this.exchangeRateService.resolveUsdtInrRate('buy', businessRates),
+        sell: this.exchangeRateService.resolveUsdtInrRate('sell', businessRates),
+        businessRates,
+      };
+    } catch {
+      const platform = this.exchangeRateService.getUsdtInrRate();
+      return { buy: platform, sell: platform, businessRates: null };
+    }
   }
 
   private async withP2pPayRemaining<T extends object>(userId: string, payload: T) {
@@ -111,7 +137,14 @@ export class WalletController {
     }
   }
 
-  private async tryPartnerBalance(userId: string) {
+  private async tryPartnerBalance(
+    userId: string,
+    rates: {
+      buy: number;
+      sell: number;
+      businessRates: { usdtBuyInrRate?: number | null; usdtSellInrRate?: number | null } | null;
+    },
+  ) {
     try {
       const doc = await this.usersRepo.findById(userId);
       if (!doc?.referredByBusiness) return null;
@@ -126,11 +159,13 @@ export class WalletController {
         userId: partnerUserIdFromExternalRef(doc.externalRef),
       });
 
-      const usdtInrRate = this.exchangeRateService.getUsdtInrRate();
       const currency = (partnerBalance.currency || 'INR').toUpperCase();
       const approxInr =
         currency === 'USDT'
-          ? this.exchangeRateService.usdtToInr(partnerBalance.availableBalance)
+          ? this.exchangeRateService.usdtToInr(
+              partnerBalance.availableBalance,
+              rates.businessRates,
+            )
           : undefined;
 
       return {
@@ -140,7 +175,9 @@ export class WalletController {
         currency,
         lockedBalance: partnerBalance.lockedBalance,
         balance: partnerBalance.balance,
-        usdtInrRate,
+        usdtInrRate: rates.buy,
+        usdtBuyInrRate: rates.buy,
+        usdtSellInrRate: rates.sell,
         approxInrAvailable: approxInr,
       };
     } catch (err) {
