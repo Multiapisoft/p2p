@@ -160,10 +160,16 @@ export class DepositService {
 
     const referenceId = `DEP-${Date.now()}-${uuidv4().slice(0, 8).toUpperCase()}`;
 
+    // Float lock is only for partner/integration deposits (pre-funded business wallet).
+    // Classic CDM / panel deposits credit the user after verify — do not require owner float.
     let businessFloatLock: Record<string, unknown> | undefined;
-    if (businessId) {
+    const needsFloatLock =
+      !!businessId &&
+      dto.method !== PaymentMethod.CDM &&
+      (!!dto.integrationToken || !!businessFromApi);
+    if (needsFloatLock) {
       const floatInfo = await this.businessFloatService.lockFloatForDeposit(
-        businessId,
+        businessId!,
         dto.amount,
         currency,
       );
