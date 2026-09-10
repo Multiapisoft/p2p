@@ -69,10 +69,6 @@ export function ProfilePage() {
   const [userPhone, setUserPhone] = useState('');
   const [depositMethods, setDepositMethods] = useState<PaymentMethod[]>([]);
   const [withdrawalMethods, setWithdrawalMethods] = useState<PaymentMethod[]>([]);
-  const [minPartialPayInr, setMinPartialPayInr] = useState('');
-  const [allowPartialPay, setAllowPartialPay] = useState(true);
-  const [usdtBuyInrRate, setUsdtBuyInrRate] = useState('');
-  const [usdtSellInrRate, setUsdtSellInrRate] = useState('');
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -90,22 +86,6 @@ export function ProfilePage() {
       );
       setWithdrawalMethods(
         defaultMethods(business.allowedWithdrawalMethods, business.allowedPaymentMethods),
-      );
-      setMinPartialPayInr(
-        business.minPartialPayInr && business.minPartialPayInr > 0
-          ? String(business.minPartialPayInr)
-          : '',
-      );
-      setAllowPartialPay(business.allowPartialPay !== false);
-      setUsdtBuyInrRate(
-        business.usdtBuyInrRate && business.usdtBuyInrRate > 0
-          ? String(business.usdtBuyInrRate)
-          : '',
-      );
-      setUsdtSellInrRate(
-        business.usdtSellInrRate && business.usdtSellInrRate > 0
-          ? String(business.usdtSellInrRate)
-          : '',
       );
     }
   }, [business]);
@@ -128,18 +108,6 @@ export function ProfilePage() {
         webhookUrl: webhookUrl || undefined,
         allowedDepositMethods: depositMethods,
         allowedWithdrawalMethods: withdrawalMethods,
-        allowPartialPay,
-        minPartialPayInr: allowPartialPay
-          ? minPartialPayInr.trim()
-            ? Math.max(0, Number(minPartialPayInr))
-            : 0
-          : 0,
-        usdtBuyInrRate: usdtBuyInrRate.trim()
-          ? Math.max(0, Number(usdtBuyInrRate))
-          : 0,
-        usdtSellInrRate: usdtSellInrRate.trim()
-          ? Math.max(0, Number(usdtSellInrRate))
-          : 0,
       });
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['business-me'] }),
@@ -328,67 +296,47 @@ export function ProfilePage() {
               </div>
             </div>
             <div className="space-y-3 rounded-xl border border-outline-variant bg-surface-container-low/40 p-3">
-              <label className="flex items-start gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  className="mt-0.5"
-                  checked={allowPartialPay}
-                  onChange={(e) => setAllowPartialPay(e.target.checked)}
-                />
-                <span>
-                  <span className="font-semibold">Allow partial / split pay</span>
-                  <span className="mt-0.5 block text-xs text-on-surface-variant">
-                    When on, payers can pay your users&apos; withdrawals in parts (min amount
-                    below). When off, only full open amount is accepted.
-                  </span>
-                </span>
-              </label>
-              <div>
-                <Input
-                  label="Minimum split pay (₹)"
-                  type="number"
-                  min={0}
-                  step={100}
-                  value={minPartialPayInr}
-                  onChange={(e) => setMinPartialPayInr(e.target.value)}
-                  placeholder="5000 (platform default)"
-                  disabled={!allowPartialPay}
-                />
-                <p className="mt-1 text-xs text-on-surface-variant">
-                  Smallest partial amount payers may send on your withdrawals. Leave empty for
-                  platform default (₹5,000). Full remaining can always be paid.
-                </p>
-              </div>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div>
-                <Input
-                  label="USDT buy rate (INR / USDT)"
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  value={usdtBuyInrRate}
-                  onChange={(e) => setUsdtBuyInrRate(e.target.value)}
-                  placeholder="Platform default"
-                />
-                <p className="mt-1 text-xs text-on-surface-variant">
-                  Used for INR → USDT. Empty = platform default.
-                </p>
-              </div>
-              <div>
-                <Input
-                  label="USDT sell rate (INR / USDT)"
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  value={usdtSellInrRate}
-                  onChange={(e) => setUsdtSellInrRate(e.target.value)}
-                  placeholder="Platform default"
-                />
-                <p className="mt-1 text-xs text-on-surface-variant">
-                  Used for USDT → INR value. Empty = platform default.
-                </p>
-              </div>
+              <p className="text-sm font-semibold">Payout rules (admin-managed)</p>
+              <p className="text-xs text-on-surface-variant">
+                Split pay and USDT rates are set by the platform admin for your business. Contact
+                support if you need a change.
+              </p>
+              <dl className="grid gap-2 text-sm sm:grid-cols-2">
+                <div>
+                  <dt className="text-xs text-on-surface-variant">Partial / split pay</dt>
+                  <dd className="font-medium">
+                    {business?.allowPartialPay === false
+                      ? 'Disabled'
+                      : business?.allowPartialPay === true
+                        ? 'Enabled'
+                        : 'Platform default'}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-on-surface-variant">Minimum split pay</dt>
+                  <dd className="font-medium">
+                    {business?.minPartialPayInr && business.minPartialPayInr > 0
+                      ? `₹${business.minPartialPayInr.toLocaleString('en-IN')}`
+                      : 'Platform default (₹5,000)'}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-on-surface-variant">USDT buy rate</dt>
+                  <dd className="font-medium">
+                    {business?.usdtBuyInrRate && business.usdtBuyInrRate > 0
+                      ? `₹${business.usdtBuyInrRate} / USDT`
+                      : 'Platform default'}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-on-surface-variant">USDT sell rate</dt>
+                  <dd className="font-medium">
+                    {business?.usdtSellInrRate && business.usdtSellInrRate > 0
+                      ? `₹${business.usdtSellInrRate} / USDT`
+                      : 'Platform default'}
+                  </dd>
+                </div>
+              </dl>
             </div>
           </div>
           <Button type="submit" loading={updateBusiness.isPending}>

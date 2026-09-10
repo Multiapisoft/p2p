@@ -249,15 +249,16 @@ export class BusinessService {
       withdrawalsEnabled: _w,
       b2bMatchingEnabled: _b,
       allowMobileNumberUpi: _m,
-      allowPartialPay,
+      // Admin-only: rates + split rules cannot be changed by business owner.
+      allowPartialPay: _allowPartialPay,
+      minPartialPayInr: _minPartialPayInr,
+      usdtBuyInrRate: _usdtBuyInrRate,
+      usdtSellInrRate: _usdtSellInrRate,
       allowedDepositMethods,
       allowedWithdrawalMethods,
       ...rest
     } = dto;
     this.assignDefined(business, rest);
-    if (typeof allowPartialPay === 'boolean') {
-      business.allowPartialPay = allowPartialPay;
-    }
     if (integrationUrls) {
       business.integrationUrls = { ...(business.integrationUrls || {}), ...integrationUrls };
       business.markModified('integrationUrls');

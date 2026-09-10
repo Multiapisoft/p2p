@@ -335,12 +335,16 @@ export class WithdrawalService {
       }
     }
     const isUsdtMethod = dto.method === PaymentMethod.USDT;
+    const businessRates = await this.businessService.getUsdtRates(businessId);
     const needInr = isUsdtMethod
-      ? this.exchangeRateService.usdtToInr(dto.amount)
+      ? this.exchangeRateService.usdtToInr(dto.amount, businessRates)
       : dto.amount;
     await this.businessService.assertP2pPayAmountAllowed(businessId, needInr);
     const currency = isUsdtMethod ? Currency.USDT : Currency.INR;
     const lockAmount = dto.amount;
+    const usdtExchangeRate = isUsdtMethod
+      ? this.exchangeRateService.resolveUsdtInrRate('buy', businessRates)
+      : undefined;
     const wallet = await this.walletService.getOrCreate(walletOwnerId, currency, businessId);
     const available = wallet.balance - wallet.lockedBalance;
     let p2pAdvanceAmount = 0;
@@ -376,6 +380,9 @@ export class WithdrawalService {
         bankDetails: dto.bankDetails,
         usdtDetails: dto.usdtDetails,
         cdmDetails: dto.cdmDetails,
+        // Snapshot rate for investor INR matching (do not set sourceCurrency=INR —
+        // business locks a USDT wallet, not INR).
+        exchangeRate: usdtExchangeRate,
         priority: wantHighlight,
         priorityAt: wantHighlight ? new Date() : undefined,
         p2pAdvanceCredited: p2pAdvanceAmount > 0,
@@ -425,6 +432,9 @@ export class WithdrawalService {
       ? 1
       : await this.platformSettingsService.getMinTransactionAmount();
     const currency = isUsdtMethod ? Currency.USDT : Currency.INR;
+    const usdtExchangeRate = isUsdtMethod
+      ? this.exchangeRateService.resolveUsdtInrRate('buy')
+      : undefined;
     const { admin, wallet, availableBalance } =
       await this.platformCommissionService.getPlatformWallet(currency);
 
@@ -460,6 +470,7 @@ export class WithdrawalService {
       bankDetails: dto.bankDetails,
       usdtDetails: dto.usdtDetails,
       cdmDetails: dto.cdmDetails,
+      exchangeRate: usdtExchangeRate,
     });
 
     await this.transactionService.record({

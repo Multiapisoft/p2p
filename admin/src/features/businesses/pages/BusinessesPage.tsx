@@ -719,7 +719,7 @@ export function BusinessesPage() {
                   USDT buy rate (INR / USDT)
                 </label>
                 <p className="text-xs text-on-surface-variant">
-                  Empty = platform default. Used for INR → USDT conversion.
+                  Admin-only. Empty = platform default. Used for INR → USDT conversion.
                 </p>
                 <Input
                   id="usdt-buy-rate"
@@ -736,7 +736,7 @@ export function BusinessesPage() {
                   USDT sell rate (INR / USDT)
                 </label>
                 <p className="text-xs text-on-surface-variant">
-                  Empty = platform default. Used for USDT → INR value.
+                  Admin-only. Empty = platform default. Used for USDT → INR value.
                 </p>
                 <Input
                   id="usdt-sell-rate"
@@ -850,7 +850,8 @@ export function BusinessesPage() {
                 <option value="off">Disabled for this business</option>
               </select>
               <p className="text-xs text-on-surface-variant">
-                Controls whether payers can split-pay this business&apos;s user withdrawals.
+                Admin-only. Controls whether payers can split-pay this business&apos;s user
+                withdrawals.
               </p>
             </div>
 
@@ -881,7 +882,8 @@ export function BusinessesPage() {
                 disabled={txnFlagsTarget.allowPartialPay === false}
               />
               <p className="text-xs text-on-surface-variant">
-                Empty / 0 = platform default ₹5,000. Applies only when partial pay is allowed.
+                Admin-only. Empty / 0 = platform default ₹5,000. Applies only when partial pay is
+                allowed.
               </p>
             </div>
 

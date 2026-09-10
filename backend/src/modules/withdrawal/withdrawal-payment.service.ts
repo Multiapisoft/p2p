@@ -564,7 +564,9 @@ export class WithdrawalPaymentService {
       : userBusinessDepositMethods;
 
     if (payerDepositMethods && opts.method && opts.method !== 'all') {
-      if (!payerDepositMethods.includes(opts.method)) {
+      const investorUsdtOverride =
+        isInvestor && opts.method === PaymentMethod.USDT;
+      if (!payerDepositMethods.includes(opts.method) && !investorUsdtOverride) {
         return {
           items: [],
           total: 0,
@@ -592,7 +594,17 @@ export class WithdrawalPaymentService {
       }
       and.push({ method: opts.method as PaymentMethod });
     } else if (payerDepositMethods?.length) {
-      and.push({ method: { $in: payerDepositMethods } });
+      // Investors always see USDT in the sequential queue (pay or skip), even if
+      // platform deposit-methods list omitted it.
+      const methodsForQuery = isInvestor
+        ? Array.from(
+            new Set([
+              ...payerDepositMethods,
+              PaymentMethod.USDT,
+            ]),
+          )
+        : payerDepositMethods;
+      and.push({ method: { $in: methodsForQuery } });
     } else if (opts.method && opts.method !== 'all') {
       and.push({ method: opts.method as PaymentMethod });
     }
@@ -684,8 +696,14 @@ export class WithdrawalPaymentService {
         };
         and.push({
           $expr: isInvestor
-            ? // Tiny INR slack absorbs USDT↔rate float so WDs are not hidden.
-              { $lte: [remainingInrExpr, { $add: [matchAmount, 0.05] }] }
+            ? {
+                // Full-pay INR WDs that fit the plan, OR any open USDT (pay if it
+                // fits / skip if not) so USDT is never silently dropped from queue.
+                $or: [
+                  { $lte: [remainingInrExpr, { $add: [matchAmount, 0.05] }] },
+                  isUsdtDoc,
+                ],
+              }
             : {
                 $or: [
                   { $lte: [remainingExpr, matchAmount] },
@@ -930,42 +948,53 @@ export class WithdrawalPaymentService {
     let itemsWithCreditOut = itemsWithCredit;
     let noMatchReason: 'tail_no_wd' | 'no_open_wd' | null = null;
     if (investorSequential) {
-      const payable = itemsWithCredit.filter((i) => (i.maxPayable ?? 0) > 0);
-      // Prefer payable; if only USDT survived with 0 max due to rate floor, still
-      // surface it so the investor can skip to the next request.
-      const next =
-        payable[0] ??
-        itemsWithCredit.find(
-          (i) =>
-            i.remainingAmount > 0 &&
-            ((i.currency || '').toUpperCase() === Currency.USDT ||
-              i.method === PaymentMethod.USDT),
-        ) ??
-        null;
-      if (next && limitView) {
-        const payIsUsdt =
-          (next.currency || '').toUpperCase() === Currency.USDT ||
-          next.method === PaymentMethod.USDT;
-        let requiredPayAmount: number;
-        if (payIsUsdt) {
-          const remInr = this.openAmountInr(next, next.remainingAmount);
-          // Full USDT open only when its INR (source) fits the plan; otherwise skip-only.
-          requiredPayAmount =
-            remInr > 0 && remInr <= limitView.remaining + 0.05
-              ? next.remainingAmount
-              : 0;
-        } else {
-          requiredPayAmount = Math.min(next.remainingAmount, limitView.remaining);
+      // FIFO queue: show the next open WD. USDT always surfaces (pay if plan covers, else skip).
+      // Oversized non-USDT items are skipped in selection so they don't block the queue.
+      const openQueue = itemsWithCredit.filter((i) => (i.remainingAmount ?? 0) > 0);
+      const pickRequired = (
+        item: (typeof itemsWithCredit)[number],
+        remainingPlan: number,
+      ): { required: number; isUsdt: boolean } => {
+        const isUsdt =
+          (item.currency || '').toUpperCase() === Currency.USDT ||
+          item.method === PaymentMethod.USDT;
+        if (isUsdt) {
+          const remInr = this.openAmountInr(item, item.remainingAmount);
+          const required =
+            remInr > 0 && remInr <= remainingPlan + 0.05 ? item.remainingAmount : 0;
+          return { required, isUsdt: true };
         }
+        const required =
+          item.remainingAmount <= remainingPlan + 0.05
+            ? Math.min(item.remainingAmount, remainingPlan)
+            : 0;
+        return { required, isUsdt: false };
+      };
+
+      let chosen: (typeof itemsWithCredit)[number] | null = null;
+      let chosenMeta: { required: number; isUsdt: boolean } | null = null;
+      if (limitView) {
+        for (const item of openQueue) {
+          const meta = pickRequired(item, limitView.remaining);
+          // Always stop on USDT (pay or skip). For INR, only stop when payable.
+          if (meta.isUsdt || meta.required > 0) {
+            chosen = item;
+            chosenMeta = meta;
+            break;
+          }
+        }
+      }
+
+      if (chosen && chosenMeta && limitView) {
         itemsWithCreditOut = [
           {
-            ...next,
-            requiredPayAmount,
-            maxPayable: requiredPayAmount,
-            canSkipUsdt: payIsUsdt,
+            ...chosen,
+            requiredPayAmount: chosenMeta.required,
+            maxPayable: chosenMeta.required,
+            canSkipUsdt: chosenMeta.isUsdt,
           } as unknown as (typeof itemsWithCredit)[number],
         ];
-        total = Math.max(payable.length, itemsWithCreditOut.length);
+        total = openQueue.length;
       } else {
         itemsWithCreditOut = [];
         const tail =
