@@ -10,7 +10,15 @@ import { Input } from '@/shared/components/ui/Input';
 import { Textarea } from '@/shared/components/ui/Textarea';
 import { LoadingScreen } from '@/shared/components/ui/Icon';
 import { apiErrorMessage, formatCurrency } from '@/shared/lib/utils';
-import { accountNumberError, sanitizeAccountNumber } from '@/shared/lib/validation';
+import {
+  accountNumberError,
+  bankNameError,
+  ifscError,
+  personNameError,
+  sanitizeAccountNumber,
+  sanitizeBankName,
+  sanitizePersonName,
+} from '@/shared/lib/validation';
 import type { CreateRedemptionPayload, PaymentMethod } from '@/shared/types/api.types';
 
 const METHODS: { value: PaymentMethod; label: string }[] = [
@@ -63,7 +71,7 @@ export function RedeemPage() {
     setSuccess('');
     const num = Number(amount);
     if (!num || num < 1) {
-      setError('Enter a valid amount (minimum ₹1)');
+      setError('Enter a valid amount (minimum ?1)');
       return;
     }
     if (num > maxAmount) {
@@ -84,15 +92,25 @@ export function RedeemPage() {
         setError(accErr);
         return;
       }
-      if (!ifscCode.trim() || !accountHolderName.trim()) {
-        setError('Account number, IFSC and holder name required');
+      const holderErr = personNameError(accountHolderName);
+      if (holderErr) {
+        setError(holderErr);
+        return;
+      }
+      const bankErr = bankNameError(bankName);
+      if (bankErr) {
+        setError(bankErr);
+        return;
+      }
+      if (!ifscCode.trim()) {
+        setError('IFSC is required');
         return;
       }
       payload.bankDetails = {
         accountNumber: accountNumber.trim(),
         ifscCode: ifscCode.trim().toUpperCase(),
         accountHolderName: accountHolderName.trim(),
-        bankName: bankName.trim() || undefined,
+        bankName: bankName.trim(),
       };
     } else {
       if (!walletAddress.trim()) {
@@ -178,7 +196,7 @@ export function RedeemPage() {
               <Input
                 label="Name (optional)"
                 value={payerName}
-                onChange={(e) => setPayerName(e.target.value)}
+                onChange={(e) => setPayerName(sanitizePersonName(e.target.value))}
               />
             </>
           )}
@@ -202,13 +220,13 @@ export function RedeemPage() {
               <Input
                 label="Name of Account Holder *"
                 value={accountHolderName}
-                onChange={(e) => setAccountHolderName(e.target.value)}
+                onChange={(e) => setAccountHolderName(sanitizePersonName(e.target.value))}
                 required
               />
               <Input
                 label="Bank name (optional)"
                 value={bankName}
-                onChange={(e) => setBankName(e.target.value)}
+                onChange={(e) => setBankName(sanitizeBankName(e.target.value))}
               />
             </>
           )}
@@ -234,7 +252,7 @@ export function RedeemPage() {
             label="Note (optional)"
             value={note}
             onChange={(e) => setNote(e.target.value)}
-            placeholder="Any extra payout instructions…"
+            placeholder="Any extra payout instructions�"
           />
 
           {error && (

@@ -26,6 +26,7 @@ import { TransactionStatus } from '../../common/enums/transaction-status.enum';
 import { CommissionTarget } from '../../common/enums/commission-target.enum';
 import { Currency, LedgerType } from '../../common/enums/currency.enum';
 import { PaymentMethod } from '../../common/enums/payment-method.enum';
+import { assertValidWithdrawalDestination } from '../withdrawal/utils/withdrawal-destination.validation';
 import {
   listSortMap,
   normalizeListOpts,
@@ -88,11 +89,23 @@ export class InvestorService {
       case PaymentMethod.UPI:
         if (!dto.upiDetails?.upiId) throw new BadRequestException('UPI ID required');
         break;
-      case PaymentMethod.BANK:
-        if (!dto.bankDetails?.accountNumber || !dto.bankDetails?.ifscCode) {
-          throw new BadRequestException('Bank account and IFSC required');
+      case PaymentMethod.BANK: {
+        if (
+          !dto.bankDetails?.accountNumber ||
+          !dto.bankDetails?.ifscCode ||
+          !dto.bankDetails?.accountHolderName ||
+          !dto.bankDetails?.bankName
+        ) {
+          throw new BadRequestException(
+            'Bank account, IFSC, account holder name and bank name are required',
+          );
         }
+        assertValidWithdrawalDestination({
+          method: PaymentMethod.BANK,
+          bankDetails: dto.bankDetails,
+        });
         break;
+      }
       case PaymentMethod.USDT:
         if (!dto.usdtDetails?.walletAddress) {
           throw new BadRequestException('USDT wallet address required');

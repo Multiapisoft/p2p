@@ -68,8 +68,9 @@ export interface AvailableWithdrawal {
   } | null;
   /** Investor sequential mode: exact amount required for this payment. */
   requiredPayAmount?: number;
-  /** Investor sequential mode: this item is USDT and can be skipped. */
+  /** Investor sequential mode: this item can be skipped (USDT or >1.3× remaining). */
   canSkipUsdt?: boolean;
+  canSkip?: boolean;
 }
 
 export interface InvestorLimitLot {

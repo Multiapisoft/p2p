@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -14,6 +14,8 @@ import {
   ifscError,
   personNameError,
   sanitizeAccountNumber,
+  sanitizeBankName,
+  sanitizePersonName,
   upiIdError,
 } from '@/shared/lib/validation';
 import { usePermissions } from '@/shared/hooks/usePermissions';
@@ -166,11 +168,11 @@ export function PlatformCommissionWithdrawForm({
       return;
     }
     if (method !== 'usdt' && num < minWithdrawal) {
-      setFormError(`Minimum withdrawal is ₹${minWithdrawal}`);
+      setFormError(`Minimum withdrawal is ?${minWithdrawal}`);
       return;
     }
     if (num > available) {
-      setFormError(`Amount exceeds available ₹${available}`);
+      setFormError(`Amount exceeds available ?${available}`);
       return;
     }
 
@@ -231,7 +233,7 @@ export function PlatformCommissionWithdrawForm({
           <div>
             <p className="text-sm font-semibold">Withdraw commission</p>
             <p className="mt-0.5 text-xs text-on-surface-variant">
-              Available {formatCurrency(available)} · listed for users/investors to pay
+              Available {formatCurrency(available)} � listed for users/investors to pay
             </p>
           </div>
           <Button
@@ -332,7 +334,7 @@ export function PlatformCommissionWithdrawForm({
               <Input
                 label="Name of Account Holder *"
                 value={payerName}
-                onChange={(e) => setPayerName(e.target.value)}
+                onChange={(e) => setPayerName(sanitizePersonName(e.target.value))}
                 required
               />
             </>
@@ -356,13 +358,13 @@ export function PlatformCommissionWithdrawForm({
               <Input
                 label="Name of Account Holder *"
                 value={accountHolderName}
-                onChange={(e) => setAccountHolderName(e.target.value)}
+                onChange={(e) => setAccountHolderName(sanitizePersonName(e.target.value))}
                 required
               />
               <Input
                 label="Bank name *"
                 value={bankName}
-                onChange={(e) => setBankName(e.target.value)}
+                onChange={(e) => setBankName(sanitizeBankName(e.target.value))}
                 required
               />
             </>

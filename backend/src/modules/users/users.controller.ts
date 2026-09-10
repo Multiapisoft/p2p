@@ -93,7 +93,7 @@ export class UsersController {
   @Patch('me/investor-plan')
   @Roles(UserRole.INVESTOR)
   setInvestorPlan(@CurrentUser() user: AuthenticatedUser, @Body() dto: SetInvestorPlanDto) {
-    return this.usersService.addInvestorLimit(user.userId, dto.planAmount);
+    return this.usersService.setInvestorPlan(user.userId, dto.planAmount);
   }
 
   @Get()

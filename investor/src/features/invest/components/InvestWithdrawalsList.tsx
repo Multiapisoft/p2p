@@ -205,11 +205,11 @@ function requiredPayFor(w: AvailableWithdrawal, limitRemaining: number) {
 }
 
 function isUsdtWithdrawal(w: AvailableWithdrawal) {
-  return (
-    !!w.canSkipUsdt ||
-    w.method === 'usdt' ||
-    (w.currency || '').toUpperCase() === 'USDT'
-  );
+  return w.method === 'usdt' || (w.currency || '').toUpperCase() === 'USDT';
+}
+
+function canSkipWithdrawal(w: AvailableWithdrawal) {
+  return !!(w.canSkip || w.canSkipUsdt || isUsdtWithdrawal(w));
 }
 
 export function InvestWithdrawalsList() {
@@ -262,6 +262,16 @@ export function InvestWithdrawalsList() {
   const addLimit = useMutation({
     mutationFn: (amount: number) => fulfillApi.addInvestorLimit(amount),
     onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['invest-withdrawals'] });
+      qc.invalidateQueries({ queryKey: ['portfolio'] });
+    },
+  });
+
+  const changePlan = useMutation({
+    mutationFn: (planAmount: number) => fulfillApi.setInvestorPlan(planAmount),
+    onSuccess: () => {
+      setFormError('');
+      closePay();
       qc.invalidateQueries({ queryKey: ['invest-withdrawals'] });
       qc.invalidateQueries({ queryKey: ['portfolio'] });
     },
@@ -337,7 +347,7 @@ export function InvestWithdrawalsList() {
       void qc.invalidateQueries({ queryKey: ['portfolio'] });
     },
     onError: (err: unknown) => {
-      setFormError(apiErrorMessage(err, 'Could not skip this USDT request'));
+      setFormError(apiErrorMessage(err, 'Could not skip this request'));
     },
   });
 
@@ -449,10 +459,15 @@ export function InvestWithdrawalsList() {
           <InvestorLimitPanel
             compact
             readOnly
+            allowChangePlan
             remaining={limitRemaining}
             added={limitAdded}
             lots={limitLots}
+            planAmounts={platformSettings?.investorPlanAmounts}
+            changePending={changePlan.isPending}
+            changeError={changePlan.error}
             onAdd={() => undefined}
+            onChangePlan={(amount) => changePlan.mutate(amount)}
           />
         </div>
       )}
@@ -588,7 +603,7 @@ export function InvestWithdrawalsList() {
                   >
                     Pay {formatCurrency(payDue, moneyCurrency(w))} now
                   </Button>
-                  {isUsdtWithdrawal(w) ? (
+                  {canSkipWithdrawal(w) ? (
                     <Button
                       className="w-full"
                       variant="outline"
@@ -599,7 +614,9 @@ export function InvestWithdrawalsList() {
                       loading={skipUsdt.isPending}
                       disabled={claimingId === w._id || skipUsdt.isPending}
                     >
-                      Skip this USDT request
+                      {isUsdtWithdrawal(w)
+                        ? 'Skip this USDT request'
+                        : 'Skip oversized request'}
                     </Button>
                   ) : null}
                   {formError && !target ? (
@@ -609,8 +626,8 @@ export function InvestWithdrawalsList() {
                   ) : null}
                   <p className="text-center text-[11px] text-on-surface-variant">
                     Amount is fixed. Complete this payment to see the next withdrawal.
-                    {isUsdtWithdrawal(w)
-                      ? ' Or skip USDT to take the next UPI/Bank request.'
+                    {canSkipWithdrawal(w)
+                      ? ' Or skip this request (USDT or above 1.3× your remaining limit) to continue.'
                       : ''}
                   </p>
                 </div>
@@ -646,7 +663,7 @@ export function InvestWithdrawalsList() {
         footer={
           target ? (
             <div className="flex w-full flex-col gap-2">
-              {isUsdtWithdrawal(target) ? (
+              {canSkipWithdrawal(target) ? (
                 <Button
                   type="button"
                   variant="outline"
@@ -655,7 +672,9 @@ export function InvestWithdrawalsList() {
                   disabled={submit.isPending || skipUsdt.isPending}
                   onClick={() => skipUsdt.mutate(target._id)}
                 >
-                  Skip this USDT request
+                  {isUsdtWithdrawal(target)
+                    ? 'Skip this USDT request'
+                    : 'Skip oversized request'}
                 </Button>
               ) : null}
               <Button

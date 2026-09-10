@@ -29,12 +29,14 @@ import {
   type ListQueryOpts,
 } from '../../common/dto/list-query.dto';
 import { isValidPhone } from '../../common/validators/contact.validators';
+import { escapeRegex } from '../withdrawal/utils/payment-ref-uniqueness.util';
 import {
   addInvestorLimitLot,
   consumeInvestorLimitLifo,
   investorLimitAdded,
   investorLimitLotsLifo,
   investorLimitRemaining,
+  replaceInvestorPlanLot,
   restoreInvestorLimitLifo,
   type InvestorLimitLot,
 } from './utils/investor-limit-lifo.util';
@@ -255,21 +257,32 @@ export class UsersService {
 
   async findByBusiness(businessId: string, opts: UserListOpts = {}) {
     const { page, limit, skip, search, status, sort } = normalizeListOpts(opts);
+    const bizOid = new Types.ObjectId(businessId);
     const and: Record<string, unknown>[] = [
-      { referredByBusiness: new Types.ObjectId(businessId) },
+      // Dual match — legacy rows may store referredByBusiness as string.
+      {
+        $or: [
+          { referredByBusiness: bizOid },
+          { referredByBusiness: businessId },
+        ],
+      },
     ];
 
     if (opts.role && opts.role !== 'all') and.push({ role: opts.role });
     if (status) and.push({ status });
     if (search) {
-      and.push({
-        $or: [
-          { email: { $regex: search, $options: 'i' } },
-          { name: { $regex: search, $options: 'i' } },
-          { externalRef: { $regex: search, $options: 'i' } },
-          { businessUserCode: { $regex: search, $options: 'i' } },
-        ],
-      });
+      const escaped = escapeRegex(search);
+      const searchOr: Record<string, unknown>[] = [
+        { email: { $regex: escaped, $options: 'i' } },
+        { name: { $regex: escaped, $options: 'i' } },
+        { phone: { $regex: escaped, $options: 'i' } },
+        { externalRef: { $regex: escaped, $options: 'i' } },
+        { businessUserCode: { $regex: escaped, $options: 'i' } },
+      ];
+      if (Types.ObjectId.isValid(search)) {
+        searchOr.push({ _id: new Types.ObjectId(search) });
+      }
+      and.push({ $or: searchOr });
     }
 
     const filter = { $and: and };
@@ -281,7 +294,7 @@ export class UsersService {
 
     const { items, total } = await this.usersRepo.findAll(filter, skip, limit, sortSpec);
     return {
-      items: items.map((u) => this.formatIntegrationUser(u, businessId)),
+      items: items.map((u) => this.formatIntegrationUser(u, businessId, { includePhone: true })),
       total,
       page,
       limit,
@@ -709,9 +722,41 @@ export class UsersService {
     return this.investorLimitSnapshotFromUser(updated);
   }
 
-  /** Legacy plan picker — stored as a single LIFO lot. */
+  /**
+   * Change investment plan: replace all limit lots with one new lot.
+   * Clears skipped oversized/USDT IDs so the queue refreshes for the new plan.
+   */
+  async replaceInvestorPlan(userId: string, planAmount: number) {
+    await this.usersRepo.invalidateCache(userId);
+    const user = await this.usersRepo.findById(userId);
+    if (!user) throw new NotFoundException('User not found');
+    if (user.role !== UserRole.INVESTOR) {
+      throw new ForbiddenException('Only investors can set an investment plan');
+    }
+    const rounded = Math.round(planAmount * 100) / 100;
+    if (rounded < 1) throw new BadRequestException('Plan amount must be at least 1');
+
+    const settings = await this.platformSettingsService.get();
+    const allowed = (settings.investorPlanAmounts || []).filter((n) => n > 0);
+    if (allowed.length && !allowed.some((n) => Math.round(n * 100) / 100 === rounded)) {
+      throw new BadRequestException(
+        `Choose a valid plan: ${allowed.map((n) => `₹${n}`).join(', ')}`,
+      );
+    }
+
+    const lots = replaceInvestorPlanLot(rounded);
+    const updated = await this.usersRepo.update(userId, {
+      investorLimitLots: lots,
+      investorPlanAmount: rounded,
+      investorPlanSelectedAt: new Date(),
+      skippedUsdtWithdrawalIds: [],
+    } as Partial<User>);
+    return this.investorLimitSnapshotFromUser(updated);
+  }
+
+  /** Plan picker — replaces the active plan (does not stack lots). */
   async setInvestorPlan(userId: string, planAmount: number) {
-    return this.addInvestorLimit(userId, planAmount);
+    return this.replaceInvestorPlan(userId, planAmount);
   }
 
   getInvestorLimitSnapshot(user: UserDocument) {
@@ -1013,9 +1058,15 @@ export class UsersService {
     return this.formatIntegrationUser(updated, businessId);
   }
 
-  private formatIntegrationUser(user: UserDocument, businessId: string) {
+  private formatIntegrationUser(
+    user: UserDocument,
+    businessId: string,
+    opts?: { includePhone?: boolean },
+  ) {
     const base = this.sanitize(user) as Record<string, unknown>;
-    delete base.phone;
+    if (!opts?.includePhone) {
+      delete base.phone;
+    }
     const userId = user._id.toString();
     const externalRef = base.externalRef as string | undefined;
     return {
@@ -1024,6 +1075,7 @@ export class UsersService {
       businessId,
       email: String(base.email),
       name: String(base.name),
+      phone: opts?.includePhone ? (base.phone as string | undefined) : undefined,
       externalRef,
       businessUserCode: base.businessUserCode as string | undefined,
       /** Partner platform user id (e.g. Bitfarming Mongo _id) parsed from externalRef */

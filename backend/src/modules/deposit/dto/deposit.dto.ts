@@ -42,11 +42,20 @@ export class BankDetailsDto {
   @IsString()
   ifscCode!: string;
 
-  @IsString()
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @IsString({ message: 'Account holder name is required' })
+  @MinLength(2, { message: 'Account holder name is required' })
+  @Matches(/^[A-Za-z. ]+$/, {
+    message: 'Account holder name may only contain letters, dots, and spaces',
+  })
   accountHolderName!: string;
 
   @IsOptional()
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   @IsString()
+  @Matches(/^[A-Za-z. ]+$/, {
+    message: 'Bank name may only contain letters, dots, and spaces',
+  })
   bankName?: string;
 
   @IsOptionalAppUtr()

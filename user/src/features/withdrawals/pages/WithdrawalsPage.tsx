@@ -1,4 +1,4 @@
-ï»¿'use client';
+'use client';
 
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -20,6 +20,8 @@ import {
   ifscError,
   personNameError,
   sanitizeAccountNumber,
+  sanitizeBankName,
+  sanitizePersonName,
   upiIdError,
 } from '@/shared/lib/validation';
 import { formatSecondsMmSs, decodeQrFromImageFile, parseUpiPayPayload } from '@/shared/lib/upi-qr';
@@ -109,7 +111,7 @@ function DestinationLine({ w }: { w: Withdrawal }) {
     const name = w.upiDetails.payerName?.trim();
     return (
       <p className="text-xs text-on-surface-variant">
-        {name ? `NAME ${name} Â· ` : ''}UPI {w.upiDetails.upiId}
+        {name ? `NAME ${name} · ` : ''}UPI {w.upiDetails.upiId}
       </p>
     );
   }
@@ -123,13 +125,13 @@ function DestinationLine({ w }: { w: Withdrawal }) {
       b?.ifscCode ? `IFSC ${b.ifscCode}` : null,
       b?.bankName ? `BANK ${b.bankName}` : null,
     ].filter(Boolean);
-    return <p className="text-xs text-on-surface-variant">{parts.join(' Â· ')}</p>;
+    return <p className="text-xs text-on-surface-variant">{parts.join(' · ')}</p>;
   }
   if (w.method === 'usdt' && w.usdtDetails?.walletAddress) {
     const addr = w.usdtDetails.walletAddress;
     return (
       <p className="break-all text-xs text-on-surface-variant">
-        USDT Â· {addr.slice(0, 10)}â€¦{addr.slice(-6)}
+        USDT · {addr.slice(0, 10)}…{addr.slice(-6)}
       </p>
     );
   }
@@ -447,7 +449,7 @@ export function WithdrawalsPage() {
   const isUsdtMethod = method === 'usdt';
   /**
    * Amount field is INR when creating:
-   * - method is USDT (INR in â†’ USDT out at rate), or
+   * - method is USDT (INR in ? USDT out at rate), or
    * - USDT wallet paying out to UPI/Bank/CDM.
    * While editing, amount stays as stored currency (read-only).
    */
@@ -495,7 +497,7 @@ export function WithdrawalsPage() {
       return;
     }
     if (amountIsInrEntry && numAmount < minWithdrawal) {
-      setFormError(`Minimum withdrawal is â‚¹${minWithdrawal}`);
+      setFormError(`Minimum withdrawal is ?${minWithdrawal}`);
       return;
     }
     if (!amountIsInrEntry && numAmount < 1) {
@@ -512,8 +514,8 @@ export function WithdrawalsPage() {
       if (numAmount > payRemaining) {
         setFormError(
           payRemaining < 1
-            ? 'No remaining pay limit. Deposit first â€” deposits increase the limit. Withdrawal must stay within remaining.'
-            : `Amount exceeds remaining pay limit (â‚¹${payRemaining})`,
+            ? 'No remaining pay limit. Deposit first — deposits increase the limit. Withdrawal must stay within remaining.'
+            : `Amount exceeds remaining pay limit (?${payRemaining})`,
         );
         return;
       }
@@ -523,7 +525,7 @@ export function WithdrawalsPage() {
         const needUsdt = inrToUsdt(numAmount);
         if (needUsdt > balance.availableBalance) {
           setFormError(
-            `Insufficient USDT. Need ~${needUsdt} USDT for â‚¹${numAmount} at ${usdtInrRate} INR/USDT`,
+            `Insufficient USDT. Need ~${needUsdt} USDT for ?${numAmount} at ${usdtInrRate} INR/USDT`,
           );
           return;
         }
@@ -533,7 +535,7 @@ export function WithdrawalsPage() {
       }
     }
 
-    // USDT method: send INR â€” backend converts with the business buy rate.
+    // USDT method: send INR — backend converts with the business buy rate.
     const payload: CreateWithdrawalPayload = {
       amount: numAmount,
       method,
@@ -670,7 +672,7 @@ export function WithdrawalsPage() {
           {walletIsUsdt && (
             <p className="mt-1 text-[10px] leading-snug text-on-surface-variant sm:mt-2 sm:text-xs">
               Rate {usdtInrRate}
-              {typeof maxInr === 'number' ? ` Â· ~${formatCurrency(maxInr, 'INR')}` : ''}
+              {typeof maxInr === 'number' ? ` · ~${formatCurrency(maxInr, 'INR')}` : ''}
             </p>
           )}
         </div>
@@ -781,22 +783,22 @@ export function WithdrawalsPage() {
 
             {walletIsUsdt && method !== 'usdt' && !editingId && (
               <div className="rounded-xl border border-outline-variant bg-surface-container-low px-4 py-3 text-sm">
-                <p className="font-semibold text-on-surface">USDT â†’ INR conversion</p>
+                <p className="font-semibold text-on-surface">USDT ? INR conversion</p>
                 <p className="mt-1 text-on-surface-variant">
                   Enter how much <span className="font-medium text-on-surface">INR</span> you want
                   in your UPI/Bank. Wallet debits USDT at{' '}
-                  <span className="font-medium text-on-surface">1 USDT = â‚¹{usdtInrRate}</span>.
+                  <span className="font-medium text-on-surface">1 USDT = ?{usdtInrRate}</span>.
                 </p>
               </div>
             )}
 
             {method === 'usdt' && !editingId && (
               <div className="rounded-xl border border-outline-variant bg-surface-container-low px-4 py-3 text-sm">
-                <p className="font-semibold text-on-surface">INR â†’ USDT conversion</p>
+                <p className="font-semibold text-on-surface">INR ? USDT conversion</p>
                 <p className="mt-1 text-on-surface-variant">
                   Enter the amount in <span className="font-medium text-on-surface">INR</span>. We
                   convert it to USDT at{' '}
-                  <span className="font-medium text-on-surface">1 USDT = â‚¹{usdtInrRate}</span>.
+                  <span className="font-medium text-on-surface">1 USDT = ?{usdtInrRate}</span>.
                 </p>
               </div>
             )}
@@ -825,7 +827,7 @@ export function WithdrawalsPage() {
                 USDT to send:{' '}
                 <span className="font-bold">{formatCurrency(usdtFromInr, 'USDT')}</span>
                 <span className="mt-0.5 block text-xs opacity-90">
-                  â‚¹{enteredInr.toLocaleString('en-IN')} Ã· {usdtInrRate} ={' '}
+                  ?{enteredInr.toLocaleString('en-IN')} ÷ {usdtInrRate} ={' '}
                   {usdtFromInr.toLocaleString('en-IN', { maximumFractionDigits: 6 })} USDT
                 </span>
               </p>
@@ -838,7 +840,7 @@ export function WithdrawalsPage() {
                   {usdtToSpend} USDT
                 </span>{' '}
                 from partner wallet
-                {typeof maxInr === 'number' ? ` Â· max ~â‚¹${maxInr}` : ''}.
+                {typeof maxInr === 'number' ? ` · max ~?${maxInr}` : ''}.
               </p>
             )}
 
@@ -885,7 +887,7 @@ export function WithdrawalsPage() {
                     }}
                   />
                   {qrScanning ? (
-                    <p className="mt-1 text-xs text-on-surface-variant">Reading QRâ€¦</p>
+                    <p className="mt-1 text-xs text-on-surface-variant">Reading QR…</p>
                   ) : null}
                   {qrScanError ? (
                     <p className="mt-1 text-xs text-error">{qrScanError}</p>
@@ -896,7 +898,7 @@ export function WithdrawalsPage() {
                   <Input
                     label="Name of Account Holder *"
                     value={payerName}
-                    onChange={(e) => setPayerName(e.target.value)}
+                    onChange={(e) => setPayerName(sanitizePersonName(e.target.value))}
                     required
                   />
                 </div>
@@ -922,13 +924,13 @@ export function WithdrawalsPage() {
                 <Input
                   label="Name of Account Holder"
                   value={accountHolderName}
-                  onChange={(e) => setAccountHolderName(e.target.value)}
+                  onChange={(e) => setAccountHolderName(sanitizePersonName(e.target.value))}
                   required
                 />
                 <Input
                   label="Bank name"
                   value={bankName}
-                  onChange={(e) => setBankName(e.target.value)}
+                  onChange={(e) => setBankName(sanitizeBankName(e.target.value))}
                   required
                 />
               </div>
@@ -950,7 +952,7 @@ export function WithdrawalsPage() {
               <Input
                 label="Name of Account Holder *"
                 value={payerName}
-                onChange={(e) => setPayerName(e.target.value)}
+                onChange={(e) => setPayerName(sanitizePersonName(e.target.value))}
                 required
               />
             )}
@@ -1001,7 +1003,7 @@ export function WithdrawalsPage() {
               <Input
                 label="Search"
                 icon="search"
-                placeholder="Reference, UPI, accountâ€¦"
+                placeholder="Reference, UPI, account…"
                 value={searchInput}
                 onChange={(e) => setSearchInput(e.target.value)}
               />
@@ -1180,7 +1182,7 @@ export function WithdrawalsPage() {
                           {w.referenceId}
                         </p>
                         <p className="text-[11px] text-on-surface-variant sm:text-xs">
-                          {w.method.toUpperCase()} Â· {formatDate(w.createdAt)}
+                          {w.method.toUpperCase()} · {formatDate(w.createdAt)}
                         </p>
                         {w.sourceAmount != null && w.sourceCurrency && w.exchangeRate != null && (
                           <p className="text-[11px] text-on-surface-variant sm:text-xs">
@@ -1249,7 +1251,7 @@ export function WithdrawalsPage() {
                     <div className="border-t border-outline-variant/70 px-3 pb-3 pt-2.5 sm:px-5 sm:pb-4 sm:pt-3">
                       <div className="mb-1.5 flex flex-wrap items-center justify-between gap-1 text-[11px] sm:mb-2 sm:text-xs">
                         <span className="text-on-surface-variant">
-                          Paid {formatCurrency(paid, w.currency)} Â· Left{' '}
+                          Paid {formatCurrency(paid, w.currency)} · Left{' '}
                           {formatCurrency(remaining, w.currency)}
                         </span>
                         <span className="font-semibold">{pct}%</span>
@@ -1262,9 +1264,9 @@ export function WithdrawalsPage() {
                       </div>
                       <p className="mt-1.5 text-[11px] text-on-surface-variant sm:mt-2 sm:text-xs">
                         {completedPays.length} completed
-                        {pendingPays.length ? ` Â· ${pendingPays.length} pending` : ''}
-                        {disputedPays.length ? ` Â· ${disputedPays.length} disputed` : ''}
-                        {payments.length === 0 ? ' Â· No payments yet' : ''}
+                        {pendingPays.length ? ` · ${pendingPays.length} pending` : ''}
+                        {disputedPays.length ? ` · ${disputedPays.length} disputed` : ''}
+                        {payments.length === 0 ? ' · No payments yet' : ''}
                       </p>
                     </div>
 
@@ -1298,8 +1300,8 @@ export function WithdrawalsPage() {
                                     </p>
                                     <p className="mt-0.5 break-all text-[11px] text-on-surface-variant">
                                       {p.referenceId}
-                                      {p.utr ? ` Â· UTR ${p.utr}` : ''}
-                                      {p.createdAt ? ` Â· ${formatDate(p.createdAt)}` : ''}
+                                      {p.utr ? ` · UTR ${p.utr}` : ''}
+                                      {p.createdAt ? ` · ${formatDate(p.createdAt)}` : ''}
                                     </p>
                                     {p.status === 'pending' && windowLabel && !p.disputedAt && (
                                       <p className="mt-1 text-[11px] text-secondary">{windowLabel}</p>
@@ -1307,9 +1309,9 @@ export function WithdrawalsPage() {
                                     {p.disputedAt && (
                                       <p className="mt-1 text-[11px] text-error">
                                         Support ticket{' '}
-                                        <span className="font-mono">{p.disputeTicketId || 'â€”'}</span>
+                                        <span className="font-mono">{p.disputeTicketId || '—'}</span>
                                         {p.notes?.includes('. ')
-                                          ? ` Â· ${p.notes.split('. ').slice(1).join('. ').trim()}`
+                                          ? ` · ${p.notes.split('. ').slice(1).join('. ').trim()}`
                                           : ''}
                                       </p>
                                     )}
@@ -1401,8 +1403,8 @@ export function WithdrawalsPage() {
               Opens a support ticket. Auto-receive pauses until resolved.
             </p>
             <p className="mt-3 break-all text-xs text-on-surface-variant">
-              {disputeFor.referenceId} Â· {formatCurrency(disputeFor.amount, disputeFor.currency)}
-              {disputeFor.utr ? ` Â· UTR ${disputeFor.utr}` : ''}
+              {disputeFor.referenceId} · {formatCurrency(disputeFor.amount, disputeFor.currency)}
+              {disputeFor.utr ? ` · UTR ${disputeFor.utr}` : ''}
             </p>
             <label className="mt-4 block text-sm font-medium">
               Reason
@@ -1411,7 +1413,7 @@ export function WithdrawalsPage() {
                 rows={3}
                 value={disputeReason}
                 onChange={(e) => setDisputeReason(e.target.value)}
-                placeholder="Payment not received, wrong amount, fake proofâ€¦"
+                placeholder="Payment not received, wrong amount, fake proof…"
               />
             </label>
             {actionError && <p className="mt-2 text-xs text-error">{actionError}</p>}
@@ -1470,11 +1472,11 @@ export function WithdrawalsPage() {
                     <span className="block">
                       {formatCurrency(pendingInrAmount, 'INR')}
                       <span className="mt-0.5 block text-xs font-medium text-on-surface-variant">
-                        â†’{' '}
+                        ?{' '}
                         {inrToUsdt(pendingInrAmount).toLocaleString('en-IN', {
                           maximumFractionDigits: 6,
                         })}{' '}
-                        USDT at 1 USDT = â‚¹{usdtInrRate}
+                        USDT at 1 USDT = ?{usdtInrRate}
                       </span>
                     </span>
                   ) : (
@@ -1491,7 +1493,7 @@ export function WithdrawalsPage() {
                   <div className="flex justify-between gap-3">
                     <dt className="text-on-surface-variant">NAME</dt>
                     <dd className="text-right font-semibold">
-                      {pendingPayload.upiDetails.payerName || 'â€”'}
+                      {pendingPayload.upiDetails.payerName || '—'}
                     </dd>
                   </div>
                   <div className="flex justify-between gap-3">

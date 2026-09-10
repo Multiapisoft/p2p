@@ -82,6 +82,8 @@ const VERIFICATION_WINDOW_MS = 24 * 60 * 60 * 1000;
 const CLAIM_REDIS_PREFIX = 'withdrawal-claim:';
 const SKIP_USDT_REDIS_PREFIX = 'investor-skip-usdt:';
 const SKIP_USDT_TTL_SECONDS = 7 * 24 * 60 * 60;
+/** Investor may skip a WD when its open INR exceeds remaining plan × this factor. */
+const INVESTOR_SKIP_OVERSIZE_MULTIPLIER = 1.3;
 
 export type WithdrawalPaymentListOpts = ListQueryOpts & {
   method?: string;
@@ -697,11 +699,18 @@ export class WithdrawalPaymentService {
         and.push({
           $expr: isInvestor
             ? {
-                // Full-pay INR WDs that fit the plan, OR any open USDT (pay if it
-                // fits / skip if not) so USDT is never silently dropped from queue.
+                // Fit plan, OR USDT (pay/skip), OR oversized (>1.3× remaining) so investor can skip.
                 $or: [
                   { $lte: [remainingInrExpr, { $add: [matchAmount, 0.05] }] },
                   isUsdtDoc,
+                  {
+                    $gt: [
+                      remainingInrExpr,
+                      {
+                        $multiply: [matchAmount, INVESTOR_SKIP_OVERSIZE_MULTIPLIER],
+                      },
+                    ],
+                  },
                 ],
               }
             : {
@@ -948,36 +957,41 @@ export class WithdrawalPaymentService {
     let itemsWithCreditOut = itemsWithCredit;
     let noMatchReason: 'tail_no_wd' | 'no_open_wd' | null = null;
     if (investorSequential) {
-      // FIFO queue: show the next open WD. USDT always surfaces (pay if plan covers, else skip).
-      // Oversized non-USDT items are skipped in selection so they don't block the queue.
+      // FIFO: next open WD. Payable if fits plan; skippable if USDT or open INR > 1.3× remaining.
       const openQueue = itemsWithCredit.filter((i) => (i.remainingAmount ?? 0) > 0);
       const pickRequired = (
         item: (typeof itemsWithCredit)[number],
         remainingPlan: number,
-      ): { required: number; isUsdt: boolean } => {
+      ): { required: number; isUsdt: boolean; canSkip: boolean } => {
         const isUsdt =
           (item.currency || '').toUpperCase() === Currency.USDT ||
           item.method === PaymentMethod.USDT;
-        if (isUsdt) {
-          const remInr = this.openAmountInr(item, item.remainingAmount);
-          const required =
-            remInr > 0 && remInr <= remainingPlan + 0.05 ? item.remainingAmount : 0;
-          return { required, isUsdt: true };
-        }
-        const required =
-          item.remainingAmount <= remainingPlan + 0.05
-            ? Math.min(item.remainingAmount, remainingPlan)
-            : 0;
-        return { required, isUsdt: false };
+        const remInr = isUsdt
+          ? this.openAmountInr(item, item.remainingAmount)
+          : item.remainingAmount;
+        const fits = remInr > 0 && remInr <= remainingPlan + 0.05;
+        const oversizeSkip =
+          remInr > remainingPlan * INVESTOR_SKIP_OVERSIZE_MULTIPLIER + 0.05;
+        const required = fits
+          ? isUsdt
+            ? item.remainingAmount
+            : Math.min(item.remainingAmount, remainingPlan)
+          : 0;
+        return {
+          required,
+          isUsdt,
+          canSkip: isUsdt || oversizeSkip,
+        };
       };
 
       let chosen: (typeof itemsWithCredit)[number] | null = null;
-      let chosenMeta: { required: number; isUsdt: boolean } | null = null;
+      let chosenMeta: { required: number; isUsdt: boolean; canSkip: boolean } | null =
+        null;
       if (limitView) {
         for (const item of openQueue) {
           const meta = pickRequired(item, limitView.remaining);
-          // Always stop on USDT (pay or skip). For INR, only stop when payable.
-          if (meta.isUsdt || meta.required > 0) {
+          // Surface payable, USDT, or oversized (>1.3×) skippable items.
+          if (meta.required > 0 || meta.canSkip) {
             chosen = item;
             chosenMeta = meta;
             break;
@@ -991,7 +1005,8 @@ export class WithdrawalPaymentService {
             ...chosen,
             requiredPayAmount: chosenMeta.required,
             maxPayable: chosenMeta.required,
-            canSkipUsdt: chosenMeta.isUsdt,
+            canSkipUsdt: chosenMeta.canSkip,
+            canSkip: chosenMeta.canSkip,
           } as unknown as (typeof itemsWithCredit)[number],
         ];
         total = openQueue.length;
@@ -3287,24 +3302,32 @@ export class WithdrawalPaymentService {
   }
 
   /**
-   * Investor may skip a USDT sequential assignment so the next UPI/Bank (or later) item appears.
-   * Skipped IDs are stored on the user (Mongo) and mirrored to Redis when available.
+   * Investor may skip USDT or any WD whose open INR is > 1.3× remaining plan limit,
+   * so the next suitable investment appears.
    */
   async skipUsdtWithdrawal(userId: string, withdrawalId: string) {
     const payer = await this.userModel.findById(userId).exec();
     if (!payer || payer.role !== UserRole.INVESTOR) {
-      throw new ForbiddenException('Only investors can skip USDT investments');
+      throw new ForbiddenException('Only investors can skip investments');
     }
     const withdrawal = await this.withdrawalModel.findById(withdrawalId).exec();
     if (!withdrawal) throw new NotFoundException('Withdrawal not found');
+
+    const limitView = this.usersService.getInvestorLimitSnapshot(payer);
+    const remaining = this.getRemaining(withdrawal);
+    const remInr = this.openAmountInr(withdrawal, remaining);
     const isUsdt =
       withdrawal.method === PaymentMethod.USDT ||
       (withdrawal.currency || '').toUpperCase() === Currency.USDT;
-    if (!isUsdt) {
-      throw new BadRequestException('Only USDT withdrawals can be skipped');
+    const oversizeSkip =
+      remInr > limitView.remaining * INVESTOR_SKIP_OVERSIZE_MULTIPLIER + 0.05;
+    if (!isUsdt && !oversizeSkip) {
+      throw new BadRequestException(
+        `Only USDT or requests above ${INVESTOR_SKIP_OVERSIZE_MULTIPLIER}× your remaining limit can be skipped`,
+      );
     }
 
-    // Release this investor's claim so others can still take the USDT request.
+    // Release this investor's claim so others can still take the request.
     if (withdrawal.claimLockedBy?.toString() === userId) {
       withdrawal.set('claimLockedBy', null);
       withdrawal.set('claimLockedUntil', null);

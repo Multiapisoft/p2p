@@ -95,3 +95,13 @@ export function restoreInvestorLimitLifo(
   }
   return next;
 }
+
+/** Replace all lots with a single new plan lot (change plan). */
+export function replaceInvestorPlanLot(
+  planAmount: number,
+  at: Date = new Date(),
+): InvestorLimitLot[] {
+  const rounded = roundMoney(planAmount);
+  if (rounded <= 0) return [];
+  return [{ amount: rounded, remaining: rounded, createdAt: at }];
+}

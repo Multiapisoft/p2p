@@ -8,7 +8,7 @@ import { Input } from '@/shared/components/ui/Input';
 import { Card } from '@/shared/components/ui/Card';
 import { StatusBadge } from '@/shared/components/ui/Badge';
 import { getApiErrorMessage } from '@/shared/lib/api-error';
-import { bankNameError, personNameError } from '@/shared/lib/validation';
+import { bankNameError, personNameError, sanitizeBankName, sanitizePersonName } from '@/shared/lib/validation';
 import { formatCurrency, formatDate } from '@/shared/lib/utils';
 import { liveQueryOptions } from '@/shared/constants/live-query';
 
@@ -126,7 +126,7 @@ export function CdmDepositForm() {
             <Input
               label="Bank name"
               value={bankName}
-              onChange={(e) => setBankName(e.target.value.toUpperCase())}
+              onChange={(e) => setBankName(sanitizeBankName(e.target.value).toUpperCase())}
               placeholder="e.g. STATE BANK OF INDIA"
               required
               className="uppercase"
@@ -134,7 +134,7 @@ export function CdmDepositForm() {
             <Input
               label="Depositor name (optional)"
               value={payerName}
-              onChange={(e) => setPayerName(e.target.value)}
+              onChange={(e) => setPayerName(sanitizePersonName(e.target.value))}
             />
             <Input
               label="CDM location (optional)"

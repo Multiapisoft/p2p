@@ -3,6 +3,7 @@ import {
   consumeInvestorLimitLifo,
   investorLimitLotsLifo,
   investorLimitRemaining,
+  replaceInvestorPlanLot,
   restoreInvestorLimitLifo,
 } from './investor-limit-lifo.util';
 
@@ -65,5 +66,13 @@ describe('investor-limit-lifo', () => {
     const lifo = investorLimitLotsLifo(lots);
     expect(lifo[0].remaining).toBe(5000);
     expect(lifo[1].remaining).toBe(10000);
+  });
+
+  it('replaceInvestorPlanLot resets to a single plan lot', () => {
+    const lots = replaceInvestorPlanLot(50000, t2);
+    expect(lots).toHaveLength(1);
+    expect(lots[0].amount).toBe(50000);
+    expect(lots[0].remaining).toBe(50000);
+    expect(investorLimitRemaining(lots)).toBe(50000);
   });
 });

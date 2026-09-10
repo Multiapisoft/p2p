@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
@@ -17,6 +17,8 @@ import {
   ifscError,
   personNameError,
   sanitizeAccountNumber,
+  sanitizeBankName,
+  sanitizePersonName,
   upiIdError,
 } from '@/shared/lib/validation';
 import { useAuthStore } from '@/features/auth/store/auth.store';
@@ -125,7 +127,7 @@ export function BusinessWithdrawalForm() {
       setSaveCurrentMethod(false);
       setSaveAsDefault(false);
       setPriority(false);
-      setSuccess(`Request ${w.referenceId} submitted — waiting admin verify`);
+      setSuccess(`Request ${w.referenceId} submitted � waiting admin verify`);
       qc.invalidateQueries({ queryKey: ['business-withdrawals'] });
       qc.invalidateQueries({ queryKey: ['business-overview'] });
     },
@@ -217,7 +219,7 @@ export function BusinessWithdrawalForm() {
       return;
     }
     if (method !== 'usdt' && num < minWithdrawal) {
-      setFormError(`Minimum withdrawal is ₹${minWithdrawal}`);
+      setFormError(`Minimum withdrawal is ?${minWithdrawal}`);
       return;
     }
     const needInr = method === 'usdt' ? Math.round(num * usdtInrRate * 100) / 100 : num;
@@ -302,14 +304,14 @@ export function BusinessWithdrawalForm() {
         </div>
         <p className="text-xs text-on-surface-variant">
           Limit {formatCurrency(limit)}
-          {earned > 0 ? ` · Deposits +${formatCurrency(earned)}` : ''}
-          {used > 0 ? ` · Used ${formatCurrency(used)}` : ''}
+          {earned > 0 ? ` � Deposits +${formatCurrency(earned)}` : ''}
+          {used > 0 ? ` � Used ${formatCurrency(used)}` : ''}
         </p>
       </div>
 
       {exhausted ? (
         <p className="mt-3 rounded-lg border border-amber-300/60 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-          Remaining limit is ₹0. Deposits increase remaining.
+          Remaining limit is ?0. Deposits increase remaining.
         </p>
       ) : null}
 
@@ -454,7 +456,7 @@ export function BusinessWithdrawalForm() {
               <Input
                 label="Name of Account Holder *"
                 value={payerName}
-                onChange={(e) => setPayerName(e.target.value)}
+                onChange={(e) => setPayerName(sanitizePersonName(e.target.value))}
                 required
                 disabled={exhausted}
               />
@@ -481,14 +483,14 @@ export function BusinessWithdrawalForm() {
               <Input
                 label="Name of Account Holder *"
                 value={accountHolderName}
-                onChange={(e) => setAccountHolderName(e.target.value)}
+                onChange={(e) => setAccountHolderName(sanitizePersonName(e.target.value))}
                 required
                 disabled={exhausted}
               />
               <Input
                 label="Bank name *"
                 value={bankName}
-                onChange={(e) => setBankName(e.target.value)}
+                onChange={(e) => setBankName(sanitizeBankName(e.target.value))}
                 required
                 disabled={exhausted}
               />
@@ -507,7 +509,7 @@ export function BusinessWithdrawalForm() {
             <Input
               label="Name of Account Holder *"
               value={payerName}
-              onChange={(e) => setPayerName(e.target.value)}
+              onChange={(e) => setPayerName(sanitizePersonName(e.target.value))}
               required
               disabled={exhausted}
             />

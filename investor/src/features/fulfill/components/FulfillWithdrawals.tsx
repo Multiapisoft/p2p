@@ -439,6 +439,15 @@ export function FulfillWithdrawals({
     },
   });
 
+  const changePlan = useMutation({
+    mutationFn: (planAmount: number) => fulfillApi.setInvestorPlan(planAmount),
+    onSuccess: () => {
+      setFormError('');
+      closePay();
+      qc.invalidateQueries({ queryKey: ['fulfill-available'] });
+    },
+  });
+
   const skipUsdt = useMutation({
     mutationFn: (withdrawalId: string) => fulfillApi.skipUsdtWithdrawal(withdrawalId),
     onSuccess: (res) => {
@@ -448,7 +457,7 @@ export function FulfillWithdrawals({
       void qc.invalidateQueries({ queryKey: ['fulfill-available'] });
     },
     onError: (err: unknown) => {
-      setFormError(apiErrorMessage(err, 'Could not skip this USDT request'));
+      setFormError(apiErrorMessage(err, 'Could not skip this request'));
     },
   });
 
@@ -652,6 +661,10 @@ export function FulfillWithdrawals({
             error={addLimit.error}
             onAdd={(amount) => addLimit.mutate(amount)}
             readOnly={isInvest}
+            allowChangePlan={isInvest}
+            changePending={changePlan.isPending}
+            changeError={changePlan.error}
+            onChangePlan={(amount) => changePlan.mutate(amount)}
           />
         </Card>
       )}
@@ -824,7 +837,8 @@ export function FulfillWithdrawals({
                         ) : null}
                       </div>
                       <div className="flex flex-wrap justify-end gap-2">
-                        {(w.canSkipUsdt ||
+                        {(w.canSkip ||
+                          w.canSkipUsdt ||
                           w.method === 'usdt' ||
                           (w.currency || '').toUpperCase() === 'USDT') ? (
                           <Button
@@ -834,7 +848,10 @@ export function FulfillWithdrawals({
                             loading={skipUsdt.isPending}
                             disabled={claimingId === w._id || skipUsdt.isPending}
                           >
-                            Skip USDT
+                            {w.method === 'usdt' ||
+                            (w.currency || '').toUpperCase() === 'USDT'
+                              ? 'Skip USDT'
+                              : 'Skip oversized'}
                           </Button>
                         ) : null}
                         <Button

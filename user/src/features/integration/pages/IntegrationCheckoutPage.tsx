@@ -1,4 +1,4 @@
-ï»¿'use client';
+'use client';
 
 import { useEffect, useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -17,6 +17,8 @@ import {
   ifscError,
   personNameError,
   sanitizeAccountNumber,
+  sanitizeBankName,
+  sanitizePersonName,
   upiIdError,
 } from '@/shared/lib/validation';
 import type { PaymentMethod } from '@/shared/types/api.types';
@@ -178,7 +180,7 @@ function IntegrationCheckoutInner({ type }: { type: 'deposit' | 'withdrawal' }) 
     return (
       <div className="mx-auto max-w-md px-4 py-16 text-center">
         <LoadingScreen />
-        <p className="mt-4 text-sm text-on-surface-variant">Opening deposits â€” pay open withdrawal requestsâ€¦</p>
+        <p className="mt-4 text-sm text-on-surface-variant">Opening deposits — pay open withdrawal requests…</p>
       </div>
     );
   }
@@ -198,7 +200,7 @@ function IntegrationCheckoutInner({ type }: { type: 'deposit' | 'withdrawal' }) 
     return (
       <div className="mx-auto max-w-md px-4 py-16 text-center">
         <p className="text-lg font-semibold text-secondary">Submitted successfully</p>
-        <p className="mt-2 text-sm text-on-surface-variant">Redirecting back to partnerâ€¦</p>
+        <p className="mt-2 text-sm text-on-surface-variant">Redirecting back to partner…</p>
       </div>
     );
   }
@@ -210,8 +212,8 @@ function IntegrationCheckoutInner({ type }: { type: 'deposit' | 'withdrawal' }) 
         <p className="text-xs font-medium text-secondary sm:text-sm">Secure redirect from partner</p>
         <h1 className="text-xl font-bold sm:text-2xl">Partner Withdrawal</h1>
         <p className="break-all text-sm text-on-surface-variant">
-          Amount: <strong>â‚¹{session?.amount}</strong>
-          {session?.user && <> Â· {session.user.email}</>}
+          Amount: <strong>?{session?.amount}</strong>
+          {session?.user && <> · {session.user.email}</>}
         </p>
       </div>
 
@@ -241,7 +243,7 @@ function IntegrationCheckoutInner({ type }: { type: 'deposit' | 'withdrawal' }) 
             <Input
               label="Name of Account Holder *"
               value={payerName}
-              onChange={(e) => setPayerName(e.target.value)}
+              onChange={(e) => setPayerName(sanitizePersonName(e.target.value))}
               required
             />
           </>
@@ -257,11 +259,11 @@ function IntegrationCheckoutInner({ type }: { type: 'deposit' | 'withdrawal' }) 
               required
             />
             <Input label="IFSC" value={ifscCode} onChange={(e) => setIfscCode(e.target.value)} required />
-            <Input label="Account Holder" value={accountHolderName} onChange={(e) => setAccountHolderName(e.target.value)} required />
+            <Input label="Account Holder" value={accountHolderName} onChange={(e) => setAccountHolderName(sanitizePersonName(e.target.value))} required />
             <Input
               label="Bank name"
               value={bankName}
-              onChange={(e) => setBankName(e.target.value)}
+              onChange={(e) => setBankName(sanitizeBankName(e.target.value))}
               required
             />
           </>
@@ -282,7 +284,7 @@ function IntegrationCheckoutInner({ type }: { type: 'deposit' | 'withdrawal' }) 
             submitWithdrawal.mutate();
           }}
         >
-          Withdraw â‚¹{session?.amount}
+          Withdraw ?{session?.amount}
         </Button>
       </Card>
     </div>

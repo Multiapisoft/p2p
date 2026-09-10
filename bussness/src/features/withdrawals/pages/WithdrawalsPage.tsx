@@ -379,7 +379,7 @@ export function WithdrawalsPage({
           <div className="flex flex-wrap gap-2">
             <Input
               className="min-w-[220px] flex-1"
-              placeholder="Search reference, UPI, account…"
+              placeholder="Search reference, user name, email, phone, UPI…"
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
             />
@@ -620,7 +620,10 @@ export function WithdrawalsPage({
                             </Button>
                           )}
                           {(w.status === 'pending' || w.status === 'processing') &&
-                          Math.max(0, w.amount - (w.paidAmount || 0)) > 0 &&
+                          Math.max(
+                            0,
+                            w.amount - (w.paidAmount || 0) - (w.reservedAmount || 0),
+                          ) > 0 &&
                           (w.origin !== 'business' || w.p2pListStatus === 'listed') ? (
                             <Button
                               size="sm"
@@ -791,7 +794,10 @@ export function WithdrawalsPage({
                     </div>
                   )}
                   {(detail.status === 'pending' || detail.status === 'processing') &&
-                  Math.max(0, detail.amount - (detail.paidAmount || 0)) > 0 &&
+                  Math.max(
+                    0,
+                    detail.amount - (detail.paidAmount || 0) - (detail.reservedAmount || 0),
+                  ) > 0 &&
                   (detail.origin !== 'business' || detail.p2pListStatus === 'listed') ? (
                     <div className="mt-3 flex flex-wrap gap-2">
                       <Button

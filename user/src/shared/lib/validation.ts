@@ -133,6 +133,25 @@ export function personNameError(value: string, required = true): string | null {
   return null;
 }
 
+/** Strip everything except letters, dots, and spaces (Account Holder / Bank Name). */
+export function sanitizePersonName(value: string): string {
+  return value.replace(/[^A-Za-z. ]+/g, '');
+}
+
+export function bankNameError(value: string, required = true): string | null {
+  const v = value.trim();
+  if (!v) return required ? 'Bank name is required' : null;
+  if (!/^[A-Za-z. ]+$/.test(v)) {
+    return 'Bank name may only contain letters, dots, and spaces';
+  }
+  return null;
+}
+
+/** Same charset as person name — letters, dots, spaces only. */
+export function sanitizeBankName(value: string): string {
+  return sanitizePersonName(value);
+}
+
 /** UPI: no more than 9 consecutive digits unless mobile-number UPI is allowed */
 export function upiIdError(
   value: string,
@@ -179,15 +198,6 @@ export function ifscError(value: string, required = true): string | null {
   }
   if (!/^[A-Z]{4}0[A-Z0-9]{6}$/.test(v)) {
     return 'IFSC must be 11 characters: 4 letters, then 0, then 6 alphanumeric';
-  }
-  return null;
-}
-
-export function bankNameError(value: string, required = true): string | null {
-  const v = value.trim();
-  if (!v) return required ? 'Bank name is required' : null;
-  if (!/^[A-Za-z. ]+$/.test(v)) {
-    return 'Bank name may only contain letters, dots, and spaces';
   }
   return null;
 }

@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import { apiErrorMessage, formatCurrency, formatDate } from '@/shared/lib/utils';
 import type { InvestorLimitLot } from '@/features/fulfill/api/fulfill.api';
 
@@ -15,7 +16,11 @@ export function InvestorLimitPanel({
   planAmounts,
   firstLogin,
   readOnly,
+  allowChangePlan,
+  changePending,
+  changeError,
   onAdd,
+  onChangePlan,
 }: {
   remaining: number;
   added: number;
@@ -25,12 +30,19 @@ export function InvestorLimitPanel({
   error?: unknown;
   planAmounts?: number[];
   firstLogin?: boolean;
-  /** Summary only — no add form or plan buttons. */
+  /** Summary only — no add form or plan buttons (unless allowChangePlan). */
   readOnly?: boolean;
+  /** Show Change plan control while a plan is already active. */
+  allowChangePlan?: boolean;
+  changePending?: boolean;
+  changeError?: unknown;
   onAdd: (amount: number) => void;
+  onChangePlan?: (amount: number) => void;
 }) {
+  const [changing, setChanging] = useState(false);
   const used = Math.max(0, added - remaining);
   const plans = (planAmounts?.length ? planAmounts : DEFAULT_PLANS).filter((n) => n > 0);
+  const busy = !!(pending || changePending);
 
   return (
     <div className={compact ? 'space-y-3' : 'space-y-4'}>
@@ -53,10 +65,21 @@ export function InvestorLimitPanel({
               {formatCurrency(remaining)} left
             </p>
           </div>
-          <p className="text-xs text-on-surface-variant">
-            Added {formatCurrency(added)}
-            {used > 0 ? ` · Used ${formatCurrency(used)}` : ''}
-          </p>
+          <div className="flex flex-col items-end gap-1">
+            <p className="text-xs text-on-surface-variant">
+              Added {formatCurrency(added)}
+              {used > 0 ? ` · Used ${formatCurrency(used)}` : ''}
+            </p>
+            {allowChangePlan && onChangePlan && !changing ? (
+              <button
+                type="button"
+                className="text-[11px] font-semibold text-secondary underline-offset-2 hover:underline"
+                onClick={() => setChanging(true)}
+              >
+                Change plan
+              </button>
+            ) : null}
+          </div>
         </div>
       )}
 
@@ -66,7 +89,7 @@ export function InvestorLimitPanel({
             <button
               key={p}
               type="button"
-              disabled={pending}
+              disabled={busy}
               onClick={() => onAdd(p)}
               className="rounded-full border border-outline-variant px-3 py-1.5 text-xs font-semibold hover:bg-secondary-container disabled:opacity-50"
             >
@@ -76,15 +99,51 @@ export function InvestorLimitPanel({
         </div>
       )}
 
+      {changing && allowChangePlan && onChangePlan ? (
+        <div className="space-y-2 rounded-lg border border-outline-variant/60 bg-surface-container-low/40 p-3">
+          <p className="text-xs font-semibold text-on-surface">Choose a new plan</p>
+          <p className="text-[11px] text-on-surface-variant">
+            This replaces your current remaining limit. Skipped requests are cleared.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {plans.map((p) => (
+              <button
+                key={`change-${p}`}
+                type="button"
+                disabled={busy}
+                onClick={() => onChangePlan(p)}
+                className="rounded-full border border-outline-variant px-3 py-1.5 text-xs font-semibold hover:bg-secondary-container disabled:opacity-50"
+              >
+                {formatCurrency(p)}
+              </button>
+            ))}
+          </div>
+          <button
+            type="button"
+            className="text-[11px] font-medium text-on-surface-variant underline-offset-2 hover:underline"
+            disabled={busy}
+            onClick={() => setChanging(false)}
+          >
+            Cancel
+          </button>
+          {changeError ? (
+            <p className="text-xs text-error">
+              {apiErrorMessage(changeError, 'Could not change plan')}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
       {firstLogin && error ? (
         <p className="text-xs text-error">{apiErrorMessage(error, 'Could not choose plan')}</p>
       ) : firstLogin ? (
         <p className="text-[11px] text-on-surface-variant">
           After choosing a plan, the next payable withdrawal will appear automatically.
         </p>
-      ) : readOnly ? (
+      ) : readOnly && !changing ? (
         <p className="text-[11px] text-on-surface-variant">
-          Complete each assigned payment in order. Newest lot is used first.
+          Complete each assigned payment in order. You can skip USDT or requests above 1.3× your
+          remaining limit.
         </p>
       ) : null}
 

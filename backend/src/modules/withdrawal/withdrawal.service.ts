@@ -49,7 +49,7 @@ import {
   tatCutoffDate,
   userCanCancelWithdrawal,
 } from './utils/withdrawal-visibility.util';
-import { assertUniquePaymentRef } from './utils/payment-ref-uniqueness.util';
+import { assertUniquePaymentRef, escapeRegex } from './utils/payment-ref-uniqueness.util';
 import { PlatformSettingsService } from '../platform-settings/platform-settings.service';
 import { PlatformCommissionService } from '../wallet/platform-commission.service';
 import { platformCommissionWithdrawError } from './utils/platform-commission-withdraw.util';
@@ -1059,11 +1059,17 @@ export class WithdrawalService {
 
     if (actor.role === UserRole.BUSINESS) {
       const business = await this.businessService.findForActor(actor.userId);
-      if (withdrawal.businessId?.toString() !== business._id.toString()) {
+      const bizId = business._id.toString();
+      if (withdrawal.businessId?.toString() !== bizId) {
         throw new ForbiddenException('Withdrawal does not belong to your business');
       }
-      if (assignee.referredByBusiness?.toString() !== business._id.toString()) {
+      const assigneeBiz = assignee.referredByBusiness?.toString();
+      if (assigneeBiz !== bizId) {
         throw new ForbiddenException('You can only assign to your own users');
+      }
+      // Business assigns to end-users only (not investors).
+      if (assignee.role !== UserRole.USER) {
+        throw new BadRequestException('Assign only to your business users');
       }
     } else if (actor.role !== UserRole.ADMIN && actor.role !== UserRole.SUB_ADMIN) {
       throw new ForbiddenException('Not allowed to assign withdrawals');
@@ -1383,13 +1389,42 @@ export class WithdrawalService {
       and.push({ origin: { $ne: 'business' } });
     }
     if (search) {
+      const escaped = escapeRegex(search);
+      const matchedUsers = await this.userModel
+        .find({
+          $and: [
+            {
+              $or: [
+                { referredByBusiness: bid },
+                { referredByBusiness: businessId },
+              ],
+            },
+            {
+              $or: [
+                { name: { $regex: escaped, $options: 'i' } },
+                { email: { $regex: escaped, $options: 'i' } },
+                { phone: { $regex: escaped, $options: 'i' } },
+                { businessUserCode: { $regex: escaped, $options: 'i' } },
+                { externalRef: { $regex: escaped, $options: 'i' } },
+              ],
+            },
+          ],
+        })
+        .select('_id')
+        .limit(50)
+        .lean()
+        .exec();
+      const userIds = matchedUsers.map((u) => u._id);
       and.push({
         $or: [
-          { referenceId: { $regex: search, $options: 'i' } },
-          { 'upiDetails.upiId': { $regex: search, $options: 'i' } },
-          { 'bankDetails.accountNumber': { $regex: search, $options: 'i' } },
-          { 'bankDetails.accountHolderName': { $regex: search, $options: 'i' } },
-          { 'usdtDetails.walletAddress': { $regex: search, $options: 'i' } },
+          { referenceId: { $regex: escaped, $options: 'i' } },
+          { 'upiDetails.upiId': { $regex: escaped, $options: 'i' } },
+          { 'bankDetails.accountNumber': { $regex: escaped, $options: 'i' } },
+          { 'bankDetails.accountHolderName': { $regex: escaped, $options: 'i' } },
+          { 'usdtDetails.walletAddress': { $regex: escaped, $options: 'i' } },
+          ...(userIds.length
+            ? [{ userId: { $in: userIds } }, { assignedTo: { $in: userIds } }]
+            : []),
         ],
       });
     }

@@ -20,6 +20,8 @@ import {
   ifscError,
   personNameError,
   sanitizeAccountNumber,
+  sanitizeBankName,
+  sanitizePersonName,
   upiIdError,
 } from '@/shared/lib/validation';
 import type { PaymentMethod, Withdrawal } from '@/shared/types/api.types';
@@ -201,7 +203,7 @@ function AdminWithdrawalForm({ onCreated }: { onCreated: () => void }) {
               <Input
                 label="Account holder name"
                 value={payerName}
-                onChange={(e) => setPayerName(e.target.value)}
+                onChange={(e) => setPayerName(sanitizePersonName(e.target.value))}
               />
             </>
           )}
@@ -220,9 +222,9 @@ function AdminWithdrawalForm({ onCreated }: { onCreated: () => void }) {
               <Input
                 label="Account holder name"
                 value={accountHolderName}
-                onChange={(e) => setAccountHolderName(e.target.value)}
+                onChange={(e) => setAccountHolderName(sanitizePersonName(e.target.value))}
               />
-              <Input label="Bank name" value={bankName} onChange={(e) => setBankName(e.target.value)} />
+              <Input label="Bank name" value={bankName} onChange={(e) => setBankName(sanitizeBankName(e.target.value))} />
             </>
           )}
           {method === 'usdt' && (

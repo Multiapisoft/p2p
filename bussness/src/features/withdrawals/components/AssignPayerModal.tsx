@@ -42,14 +42,15 @@ export function AssignPayerModal({
     }
   }, [open]);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error: loadError, refetch } = useQuery({
     queryKey: ['assign-payer-business-users', search],
     queryFn: () =>
       usersApi.getBusinessUsers({
         page: 1,
-        limit: 8,
+        limit: 20,
         status: 'active',
-        search,
+        role: 'user',
+        search: search || undefined,
         sort: 'newest',
       }),
     enabled: open,
@@ -63,7 +64,7 @@ export function AssignPayerModal({
     <Modal open={open} onClose={onClose} title="Assign to your user" className="sm:max-w-lg">
       <div className="space-y-3">
         <p className="text-sm text-on-surface-variant">
-          Only assigned payer can submit proof.
+          Only the assigned payer can submit proof for this withdrawal.
         </p>
         {current.id ? (
           <p className="rounded-xl bg-secondary-container/40 px-3 py-2 text-sm">
@@ -76,13 +77,32 @@ export function AssignPayerModal({
           label="Search your users"
           value={searchInput}
           onChange={(e) => setSearchInput(e.target.value)}
-          placeholder="Name, email, or user code"
+          placeholder="Name, email, phone, or user code"
         />
 
         {isLoading ? (
           <LoadingScreen />
+        ) : isError ? (
+          <div className="space-y-2 text-center">
+            <p className="text-sm text-error">Could not load users</p>
+            <Button type="button" size="sm" variant="outline" onClick={() => refetch()}>
+              Retry
+            </Button>
+            {loadError ? (
+              <p className="text-xs text-on-surface-variant">
+                {String((loadError as Error)?.message || loadError)}
+              </p>
+            ) : null}
+          </div>
         ) : !items.length ? (
-          <EmptyState message="No matching users" icon="person_search" />
+          <EmptyState
+            message={
+              search
+                ? 'No matching users for this search'
+                : 'No active users linked to your business'
+            }
+            icon="person_search"
+          />
         ) : (
           <div className="max-h-64 space-y-1.5 overflow-y-auto">
             {items.map((u) => {

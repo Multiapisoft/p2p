@@ -133,6 +133,16 @@ export function personNameError(value: string, required = true): string | null {
   return null;
 }
 
+/** Strip everything except letters, dots, and spaces (Account Holder / Bank Name). */
+export function sanitizePersonName(value: string): string {
+  return value.replace(/[^A-Za-z. ]+/g, '');
+}
+
+/** Same charset as person name — letters, dots, spaces only. */
+export function sanitizeBankName(value: string): string {
+  return sanitizePersonName(value);
+}
+
 /** UPI: no more than 9 consecutive digits unless mobile-number UPI is allowed */
 export function upiIdError(
   value: string,
