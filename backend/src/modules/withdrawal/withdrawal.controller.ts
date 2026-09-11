@@ -208,12 +208,15 @@ export class WithdrawalController {
   }
 
   @Patch(':id/assign')
-  @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN, UserRole.BUSINESS)
   async assignPayer(
     @Param('id') id: string,
     @Body() dto: AssignWithdrawalDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
+    if (user.role === UserRole.BUSINESS) {
+      await this.businessService.assertStaffCan(user.userId, Permission.BUSINESS_WITHDRAWALS);
+    }
     return this.withdrawalService.assignPayer(id, dto.assigneeId, {
       userId: user.userId,
       email: user.email,
@@ -222,8 +225,11 @@ export class WithdrawalController {
   }
 
   @Patch(':id/unassign')
-  @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN, UserRole.BUSINESS)
   async unassignPayer(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
+    if (user.role === UserRole.BUSINESS) {
+      await this.businessService.assertStaffCan(user.userId, Permission.BUSINESS_WITHDRAWALS);
+    }
     return this.withdrawalService.unassignPayer(id, {
       userId: user.userId,
       email: user.email,

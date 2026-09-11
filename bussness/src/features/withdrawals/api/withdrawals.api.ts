@@ -47,6 +47,9 @@ export const withdrawalsApi = {
     apiPatch<Withdrawal>(`/withdrawals/${id}/unlist-for-p2p`, { reason }),
   setPriority: (id: string, priority: boolean) =>
     apiPatch<Withdrawal>(`/withdrawals/${id}/priority`, { priority }),
+  assignPayer: (id: string, assigneeId: string) =>
+    apiPatch<Withdrawal>(`/withdrawals/${id}/assign`, { assigneeId }),
+  unassignPayer: (id: string) => apiPatch<Withdrawal>(`/withdrawals/${id}/unassign`, {}),
   approve: (
     id: string,
     body?: { utr?: string; txHash?: string; proofImageKey?: string; proofImageUrl?: string },
