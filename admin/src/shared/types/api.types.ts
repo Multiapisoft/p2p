@@ -162,6 +162,12 @@ export interface Withdrawal {
     utr?: string;
   };
   usdtDetails?: { walletAddress?: string; network?: string; txHash?: string };
+  cdmDetails?: {
+    bankName?: string;
+    payerName?: string;
+    locationHint?: string;
+    notes?: string;
+  };
 }
 
 export interface Business {
