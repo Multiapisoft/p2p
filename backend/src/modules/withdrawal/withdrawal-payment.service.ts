@@ -841,7 +841,7 @@ export class WithdrawalPaymentService {
             status: { priority: -1, status: 1, createdAt: -1 },
           });
 
-    const queryLimit = investorSequential ? Math.max(limit, 50) : limit;
+    const queryLimit = investorSequential ? Math.max(limit, 100) : limit;
     const querySkip = investorSequential ? 0 : skip;
 
     const [rawItems, totalMatched] = await Promise.all([
@@ -957,7 +957,8 @@ export class WithdrawalPaymentService {
     let itemsWithCreditOut = itemsWithCredit;
     let noMatchReason: 'tail_no_wd' | 'no_open_wd' | null = null;
     if (investorSequential) {
-      // FIFO: next open WD. Payable if fits plan; skippable if USDT or open INR > 1.3× remaining.
+      // Prefer WDs the investor can pay within remaining limit; only then
+      // surface USDT / oversized items that need skip to unblock the queue.
       const openQueue = itemsWithCredit.filter((i) => (i.remainingAmount ?? 0) > 0);
       const pickRequired = (
         item: (typeof itemsWithCredit)[number],
@@ -984,31 +985,39 @@ export class WithdrawalPaymentService {
         };
       };
 
-      let chosen: (typeof itemsWithCredit)[number] | null = null;
-      let chosenMeta: { required: number; isUsdt: boolean; canSkip: boolean } | null =
-        null;
+      const payable: Array<{
+        item: (typeof itemsWithCredit)[number];
+        meta: { required: number; isUsdt: boolean; canSkip: boolean };
+      }> = [];
+      const skippableOnly: typeof payable = [];
       if (limitView) {
         for (const item of openQueue) {
           const meta = pickRequired(item, limitView.remaining);
-          // Surface payable, USDT, or oversized (>1.3×) skippable items.
-          if (meta.required > 0 || meta.canSkip) {
-            chosen = item;
-            chosenMeta = meta;
-            break;
+          if (meta.required > 0) {
+            payable.push({ item, meta });
+          } else if (meta.canSkip) {
+            skippableOnly.push({ item, meta });
           }
         }
       }
 
-      if (chosen && chosenMeta && limitView) {
-        itemsWithCreditOut = [
-          {
-            ...chosen,
-            requiredPayAmount: chosenMeta.required,
-            maxPayable: chosenMeta.required,
-            canSkipUsdt: chosenMeta.canSkip,
-            canSkip: chosenMeta.canSkip,
-          } as unknown as (typeof itemsWithCredit)[number],
-        ];
+      const picked = payable.length
+        ? payable
+        : skippableOnly.length
+          ? [skippableOnly[0]]
+          : [];
+
+      if (picked.length && limitView) {
+        itemsWithCreditOut = picked.map(
+          ({ item, meta }) =>
+            ({
+              ...item,
+              requiredPayAmount: meta.required,
+              maxPayable: meta.required > 0 ? meta.required : item.maxPayable,
+              canSkipUsdt: meta.canSkip,
+              canSkip: meta.canSkip,
+            }) as unknown as (typeof itemsWithCredit)[number],
+        );
         total = openQueue.length;
       } else {
         itemsWithCreditOut = [];
@@ -1025,7 +1034,7 @@ export class WithdrawalPaymentService {
       items: itemsWithCreditOut,
       total,
       page: investorSequential ? 1 : page,
-      limit: investorSequential ? 1 : limit,
+      limit: investorSequential ? Math.max(itemsWithCreditOut.length, 1) : limit,
       totalPages: investorSequential ? 1 : Math.max(1, Math.ceil(total / limit) || 1),
       needsLimit: false,
       needsPlan: false,
@@ -1952,7 +1961,7 @@ export class WithdrawalPaymentService {
           populate: [
             {
               path: 'userId',
-              select: 'name email phone role status businessUserCode externalRef',
+              select: 'name email role status businessUserCode externalRef',
             },
             {
               path: 'businessId',
@@ -1960,7 +1969,7 @@ export class WithdrawalPaymentService {
             },
           ],
         })
-        .populate('payerUserId', 'name email phone role status businessUserCode externalRef')
+        .populate('payerUserId', 'name email role status businessUserCode externalRef')
         .skip(skip)
         .limit(limit)
         .sort(sortSpec)

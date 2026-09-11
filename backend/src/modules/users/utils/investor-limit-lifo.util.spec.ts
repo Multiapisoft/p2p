@@ -68,11 +68,29 @@ describe('investor-limit-lifo', () => {
     expect(lifo[1].remaining).toBe(10000);
   });
 
-  it('replaceInvestorPlanLot resets to a single plan lot', () => {
-    const lots = replaceInvestorPlanLot(50000, t2);
+  it('replaceInvestorPlanLot starts fresh when no prior usage', () => {
+    const lots = replaceInvestorPlanLot(50000, null, t2);
     expect(lots).toHaveLength(1);
     expect(lots[0].amount).toBe(50000);
     expect(lots[0].remaining).toBe(50000);
     expect(investorLimitRemaining(lots)).toBe(50000);
+  });
+
+  it('replaceInvestorPlanLot carries used amount into the new plan', () => {
+    let lots = addInvestorLimitLot([], 25000, t1);
+    lots = consumeInvestorLimitLifo(lots, 10000).lots;
+    lots = replaceInvestorPlanLot(50000, lots, t2);
+    expect(lots).toHaveLength(1);
+    expect(lots[0].amount).toBe(50000);
+    expect(lots[0].remaining).toBe(40000);
+    expect(investorLimitRemaining(lots)).toBe(40000);
+  });
+
+  it('replaceInvestorPlanLot leaves 0 remaining when used exceeds new plan', () => {
+    let lots = addInvestorLimitLot([], 50000, t1);
+    lots = consumeInvestorLimitLifo(lots, 40000).lots;
+    lots = replaceInvestorPlanLot(25000, lots, t2);
+    expect(lots[0].amount).toBe(25000);
+    expect(lots[0].remaining).toBe(0);
   });
 });

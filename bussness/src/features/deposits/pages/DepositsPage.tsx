@@ -365,7 +365,7 @@ export function DepositsPage() {
                           {payer?.name || payer?.email || '—'}
                         </p>
                         <p className="mt-0.5 truncate text-xs text-on-surface-variant">
-                          {[payer?.role, payer?.email, payer?.phone, payer?.businessUserCode]
+                          {[payer?.role, payer?.email, payer?.businessUserCode]
                             .filter(Boolean)
                             .join(' · ') || '—'}
                         </p>
@@ -429,7 +429,6 @@ function PaymentDetailsModal({
             </p>
             <DetailRow label="Name" value={owner?.name || '—'} />
             <DetailRow label="Email" value={owner?.email || '—'} />
-            <DetailRow label="Phone" value={owner?.phone || '—'} />
             <DetailRow label="Role" value={owner?.role || '—'} />
             <DetailRow label="Code" value={owner?.businessUserCode || '—'} />
             <DetailRow label="External ref" value={owner?.externalRef || '—'} />
@@ -441,7 +440,6 @@ function PaymentDetailsModal({
             </p>
             <DetailRow label="Name" value={payer?.name || '—'} />
             <DetailRow label="Email" value={payer?.email || '—'} />
-            <DetailRow label="Phone" value={payer?.phone || '—'} />
             <DetailRow label="Role" value={payer?.role || '—'} />
             <DetailRow label="Code" value={payer?.businessUserCode || '—'} />
             <DetailRow label="External ref" value={payer?.externalRef || '—'} />

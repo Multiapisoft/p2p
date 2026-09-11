@@ -294,7 +294,7 @@ export class UsersService {
 
     const { items, total } = await this.usersRepo.findAll(filter, skip, limit, sortSpec);
     return {
-      items: items.map((u) => this.formatIntegrationUser(u, businessId, { includePhone: true })),
+      items: items.map((u) => this.formatIntegrationUser(u, businessId, { includePhone: false })),
       total,
       page,
       limit,
@@ -723,7 +723,8 @@ export class UsersService {
   }
 
   /**
-   * Change investment plan: replace all limit lots with one new lot.
+   * Change investment plan: one new lot for the chosen amount.
+   * Amount already paid (used) is carried over — remaining = new plan − used.
    * Clears skipped oversized/USDT IDs so the queue refreshes for the new plan.
    */
   async replaceInvestorPlan(userId: string, planAmount: number) {
@@ -744,7 +745,7 @@ export class UsersService {
       );
     }
 
-    const lots = replaceInvestorPlanLot(rounded);
+    const lots = replaceInvestorPlanLot(rounded, this.readLots(user));
     const updated = await this.usersRepo.update(userId, {
       investorLimitLots: lots,
       investorPlanAmount: rounded,

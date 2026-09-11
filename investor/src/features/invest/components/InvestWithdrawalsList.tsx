@@ -230,7 +230,7 @@ export function InvestWithdrawalsList() {
     return () => clearInterval(id);
   }, [claimPayDeadline, target]);
 
-  const listQuery = useMemo(() => ({ page: 1, limit: 1 }), []);
+  const listQuery = useMemo(() => ({ page: 1, limit: 20 }), []);
 
   const payAmountNum = Number(payAmount);
   const { data: creditPreview, isFetching: previewLoading } = useQuery({
@@ -289,10 +289,11 @@ export function InvestWithdrawalsList() {
         proofImageKey: proofKey || undefined,
         proofImageUrl: proofUrl || undefined,
       }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['invest-withdrawals'] });
-      qc.invalidateQueries({ queryKey: ['portfolio'] });
+    onSuccess: async () => {
       closePay();
+      await qc.invalidateQueries({ queryKey: ['invest-withdrawals'] });
+      await qc.invalidateQueries({ queryKey: ['portfolio'] });
+      await refetch();
     },
     onError: (err: unknown) => {
       setFormError(apiErrorMessage(err, 'Submission failed. Please check your details.'));
@@ -339,12 +340,13 @@ export function InvestWithdrawalsList() {
 
   const skipUsdt = useMutation({
     mutationFn: (withdrawalId: string) => fulfillApi.skipUsdtWithdrawal(withdrawalId),
-    onSuccess: (res) => {
+    onSuccess: async (res) => {
       setFormError('');
       closePay();
       qc.setQueryData(['invest-withdrawals', listQuery], res);
-      void qc.invalidateQueries({ queryKey: ['invest-withdrawals'] });
-      void qc.invalidateQueries({ queryKey: ['portfolio'] });
+      await qc.invalidateQueries({ queryKey: ['invest-withdrawals'] });
+      await qc.invalidateQueries({ queryKey: ['portfolio'] });
+      await refetch();
     },
     onError: (err: unknown) => {
       setFormError(apiErrorMessage(err, 'Could not skip this request'));
@@ -486,7 +488,11 @@ export function InvestWithdrawalsList() {
       <div className="overflow-hidden rounded-xl border border-outline-variant/60 bg-surface-container-lowest">
         <div className="flex items-center justify-between border-b border-outline-variant/50 px-3 py-2">
           <p className="text-xs font-semibold text-on-surface-variant">
-            {nextWithdrawal ? 'Your next payment' : 'Waiting for assignment'}
+            {items.length
+              ? items.length > 1
+                ? `Payable now (${items.length})`
+                : 'Your next payment'
+              : 'Waiting for assignment'}
           </p>
           <Button type="button" size="sm" variant="outline" onClick={() => refetch()}>
             Refresh
@@ -534,13 +540,16 @@ export function InvestWithdrawalsList() {
             )}
           </div>
         ) : (
-          <div className={`p-4 ${isFetching ? 'opacity-70' : ''}`}>
-            {(() => {
-              const w = nextWithdrawal;
+          <div className={`space-y-3 p-4 ${isFetching ? 'opacity-70' : ''}`}>
+            {items.map((w) => {
               const meta = METHOD_META[w.method];
               const payDue = requiredPayFor(w, limitRemaining);
+              const skipOnly = payDue <= 0 && canSkipWithdrawal(w);
               return (
-                <div className="space-y-4">
+                <div
+                  key={w._id}
+                  className="space-y-3 rounded-xl border border-outline-variant/50 bg-surface-container-low/30 p-3"
+                >
                   <div className="flex flex-wrap items-start gap-3">
                     <span
                       className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${meta.color}`}
@@ -550,7 +559,9 @@ export function InvestWithdrawalsList() {
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
                         <p className="text-xl font-bold">
-                          Pay {formatCurrency(payDue, moneyCurrency(w))}
+                          {skipOnly
+                            ? formatCurrency(w.remainingAmount, moneyCurrency(w))
+                            : `Pay ${formatCurrency(payDue, moneyCurrency(w))}`}
                         </p>
                         <StatusBadge status={w.status} />
                         {w.priority ? (
@@ -566,11 +577,6 @@ export function InvestWithdrawalsList() {
                         Withdrawal total {formatCurrency(w.amount, moneyCurrency(w))} · Open{' '}
                         {formatCurrency(w.remainingAmount, moneyCurrency(w))}
                       </p>
-                      {queueTotal > 1 && (
-                        <p className="mt-1 text-[11px] font-medium text-secondary">
-                          {queueTotal - 1} more in queue after you complete this payment
-                        </p>
-                      )}
                     </div>
                   </div>
 
@@ -594,15 +600,17 @@ export function InvestWithdrawalsList() {
                     </p>
                   )}
 
-                  <Button
-                    className="w-full"
-                    size="lg"
-                    onClick={() => openPay(w)}
-                    loading={claimingId === w._id}
-                    disabled={payDue <= 0 || claimingId === w._id || skipUsdt.isPending}
-                  >
-                    Pay {formatCurrency(payDue, moneyCurrency(w))} now
-                  </Button>
+                  {payDue > 0 ? (
+                    <Button
+                      className="w-full"
+                      size="lg"
+                      onClick={() => openPay(w)}
+                      loading={claimingId === w._id}
+                      disabled={claimingId === w._id || skipUsdt.isPending}
+                    >
+                      Pay {formatCurrency(payDue, moneyCurrency(w))} now
+                    </Button>
+                  ) : null}
                   {canSkipWithdrawal(w) ? (
                     <Button
                       className="w-full"
@@ -619,20 +627,21 @@ export function InvestWithdrawalsList() {
                         : 'Skip oversized request'}
                     </Button>
                   ) : null}
-                  {formError && !target ? (
-                    <p className="rounded-lg bg-error-container px-3 py-2 text-center text-xs text-on-error-container">
-                      {formError}
-                    </p>
-                  ) : null}
-                  <p className="text-center text-[11px] text-on-surface-variant">
-                    Amount is fixed. Complete this payment to see the next withdrawal.
-                    {canSkipWithdrawal(w)
-                      ? ' Or skip this request (USDT or above 1.3× your remaining limit) to continue.'
-                      : ''}
-                  </p>
                 </div>
               );
-            })()}
+            })}
+            {formError && !target ? (
+              <p className="rounded-lg bg-error-container px-3 py-2 text-center text-xs text-on-error-container">
+                {formError}
+              </p>
+            ) : null}
+            <p className="text-center text-[11px] text-on-surface-variant">
+              Showing requests you can pay with your remaining limit
+              {queueTotal > items.length
+                ? ` · ${queueTotal - items.length} more in queue`
+                : ''}
+              .
+            </p>
           </div>
         )}
       </div>

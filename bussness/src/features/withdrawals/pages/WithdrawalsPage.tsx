@@ -18,7 +18,6 @@ import { CsvDownloadButton } from '@/shared/components/CsvDownloadButton';
 import { fetchAllPages } from '@/shared/lib/csv';
 import { resolveUser } from '@/shared/lib/entity-user';
 import { BusinessWithdrawalForm } from '../components/BusinessWithdrawalForm';
-import { AssignPayerModal } from '../components/AssignPayerModal';
 import { WithdrawalOwnerPaymentsPanel } from '../components/WithdrawalOwnerPaymentsPanel';
 import { useAuthStore } from '@/features/auth/store/auth.store';
 import type { Withdrawal } from '@/shared/types/api.types';
@@ -125,7 +124,6 @@ export function WithdrawalsPage({
   const [proofUrl, setProofUrl] = useState('');
   const [proofUploading, setProofUploading] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
-  const [assignTarget, setAssignTarget] = useState<Withdrawal | null>(null);
   const [actionError, setActionError] = useState('');
   const qc = useQueryClient();
 
@@ -191,28 +189,6 @@ export function WithdrawalsPage({
       qc.invalidateQueries({ queryKey: ['business-overview'] });
     },
     onError: (err) => setActionError(getApiErrorMessage(err, 'Could not update highlight')),
-  });
-
-  const assignPayer = useMutation({
-    mutationFn: ({ id, assigneeId }: { id: string; assigneeId: string }) =>
-      withdrawalsApi.assignPayer(id, assigneeId),
-    onSuccess: () => {
-      setAssignTarget(null);
-      setActionError('');
-      qc.invalidateQueries({ queryKey: ['business-withdrawals'] });
-      qc.invalidateQueries({ queryKey: ['business-withdrawal'] });
-    },
-    onError: (err) => setActionError(getApiErrorMessage(err, 'Assign failed')),
-  });
-
-  const unassignPayer = useMutation({
-    mutationFn: (id: string) => withdrawalsApi.unassignPayer(id),
-    onSuccess: () => {
-      setActionError('');
-      qc.invalidateQueries({ queryKey: ['business-withdrawals'] });
-      qc.invalidateQueries({ queryKey: ['business-withdrawal'] });
-    },
-    onError: (err) => setActionError(getApiErrorMessage(err, 'Unassign failed')),
   });
 
   const approveMutation = useMutation({
@@ -379,7 +355,7 @@ export function WithdrawalsPage({
           <div className="flex flex-wrap gap-2">
             <Input
               className="min-w-[220px] flex-1"
-              placeholder="Search reference, user name, email, phone, UPI…"
+              placeholder="Search reference, user name, email, UPI…"
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
             />
@@ -619,34 +595,6 @@ export function WithdrawalsPage({
                               {w.priority ? 'Clear highlight' : 'Highlight'}
                             </Button>
                           )}
-                          {(w.status === 'pending' || w.status === 'processing') &&
-                          Math.max(
-                            0,
-                            w.amount - (w.paidAmount || 0) - (w.reservedAmount || 0),
-                          ) > 0 &&
-                          (w.origin !== 'business' || w.p2pListStatus === 'listed') ? (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => {
-                                setActionError('');
-                                setAssignTarget(w);
-                              }}
-                            >
-                              {resolveUser(w.assignedTo).id ? 'Reassign' : 'Assign'}
-                            </Button>
-                          ) : null}
-                          {resolveUser(w.assignedTo).id &&
-                          (w.status === 'pending' || w.status === 'processing') ? (
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              loading={unassignPayer.isPending}
-                              onClick={() => unassignPayer.mutate(w._id)}
-                            >
-                              Unassign
-                            </Button>
-                          ) : null}
                           <Button
                             size="sm"
                             variant="ghost"
@@ -793,35 +741,6 @@ export function WithdrawalsPage({
                       )}
                     </div>
                   )}
-                  {(detail.status === 'pending' || detail.status === 'processing') &&
-                  Math.max(
-                    0,
-                    detail.amount - (detail.paidAmount || 0) - (detail.reservedAmount || 0),
-                  ) > 0 &&
-                  (detail.origin !== 'business' || detail.p2pListStatus === 'listed') ? (
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      <Button
-                        className="flex-1"
-                        variant="outline"
-                        onClick={() => {
-                          setActionError('');
-                          setAssignTarget(detail);
-                        }}
-                      >
-                        {resolveUser(detail.assignedTo).id ? 'Reassign' : 'Assign user'}
-                      </Button>
-                      {resolveUser(detail.assignedTo).id ? (
-                        <Button
-                          className="flex-1"
-                          variant="ghost"
-                          loading={unassignPayer.isPending}
-                          onClick={() => unassignPayer.mutate(detail._id)}
-                        >
-                          Unassign
-                        </Button>
-                      ) : null}
-                    </div>
-                  ) : null}
                   {(detail.commissionAmount || 0) > 0 ? (
                     <DetailRow
                       label="Commission cut"
@@ -1069,15 +988,6 @@ export function WithdrawalsPage({
           </Button>
         </form>
       </Modal>
-
-      <AssignPayerModal
-        open={!!assignTarget}
-        withdrawal={assignTarget}
-        loading={assignPayer.isPending}
-        error={actionError}
-        onClose={() => setAssignTarget(null)}
-        onAssign={(assigneeId) => assignPayer.mutate({ id: assignTarget!._id, assigneeId })}
-      />
     </div>
   );
 }

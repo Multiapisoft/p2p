@@ -103,7 +103,7 @@ export function InvestorLimitPanel({
         <div className="space-y-2 rounded-lg border border-outline-variant/60 bg-surface-container-low/40 p-3">
           <p className="text-xs font-semibold text-on-surface">Choose a new plan</p>
           <p className="text-[11px] text-on-surface-variant">
-            This replaces your current remaining limit. Skipped requests are cleared.
+            This replaces your plan. Amount already paid stays used; remaining = new plan − used.
           </p>
           <div className="flex flex-wrap gap-2">
             {plans.map((p) => (

@@ -96,12 +96,21 @@ export function restoreInvestorLimitLifo(
   return next;
 }
 
-/** Replace all lots with a single new plan lot (change plan). */
+/**
+ * Replace plan with a single lot. Carries over amount already used toward the
+ * previous limit so mid-plan upgrades keep progress:
+ * remaining = max(0, newPlan − used).
+ */
 export function replaceInvestorPlanLot(
   planAmount: number,
+  previousLots?: InvestorLimitLot[] | null,
   at: Date = new Date(),
 ): InvestorLimitLot[] {
   const rounded = roundMoney(planAmount);
   if (rounded <= 0) return [];
-  return [{ amount: rounded, remaining: rounded, createdAt: at }];
+  const used = roundMoney(
+    Math.max(0, investorLimitAdded(previousLots) - investorLimitRemaining(previousLots)),
+  );
+  const remaining = roundMoney(Math.max(0, rounded - used));
+  return [{ amount: rounded, remaining, createdAt: at }];
 }

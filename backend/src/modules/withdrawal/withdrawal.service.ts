@@ -1017,7 +1017,7 @@ export class WithdrawalService {
   /**
    * Assign a listed (or listable) withdrawal to one user/investor.
    * Only that assignee then sees it on the pay list and can submit UTR/slip.
-   * Admin: any active user/investor. Business: own referred users only.
+   * Admin / sub-admin only (business owners cannot assign).
    */
   async assignPayer(
     withdrawalId: string,
@@ -1026,6 +1026,10 @@ export class WithdrawalService {
   ) {
     if (!Types.ObjectId.isValid(assigneeId)) {
       throw new BadRequestException('Invalid assignee');
+    }
+
+    if (actor.role !== UserRole.ADMIN && actor.role !== UserRole.SUB_ADMIN) {
+      throw new ForbiddenException('Only admin can assign withdrawals');
     }
 
     const withdrawal = await this.withdrawalModel.findById(withdrawalId).exec();
@@ -1057,24 +1061,6 @@ export class WithdrawalService {
       throw new BadRequestException('Assign only to a user or investor');
     }
 
-    if (actor.role === UserRole.BUSINESS) {
-      const business = await this.businessService.findForActor(actor.userId);
-      const bizId = business._id.toString();
-      if (withdrawal.businessId?.toString() !== bizId) {
-        throw new ForbiddenException('Withdrawal does not belong to your business');
-      }
-      const assigneeBiz = assignee.referredByBusiness?.toString();
-      if (assigneeBiz !== bizId) {
-        throw new ForbiddenException('You can only assign to your own users');
-      }
-      // Business assigns to end-users only (not investors).
-      if (assignee.role !== UserRole.USER) {
-        throw new BadRequestException('Assign only to your business users');
-      }
-    } else if (actor.role !== UserRole.ADMIN && actor.role !== UserRole.SUB_ADMIN) {
-      throw new ForbiddenException('Not allowed to assign withdrawals');
-    }
-
     if (assignee.role === UserRole.INVESTOR) {
       const owner = await this.userModel.findById(withdrawal.userId).select('role').lean().exec();
       if (isInvestorToInvestorPay(assignee.role, owner?.role)) {
@@ -1083,9 +1069,6 @@ export class WithdrawalService {
     }
 
     if (withdrawal.p2pListStatus !== 'listed') {
-      if (actor.role === UserRole.BUSINESS && withdrawal.origin === 'business') {
-        throw new ForbiddenException('Admin must verify business withdrawal requests');
-      }
       const tatMs = await this.platformSettingsService.getTatMs();
       const createdAt = (withdrawal as unknown as { createdAt?: Date }).createdAt;
       if (
@@ -1163,13 +1146,8 @@ export class WithdrawalService {
     const withdrawal = await this.withdrawalModel.findById(withdrawalId).exec();
     if (!withdrawal) throw new NotFoundException('Withdrawal not found');
 
-    if (actor.role === UserRole.BUSINESS) {
-      const business = await this.businessService.findForActor(actor.userId);
-      if (withdrawal.businessId?.toString() !== business._id.toString()) {
-        throw new ForbiddenException('Withdrawal does not belong to your business');
-      }
-    } else if (actor.role !== UserRole.ADMIN && actor.role !== UserRole.SUB_ADMIN) {
-      throw new ForbiddenException('Not allowed to unassign withdrawals');
+    if (actor.role !== UserRole.ADMIN && actor.role !== UserRole.SUB_ADMIN) {
+      throw new ForbiddenException('Only admin can unassign withdrawals');
     }
 
     if (!withdrawal.assignedTo) {
@@ -1336,7 +1314,7 @@ export class WithdrawalService {
     const withdrawal = await this.withdrawalModel
       .findById(id)
       .populate('userId', 'name email externalRef businessUserCode')
-      .populate('assignedTo', 'name email phone role businessUserCode')
+      .populate('assignedTo', 'name email role businessUserCode')
       .exec();
     if (!withdrawal) throw new NotFoundException('Withdrawal not found');
     if (withdrawal.businessId?.toString() !== businessId) {
@@ -1442,7 +1420,7 @@ export class WithdrawalService {
       this.withdrawalModel
         .find(filter)
         .populate('userId', 'name email externalRef businessUserCode')
-        .populate('assignedTo', 'name email phone role businessUserCode')
+        .populate('assignedTo', 'name email role businessUserCode')
         .skip(skip)
         .limit(limit)
         .sort(sortSpec)

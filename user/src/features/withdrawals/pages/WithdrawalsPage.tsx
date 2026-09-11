@@ -111,7 +111,7 @@ function DestinationLine({ w }: { w: Withdrawal }) {
     const name = w.upiDetails.payerName?.trim();
     return (
       <p className="text-xs text-on-surface-variant">
-        {name ? `NAME ${name} ∑ ` : ''}UPI {w.upiDetails.upiId}
+        {name ? `NAME ${name} ù ` : ''}UPI {w.upiDetails.upiId}
       </p>
     );
   }
@@ -125,13 +125,13 @@ function DestinationLine({ w }: { w: Withdrawal }) {
       b?.ifscCode ? `IFSC ${b.ifscCode}` : null,
       b?.bankName ? `BANK ${b.bankName}` : null,
     ].filter(Boolean);
-    return <p className="text-xs text-on-surface-variant">{parts.join(' ∑ ')}</p>;
+    return <p className="text-xs text-on-surface-variant">{parts.join(' ù ')}</p>;
   }
   if (w.method === 'usdt' && w.usdtDetails?.walletAddress) {
     const addr = w.usdtDetails.walletAddress;
     return (
       <p className="break-all text-xs text-on-surface-variant">
-        USDT ∑ {addr.slice(0, 10)}Ö{addr.slice(-6)}
+        USDT ù {addr.slice(0, 10)}ù{addr.slice(-6)}
       </p>
     );
   }
@@ -266,10 +266,7 @@ export function WithdrawalsPage() {
       setPendingPayload(null);
       setShowForm(false);
       resetForm();
-      toast.success(
-        'Withdrawal submitted',
-        'Waiting for business approval. After it is approved (verified), others can pay this request.',
-      );
+      toast.success('Withdrawal submitted');
     },
     onError: (err) => {
       const msg = withdrawalErrorMessage(err);
@@ -514,7 +511,7 @@ export function WithdrawalsPage() {
       if (numAmount > payRemaining) {
         setFormError(
           payRemaining < 1
-            ? 'No remaining pay limit. Deposit first ó deposits increase the limit. Withdrawal must stay within remaining.'
+            ? 'No remaining pay limit. Deposit first ù deposits increase the limit. Withdrawal must stay within remaining.'
             : `Amount exceeds remaining pay limit (?${payRemaining})`,
         );
         return;
@@ -535,7 +532,7 @@ export function WithdrawalsPage() {
       }
     }
 
-    // USDT method: send INR ó backend converts with the business buy rate.
+    // USDT method: send INR ù backend converts with the business buy rate.
     const payload: CreateWithdrawalPayload = {
       amount: numAmount,
       method,
@@ -672,7 +669,7 @@ export function WithdrawalsPage() {
           {walletIsUsdt && (
             <p className="mt-1 text-[10px] leading-snug text-on-surface-variant sm:mt-2 sm:text-xs">
               Rate {usdtInrRate}
-              {typeof maxInr === 'number' ? ` ∑ ~${formatCurrency(maxInr, 'INR')}` : ''}
+              {typeof maxInr === 'number' ? ` ù ~${formatCurrency(maxInr, 'INR')}` : ''}
             </p>
           )}
         </div>
@@ -827,7 +824,7 @@ export function WithdrawalsPage() {
                 USDT to send:{' '}
                 <span className="font-bold">{formatCurrency(usdtFromInr, 'USDT')}</span>
                 <span className="mt-0.5 block text-xs opacity-90">
-                  ?{enteredInr.toLocaleString('en-IN')} ˜ {usdtInrRate} ={' '}
+                  ?{enteredInr.toLocaleString('en-IN')} ù {usdtInrRate} ={' '}
                   {usdtFromInr.toLocaleString('en-IN', { maximumFractionDigits: 6 })} USDT
                 </span>
               </p>
@@ -840,7 +837,7 @@ export function WithdrawalsPage() {
                   {usdtToSpend} USDT
                 </span>{' '}
                 from partner wallet
-                {typeof maxInr === 'number' ? ` ∑ max ~?${maxInr}` : ''}.
+                {typeof maxInr === 'number' ? ` ù max ~?${maxInr}` : ''}.
               </p>
             )}
 
@@ -887,7 +884,7 @@ export function WithdrawalsPage() {
                     }}
                   />
                   {qrScanning ? (
-                    <p className="mt-1 text-xs text-on-surface-variant">Reading QRÖ</p>
+                    <p className="mt-1 text-xs text-on-surface-variant">Reading QRù</p>
                   ) : null}
                   {qrScanError ? (
                     <p className="mt-1 text-xs text-error">{qrScanError}</p>
@@ -1003,7 +1000,7 @@ export function WithdrawalsPage() {
               <Input
                 label="Search"
                 icon="search"
-                placeholder="Reference, UPI, accountÖ"
+                placeholder="Reference, UPI, accountù"
                 value={searchInput}
                 onChange={(e) => setSearchInput(e.target.value)}
               />
@@ -1182,7 +1179,7 @@ export function WithdrawalsPage() {
                           {w.referenceId}
                         </p>
                         <p className="text-[11px] text-on-surface-variant sm:text-xs">
-                          {w.method.toUpperCase()} ∑ {formatDate(w.createdAt)}
+                          {w.method.toUpperCase()} ù {formatDate(w.createdAt)}
                         </p>
                         {w.sourceAmount != null && w.sourceCurrency && w.exchangeRate != null && (
                           <p className="text-[11px] text-on-surface-variant sm:text-xs">
@@ -1251,7 +1248,7 @@ export function WithdrawalsPage() {
                     <div className="border-t border-outline-variant/70 px-3 pb-3 pt-2.5 sm:px-5 sm:pb-4 sm:pt-3">
                       <div className="mb-1.5 flex flex-wrap items-center justify-between gap-1 text-[11px] sm:mb-2 sm:text-xs">
                         <span className="text-on-surface-variant">
-                          Paid {formatCurrency(paid, w.currency)} ∑ Left{' '}
+                          Paid {formatCurrency(paid, w.currency)} ù Left{' '}
                           {formatCurrency(remaining, w.currency)}
                         </span>
                         <span className="font-semibold">{pct}%</span>
@@ -1264,9 +1261,9 @@ export function WithdrawalsPage() {
                       </div>
                       <p className="mt-1.5 text-[11px] text-on-surface-variant sm:mt-2 sm:text-xs">
                         {completedPays.length} completed
-                        {pendingPays.length ? ` ∑ ${pendingPays.length} pending` : ''}
-                        {disputedPays.length ? ` ∑ ${disputedPays.length} disputed` : ''}
-                        {payments.length === 0 ? ' ∑ No payments yet' : ''}
+                        {pendingPays.length ? ` ù ${pendingPays.length} pending` : ''}
+                        {disputedPays.length ? ` ù ${disputedPays.length} disputed` : ''}
+                        {payments.length === 0 ? ' ù No payments yet' : ''}
                       </p>
                     </div>
 
@@ -1300,8 +1297,8 @@ export function WithdrawalsPage() {
                                     </p>
                                     <p className="mt-0.5 break-all text-[11px] text-on-surface-variant">
                                       {p.referenceId}
-                                      {p.utr ? ` ∑ UTR ${p.utr}` : ''}
-                                      {p.createdAt ? ` ∑ ${formatDate(p.createdAt)}` : ''}
+                                      {p.utr ? ` ù UTR ${p.utr}` : ''}
+                                      {p.createdAt ? ` ù ${formatDate(p.createdAt)}` : ''}
                                     </p>
                                     {p.status === 'pending' && windowLabel && !p.disputedAt && (
                                       <p className="mt-1 text-[11px] text-secondary">{windowLabel}</p>
@@ -1309,9 +1306,9 @@ export function WithdrawalsPage() {
                                     {p.disputedAt && (
                                       <p className="mt-1 text-[11px] text-error">
                                         Support ticket{' '}
-                                        <span className="font-mono">{p.disputeTicketId || 'ó'}</span>
+                                        <span className="font-mono">{p.disputeTicketId || 'ù'}</span>
                                         {p.notes?.includes('. ')
-                                          ? ` ∑ ${p.notes.split('. ').slice(1).join('. ').trim()}`
+                                          ? ` ù ${p.notes.split('. ').slice(1).join('. ').trim()}`
                                           : ''}
                                       </p>
                                     )}
@@ -1403,8 +1400,8 @@ export function WithdrawalsPage() {
               Opens a support ticket. Auto-receive pauses until resolved.
             </p>
             <p className="mt-3 break-all text-xs text-on-surface-variant">
-              {disputeFor.referenceId} ∑ {formatCurrency(disputeFor.amount, disputeFor.currency)}
-              {disputeFor.utr ? ` ∑ UTR ${disputeFor.utr}` : ''}
+              {disputeFor.referenceId} ù {formatCurrency(disputeFor.amount, disputeFor.currency)}
+              {disputeFor.utr ? ` ù UTR ${disputeFor.utr}` : ''}
             </p>
             <label className="mt-4 block text-sm font-medium">
               Reason
@@ -1413,7 +1410,7 @@ export function WithdrawalsPage() {
                 rows={3}
                 value={disputeReason}
                 onChange={(e) => setDisputeReason(e.target.value)}
-                placeholder="Payment not received, wrong amount, fake proofÖ"
+                placeholder="Payment not received, wrong amount, fake proofù"
               />
             </label>
             {actionError && <p className="mt-2 text-xs text-error">{actionError}</p>}
@@ -1493,7 +1490,7 @@ export function WithdrawalsPage() {
                   <div className="flex justify-between gap-3">
                     <dt className="text-on-surface-variant">NAME</dt>
                     <dd className="text-right font-semibold">
-                      {pendingPayload.upiDetails.payerName || 'ó'}
+                      {pendingPayload.upiDetails.payerName || 'ù'}
                     </dd>
                   </div>
                   <div className="flex justify-between gap-3">
