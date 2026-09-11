@@ -1,4 +1,4 @@
-'use client';
+ï»¿'use client';
 
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -15,8 +15,6 @@ import {
   ifscError,
   personNameError,
   sanitizeAccountNumber,
-  sanitizeBankName,
-  sanitizePersonName,
   upiIdError,
 } from '@/shared/lib/validation';
 import { decodeQrFromImageFile, parseUpiPayPayload } from '@/shared/lib/upi-qr';
@@ -43,11 +41,11 @@ function methodSummary(m: SavedWithdrawalMethod) {
   if (m.method === 'bank') {
     const acct = m.bankDetails?.accountNumber || '';
     const last4 = acct.slice(-4) || '----';
-    return `XXXX${last4}${m.bankDetails?.ifscCode ? ` · ${m.bankDetails.ifscCode}` : ''}`;
+    return `XXXX${last4}${m.bankDetails?.ifscCode ? ` Â· ${m.bankDetails.ifscCode}` : ''}`;
   }
   const addr = m.usdtDetails?.walletAddress || '';
-  const short = addr.length > 14 ? `${addr.slice(0, 8)}…${addr.slice(-6)}` : addr;
-  return `${m.usdtDetails?.network || 'TRC20'} · ${short}`;
+  const short = addr.length > 14 ? `${addr.slice(0, 8)}â€¦${addr.slice(-6)}` : addr;
+  return `${m.usdtDetails?.network || 'TRC20'} Â· ${short}`;
 }
 
 export function SavedWithdrawalMethodsPanel({
@@ -252,7 +250,7 @@ export function SavedWithdrawalMethodsPanel({
                   {m.method === 'bank' && m.bankDetails?.accountHolderName ? (
                     <p className="text-xs text-on-surface-variant">
                       {m.bankDetails.accountHolderName}
-                      {m.bankDetails.bankName ? ` · ${m.bankDetails.bankName}` : ''}
+                      {m.bankDetails.bankName ? ` Â· ${m.bankDetails.bankName}` : ''}
                     </p>
                   ) : null}
                 </div>
@@ -345,7 +343,7 @@ export function SavedWithdrawalMethodsPanel({
                   }}
                 />
                 {qrScanning ? (
-                  <p className="mt-1 text-xs text-on-surface-variant">Reading QR…</p>
+                  <p className="mt-1 text-xs text-on-surface-variant">Reading QRâ€¦</p>
                 ) : null}
                 {qrScanError ? <p className="mt-1 text-xs text-error">{qrScanError}</p> : null}
               </div>
@@ -359,7 +357,7 @@ export function SavedWithdrawalMethodsPanel({
               <Input
                 label="Name of Account Holder *"
                 value={payerName}
-                onChange={(e) => setPayerName(sanitizePersonName(e.target.value))}
+                onChange={(e) => setPayerName(e.target.value)}
                 required
               />
             </>
@@ -383,13 +381,13 @@ export function SavedWithdrawalMethodsPanel({
               <Input
                 label="Name of Account Holder *"
                 value={accountHolderName}
-                onChange={(e) => setAccountHolderName(sanitizePersonName(e.target.value))}
+                onChange={(e) => setAccountHolderName(e.target.value)}
                 required
               />
               <Input
                 label="Bank name *"
                 value={bankName}
-                onChange={(e) => setBankName(sanitizeBankName(e.target.value))}
+                onChange={(e) => setBankName(e.target.value)}
                 required
               />
             </>

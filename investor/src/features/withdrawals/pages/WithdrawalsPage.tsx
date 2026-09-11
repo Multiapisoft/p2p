@@ -1,4 +1,4 @@
-'use client';
+ï»¿'use client';
 
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -20,8 +20,6 @@ import {
   ifscError,
   personNameError,
   sanitizeAccountNumber,
-  sanitizeBankName,
-  sanitizePersonName,
   upiIdError,
 } from '@/shared/lib/validation';
 import { formatSecondsMmSs } from '@/shared/lib/upi-qr';
@@ -55,7 +53,7 @@ function DestinationLine({ w }: { w: Withdrawal }) {
     const name = w.upiDetails.payerName?.trim();
     return (
       <p className="mt-1 text-xs text-on-surface-variant">
-        {name ? `NAME ${name} · ` : ''}UPI {w.upiDetails.upiId}
+        {name ? `NAME ${name} Â· ` : ''}UPI {w.upiDetails.upiId}
       </p>
     );
   }
@@ -67,7 +65,7 @@ function DestinationLine({ w }: { w: Withdrawal }) {
       b.ifscCode ? `IFSC ${b.ifscCode}` : null,
       b.bankName ? `BANK ${b.bankName}` : null,
     ].filter(Boolean);
-    return <p className="mt-1 text-xs text-on-surface-variant">{parts.join(' · ')}</p>;
+    return <p className="mt-1 text-xs text-on-surface-variant">{parts.join(' Â· ')}</p>;
   }
   if (w.method === 'usdt' && w.usdtDetails?.walletAddress) {
     return (
@@ -332,7 +330,7 @@ export function WithdrawalsPage() {
       return;
     }
     if (method !== 'usdt' && num < minWithdrawal) {
-      setFormError(`Minimum withdrawal is ?${minWithdrawal}`);
+      setFormError(`Minimum withdrawal is â‚¹${minWithdrawal}`);
       return;
     }
     if (num > available && !editingId) {
@@ -539,7 +537,7 @@ export function WithdrawalsPage() {
             )}
 
             <Input
-              label={method === 'usdt' ? 'Amount (INR ? USDT open)' : 'Amount (INR)'}
+              label={method === 'usdt' ? 'Amount (INR â†’ USDT open)' : 'Amount (INR)'}
               type="number"
               min={minWithdrawal}
               max={available}
@@ -562,7 +560,7 @@ export function WithdrawalsPage() {
                 <Input
                   label="Name of Account Holder *"
                   value={payerName}
-                  onChange={(e) => setPayerName(sanitizePersonName(e.target.value))}
+                  onChange={(e) => setPayerName(e.target.value)}
                   required
                 />
               </>
@@ -587,13 +585,13 @@ export function WithdrawalsPage() {
                 <Input
                   label="Name of Account Holder *"
                   value={accountHolderName}
-                  onChange={(e) => setAccountHolderName(sanitizePersonName(e.target.value))}
+                  onChange={(e) => setAccountHolderName(e.target.value)}
                   required
                 />
                 <Input
                   label="Bank name *"
                   value={bankName}
-                  onChange={(e) => setBankName(sanitizeBankName(e.target.value))}
+                  onChange={(e) => setBankName(e.target.value)}
                   required
                 />
               </>
@@ -753,12 +751,12 @@ export function WithdrawalsPage() {
                       {w.referenceId}
                     </p>
                     <p className="text-xs text-on-surface-variant">
-                      {w.method.toUpperCase()} · {formatDate(w.createdAt)}
+                      {w.method.toUpperCase()} Â· {formatDate(w.createdAt)}
                     </p>
                     {w.p2pListStatus === 'listed' &&
                     (w.status === 'pending' || w.status === 'processing') ? (
                       <p className="mt-1 text-[11px] font-medium text-secondary">
-                        Approved — verified for payout
+                        Approved â€” verified for payout
                       </p>
                     ) : null}
                     <DestinationLine w={w} />
@@ -818,7 +816,7 @@ export function WithdrawalsPage() {
                   <div className="border-t border-outline-variant/70 px-3 pb-3 pt-2.5 sm:px-4">
                     <div className="mb-1.5 flex flex-wrap items-center justify-between gap-1 text-[11px] sm:text-xs">
                       <span className="text-on-surface-variant">
-                        Paid {formatCurrency(paid, w.currency)} · Left{' '}
+                        Paid {formatCurrency(paid, w.currency)} Â· Left{' '}
                         {formatCurrency(remaining, w.currency)}
                       </span>
                       <span className="font-semibold">{pct}%</span>
@@ -831,8 +829,8 @@ export function WithdrawalsPage() {
                     </div>
                     <p className="mt-1.5 text-[11px] text-on-surface-variant">
                       {completedPays.length} completed
-                      {pendingPays.length ? ` · ${pendingPays.length} pending confirm` : ''}
-                      {disputedPays.length ? ` · ${disputedPays.length} disputed` : ''}
+                      {pendingPays.length ? ` Â· ${pendingPays.length} pending confirm` : ''}
+                      {disputedPays.length ? ` Â· ${disputedPays.length} disputed` : ''}
                     </p>
                   </div>
                 )}
@@ -949,7 +947,7 @@ export function WithdrawalsPage() {
                   <div className="flex justify-between gap-3">
                     <dt className="text-on-surface-variant">NAME</dt>
                     <dd className="text-right font-semibold">
-                      {pendingPayload.upiDetails.payerName || '—'}
+                      {pendingPayload.upiDetails.payerName || 'â€”'}
                     </dd>
                   </div>
                   <div className="flex justify-between gap-3">
