@@ -30,10 +30,20 @@ export function formatDate(date: string | Date) {
 
 export function apiErrorMessage(error: unknown, fallback = 'Something went wrong') {
   if (axios.isAxiosError(error)) {
+    const status = error.response?.status;
+    if (!error.response || status === 502 || status === 503 || status === 504) {
+      return 'Server temporarily unavailable. Please try again in a moment.';
+    }
     const msg = error.response?.data?.message;
     if (typeof msg === 'string' && msg.trim()) return msg;
     if (Array.isArray(msg) && msg.length) return msg.join(', ');
+    if (status === 413) return 'Upload is too large. Use a smaller file.';
   }
-  if (error instanceof Error && error.message) return error.message;
+  if (error instanceof Error && error.message) {
+    if (/status code 50[234]/i.test(error.message) || /network error/i.test(error.message)) {
+      return 'Server temporarily unavailable. Please try again in a moment.';
+    }
+    return error.message;
+  }
   return fallback;
 }

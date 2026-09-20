@@ -61,18 +61,27 @@ export class WithdrawalPaymentController {
   @Get('pending')
   @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN)
   @Permissions(Permission.WITHDRAWALS_MANAGE)
-  getPending(@Query() query: WithdrawalPaymentListQueryDto) {
-    return this.paymentService.findPending({
-      ...query,
-      status: query.status || TransactionStatus.PENDING,
-    });
+  getPending(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: WithdrawalPaymentListQueryDto,
+  ) {
+    return this.paymentService.findPending(
+      {
+        ...query,
+        status: query.status || TransactionStatus.PENDING,
+      },
+      user,
+    );
   }
 
   @Get('all')
   @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN)
   @Permissions(Permission.WITHDRAWALS_MANAGE)
-  getAll(@Query() query: WithdrawalPaymentListQueryDto) {
-    return this.paymentService.findAllPayments(query);
+  getAll(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: WithdrawalPaymentListQueryDto,
+  ) {
+    return this.paymentService.findAllPayments(query, user);
   }
 
   @Get('withdrawal/:withdrawalId')
@@ -118,7 +127,7 @@ export class WithdrawalPaymentController {
 
   @Patch(':id/confirm-received')
   confirmReceived(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
-    return this.paymentService.confirmReceived(id, user.userId, user.email);
+    return this.paymentService.confirmReceived(id, user);
   }
 
   @Post(':id/dispute')
@@ -127,14 +136,14 @@ export class WithdrawalPaymentController {
     @Body() dto: DisputeWithdrawalPaymentDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.paymentService.raiseDispute(id, user.userId, user.email, dto);
+    return this.paymentService.raiseDispute(id, user, dto);
   }
 
   @Patch(':id/approve')
   @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN)
   @Permissions(Permission.WITHDRAWALS_MANAGE)
   approve(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
-    return this.paymentService.approvePayment(id, user.email, user.userId);
+    return this.paymentService.approvePayment(id, user.email, user.userId, undefined, user);
   }
 
   @Patch(':id/reject')
@@ -145,6 +154,6 @@ export class WithdrawalPaymentController {
     @Body() dto: RejectWithdrawalPaymentDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.paymentService.rejectPayment(id, dto, user.email);
+    return this.paymentService.rejectPayment(id, dto, user.email, user);
   }
 }

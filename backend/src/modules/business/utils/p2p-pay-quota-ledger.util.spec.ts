@@ -1,4 +1,8 @@
-import { p2pPayQuotaLedgerDescription } from './p2p-pay-quota-ledger.util';
+import {
+  p2pPayQuotaLedgerDescription,
+  shouldSkipInProcessQuotaLedger,
+  isInProcessP2pQuotaLedgerRef,
+} from './p2p-pay-quota-ledger.util';
 
 describe('p2pPayQuotaLedgerDescription', () => {
   it('describes admin seed set', () => {
@@ -75,6 +79,14 @@ describe('p2pPayQuotaLedgerDescription', () => {
         reason: 'list_reserve',
       }),
     ).toBe('P2P list reserve ₹5000 (withdrawal listed). Remaining ₹10000 → ₹5000');
+  });
+
+  it('skips ledger write for in-process list reserve and release', () => {
+    expect(shouldSkipInProcessQuotaLedger('list_reserve')).toBe(true);
+    expect(shouldSkipInProcessQuotaLedger('list_release')).toBe(true);
+    expect(shouldSkipInProcessQuotaLedger('wd_fee')).toBe(false);
+    expect(isInProcessP2pQuotaLedgerRef('withdrawal_list')).toBe(true);
+    expect(isInProcessP2pQuotaLedgerRef('withdrawal_payment')).toBe(false);
   });
 
   it('describes quota deduct', () => {

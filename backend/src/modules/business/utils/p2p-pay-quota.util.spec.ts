@@ -3,6 +3,10 @@ import {
   p2pPayQuotaIsUnlimited,
   p2pPayQuotaRemaining,
   p2pPayLimitExceededError,
+  remainingForPayingListedWithdrawal,
+  isListedQuotaHoldActive,
+  shouldHealCancelledListedQuota,
+  withdrawalOwnerBusinessIdForRates,
 } from './p2p-pay-quota.util';
 
 describe('p2pPayQuotaRemaining', () => {
@@ -36,13 +40,46 @@ describe('p2pPayQuotaRemaining', () => {
   });
 });
 
+describe('remainingForPayingListedWithdrawal', () => {
+  it('adds back this WD list reserve so pay is not blocked after list', () => {
+    expect(remainingForPayingListedWithdrawal(200, 10_000)).toBe(10_200);
+    expect(remainingForPayingListedWithdrawal(0, 5_000)).toBe(5_000);
+    expect(remainingForPayingListedWithdrawal(500, 0)).toBe(500);
+  });
+});
+
 describe('p2pPayLimitExceededError', () => {
-  it('tells users to deposit when remaining is ₹0', () => {
-    expect(p2pPayLimitExceededError(0)).toContain('User deposits increase remaining');
+  it('tells users to contact admin when remaining is ₹0', () => {
+    const msg = p2pPayLimitExceededError(0);
+    expect(msg).toContain('contact admin');
+    expect(msg).toContain('deposits');
   });
 
   it('shows remaining when amount is over the cap', () => {
     expect(p2pPayLimitExceededError(250)).toBe('Amount exceeds remaining P2P limit (₹250)');
+  });
+});
+
+describe('listed quota hold / cancel heal / WD owner rates', () => {
+  it('holds quota only for listed non-business WDs', () => {
+    expect(isListedQuotaHoldActive({ p2pListStatus: 'listed' })).toBe(true);
+    expect(isListedQuotaHoldActive({ origin: 'business', p2pListStatus: 'listed' })).toBe(
+      false,
+    );
+  });
+
+  it('heals cancelled WDs that are still listed', () => {
+    expect(
+      shouldHealCancelledListedQuota({ status: 'cancelled', p2pListStatus: 'listed' }),
+    ).toBe(true);
+    expect(
+      shouldHealCancelledListedQuota({ status: 'pending', p2pListStatus: 'listed' }),
+    ).toBe(false);
+  });
+
+  it('never uses payer business as WD-owner for rates', () => {
+    expect(withdrawalOwnerBusinessIdForRates('biz-1')).toBe('biz-1');
+    expect(withdrawalOwnerBusinessIdForRates(undefined)).toBeUndefined();
   });
 });
 

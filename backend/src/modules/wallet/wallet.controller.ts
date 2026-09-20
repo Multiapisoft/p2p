@@ -17,6 +17,7 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { UserRole } from '../../common/enums/role.enum';
 import { Permissions } from '../../common/decorators/permissions.decorator';
 import { Permission } from '../../common/enums/permission.enum';
+import { assertActorBusinessAccess } from '../../common/utils/admin-business-scope.util';
 import { WalletAdjustDto, ResetTxnDataDto } from './dto/wallet.dto';
 import { UsersRepository } from '../users/users.repository';
 import { BusinessService } from '../business/business.service';
@@ -193,12 +194,16 @@ export class WalletController {
   @Get('by-user/:userId')
   @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN)
   @Permissions(Permission.WALLET_ADJUST)
-  async getByUser(@Param('userId') userId: string) {
+  async getByUser(
+    @Param('userId') userId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
     if (!Types.ObjectId.isValid(userId)) {
       throw new BadRequestException('Invalid user id');
     }
     const doc = await this.usersRepo.findById(userId);
     if (!doc) throw new NotFoundException('User not found');
+    assertActorBusinessAccess(user, doc.referredByBusiness?.toString() || null);
 
     const wallet = await this.walletService.getOrCreate(userId, Currency.INR);
     const wallets = await this.walletService.findByUser(userId);
@@ -234,6 +239,8 @@ export class WalletController {
   @Permissions(Permission.WALLET_ADJUST)
   async adjust(@CurrentUser() user: AuthenticatedUser, @Body() dto: WalletAdjustDto) {
     const userId = await this.resolveAdjustUserId(dto);
+    const target = await this.usersRepo.findById(userId);
+    assertActorBusinessAccess(user, target?.referredByBusiness?.toString() || null);
     const currency =
       dto.currency?.toUpperCase() === Currency.USDT ? Currency.USDT : Currency.INR;
 

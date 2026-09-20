@@ -1,5 +1,5 @@
 import { apiGet, apiPatch, apiPost } from '@/shared/api/client';
-import type { Withdrawal, Paginated } from '@/shared/types/api.types';
+import type { Withdrawal, Paginated, TicketAttachment } from '@/shared/types/api.types';
 
 export type WithdrawalListQuery = {
   page?: number;
@@ -29,8 +29,10 @@ export const withdrawalsApi = {
   getAll: (query: WithdrawalListQuery = {}) =>
     apiGet<Paginated<Withdrawal>>('/withdrawals/all', cleanQuery(query)),
   getById: (id: string) => apiGet<Withdrawal>(`/withdrawals/${id}`),
-  approve: (id: string, utr?: string, txHash?: string) =>
-    apiPatch<Withdrawal>(`/withdrawals/${id}/approve`, { utr, txHash }),
+  approve: (
+    id: string,
+    body?: { utr?: string; txHash?: string; proofImageKey?: string; proofImageUrl?: string },
+  ) => apiPatch<Withdrawal>(`/withdrawals/${id}/approve`, body || {}),
   reject: (id: string, reason: string) =>
     apiPatch<Withdrawal>(`/withdrawals/${id}/reject`, { reason }),
   listForP2p: (id: string) => apiPatch<Withdrawal>(`/withdrawals/${id}/list-for-p2p`, {}),
@@ -55,6 +57,13 @@ export const withdrawalsApi = {
   }) => apiPost<Withdrawal>('/withdrawals/platform', payload),
   confirmPaymentReceived: (paymentId: string) =>
     apiPatch(`/withdrawal-payments/${paymentId}/confirm-received`),
-  disputePayment: (paymentId: string, reason?: string) =>
-    apiPost(`/withdrawal-payments/${paymentId}/dispute`, reason ? { reason } : {}),
+  disputePayment: (
+    paymentId: string,
+    reason?: string,
+    attachments?: TicketAttachment[],
+  ) =>
+    apiPost(`/withdrawal-payments/${paymentId}/dispute`, {
+      ...(reason ? { reason } : {}),
+      ...(attachments?.length ? { attachments } : {}),
+    }),
 };

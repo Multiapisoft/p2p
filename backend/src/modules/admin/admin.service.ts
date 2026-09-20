@@ -1,19 +1,27 @@
-import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  OnModuleInit,
+  Logger,
+  BadRequestException,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcryptjs';
 import { User, UserDocument } from '../users/schemas/user.schema';
 import { UserRole } from '../../common/enums/role.enum';
 import { UserStatus } from '../../common/enums/currency.enum';
 import { UsersService } from '../users/users.service';
-import { CreateSubAdminDto } from './dto/admin.dto';
+import { CreateSubAdminDto, UpdateSubAdminDto } from './dto/admin.dto';
 import { Deposit, DepositDocument } from '../deposit/schemas/deposit.schema';
 import { Withdrawal, WithdrawalDocument } from '../withdrawal/schemas/withdrawal.schema';
 import { Business, BusinessDocument } from '../business/schemas/business.schema';
 import { TransactionStatus } from '../../common/enums/transaction-status.enum';
 import { CommissionService } from '../commission/commission.service';
 import { CommissionTarget } from '../../common/enums/commission-target.enum';
+import { assignedBusinessOids } from '../../common/utils/admin-business-scope.util';
+import type { AuthenticatedUser } from '../../common/interfaces/jwt-payload.interface';
 
 @Injectable()
 export class AdminService implements OnModuleInit {
@@ -123,6 +131,7 @@ export class AdminService implements OnModuleInit {
   }
 
   async createSubAdmin(dto: CreateSubAdminDto, createdBy: string) {
+    await this.assertBusinessIdsExist(dto.assignedBusinessIds);
     return this.usersService.create(
       {
         email: dto.email,
@@ -130,9 +139,48 @@ export class AdminService implements OnModuleInit {
         name: dto.name,
         role: UserRole.SUB_ADMIN,
         permissions: dto.permissions,
+        assignedBusinessIds: dto.assignedBusinessIds,
       },
       createdBy,
     );
+  }
+
+  async updateSubAdmin(id: string, dto: UpdateSubAdminDto) {
+    const user = await this.userModel.findById(id).exec();
+    if (!user || user.role !== UserRole.SUB_ADMIN) {
+      throw new NotFoundException('Sub-admin not found');
+    }
+    if (dto.assignedBusinessIds !== undefined) {
+      await this.assertBusinessIdsExist(dto.assignedBusinessIds);
+    }
+
+    const patch: Partial<User> = {};
+    if (dto.name !== undefined) patch.name = dto.name.trim();
+    if (dto.permissions !== undefined) patch.permissions = dto.permissions;
+    if (dto.assignedBusinessIds !== undefined) {
+      patch.assignedBusinessIds = assignedBusinessOids(dto.assignedBusinessIds);
+    }
+    if (dto.password?.trim()) {
+      patch.password = await bcrypt.hash(dto.password.trim(), 12);
+    }
+
+    const updated = await this.userModel
+      .findByIdAndUpdate(id, { $set: patch }, { new: true })
+      .exec();
+    if (!updated) throw new NotFoundException('Sub-admin not found');
+    return this.usersService.findById(id);
+  }
+
+  private async assertBusinessIdsExist(ids?: string[]) {
+    if (!ids?.length) return;
+    const oids = assignedBusinessOids(ids);
+    if (oids.length !== ids.length) {
+      throw new BadRequestException('One or more business ids are invalid');
+    }
+    const count = await this.businessModel.countDocuments({ _id: { $in: oids } }).exec();
+    if (count !== oids.length) {
+      throw new BadRequestException('One or more businesses were not found');
+    }
   }
 
   async listSubAdmins(page = 1, limit = 20) {
@@ -143,7 +191,16 @@ export class AdminService implements OnModuleInit {
     return this.usersService.update(userId, { status });
   }
 
-  async getDashboardStats() {
+  async getDashboardStats(actor?: AuthenticatedUser) {
+    const bizScope =
+      actor?.role === UserRole.SUB_ADMIN
+        ? {
+            businessId: {
+              $in: assignedBusinessOids(actor.assignedBusinessIds),
+            },
+          }
+        : {};
+
     const [
       totalUsers,
       totalBusinesses,
@@ -154,16 +211,26 @@ export class AdminService implements OnModuleInit {
       completedWithdrawals,
     ] = await Promise.all([
       this.userModel.countDocuments({ role: UserRole.USER }).exec(),
-      this.businessModel.countDocuments().exec(),
+      actor?.role === UserRole.SUB_ADMIN
+        ? this.businessModel
+            .countDocuments({
+              _id: { $in: assignedBusinessOids(actor.assignedBusinessIds) },
+            })
+            .exec()
+        : this.businessModel.countDocuments().exec(),
       this.userModel.countDocuments({ role: UserRole.INVESTOR }).exec(),
-      this.depositModel.countDocuments({ status: TransactionStatus.PENDING }).exec(),
-      this.withdrawalModel.countDocuments({ status: TransactionStatus.PENDING }).exec(),
+      this.depositModel
+        .countDocuments({ status: TransactionStatus.PENDING, ...bizScope })
+        .exec(),
+      this.withdrawalModel
+        .countDocuments({ status: TransactionStatus.PENDING, ...bizScope })
+        .exec(),
       this.depositModel.aggregate([
-        { $match: { status: TransactionStatus.COMPLETED } },
+        { $match: { status: TransactionStatus.COMPLETED, ...bizScope } },
         { $group: { _id: null, total: { $sum: '$amount' } } },
       ]),
       this.withdrawalModel.aggregate([
-        { $match: { status: TransactionStatus.COMPLETED } },
+        { $match: { status: TransactionStatus.COMPLETED, ...bizScope } },
         { $group: { _id: null, total: { $sum: '$amount' } } },
       ]),
     ]);

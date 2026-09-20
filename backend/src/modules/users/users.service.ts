@@ -31,7 +31,6 @@ import {
 import { isValidPhone } from '../../common/validators/contact.validators';
 import { escapeRegex } from '../withdrawal/utils/payment-ref-uniqueness.util';
 import {
-  addInvestorLimitLot,
   consumeInvestorLimitLifo,
   investorLimitAdded,
   investorLimitLotsLifo,
@@ -54,7 +53,11 @@ import {
   upsertSavedWithdrawalMethod,
 } from './utils/saved-withdrawal-methods.util';
 
-export type UserListOpts = ListQueryOpts & { role?: string };
+export type UserListOpts = ListQueryOpts & {
+  role?: string;
+  /** Sub-admin: only users referred by these businesses. */
+  referredByBusinessIds?: string[];
+};
 
 @Injectable()
 export class UsersService {
@@ -120,6 +123,11 @@ export class UsersService {
       role,
       permissions: dto.permissions || [],
     };
+    if (role === UserRole.SUB_ADMIN && dto.assignedBusinessIds?.length) {
+      createData.assignedBusinessIds = dto.assignedBusinessIds
+        .filter((id) => Types.ObjectId.isValid(id))
+        .map((id) => new Types.ObjectId(id));
+    }
     if (role === UserRole.INVESTOR) {
       createData.referralCode = `inv_${uuidv4().replace(/-/g, '').slice(0, 10)}`;
     }
@@ -370,6 +378,17 @@ export class UsersService {
 
     if (opts.role && opts.role !== 'all') and.push({ role: opts.role });
     if (status) and.push({ status });
+    if (opts.referredByBusinessIds !== undefined) {
+      const oids = opts.referredByBusinessIds
+        .filter((id) => Types.ObjectId.isValid(id))
+        .map((id) => new Types.ObjectId(id));
+      and.push({
+        $or: [
+          { referredByBusiness: { $in: oids } },
+          { referredByBusiness: { $in: opts.referredByBusinessIds } },
+        ],
+      });
+    }
     if (search) {
       and.push({
         $or: [
@@ -704,22 +723,9 @@ export class UsersService {
     }
   }
 
-  /** Investor adds a custom pay-limit lot (no preset plans). */
+  /** Investor pay-limit — always one active plan (does not stack). */
   async addInvestorLimit(userId: string, amount: number) {
-    await this.usersRepo.invalidateCache(userId);
-    const user = await this.usersRepo.findById(userId);
-    if (!user) throw new NotFoundException('User not found');
-    if (user.role !== UserRole.INVESTOR) {
-      throw new ForbiddenException('Only investors can add a pay limit');
-    }
-    const rounded = Math.round(amount * 100) / 100;
-    if (rounded < 1) throw new BadRequestException('Amount must be at least 1');
-
-    const lots = addInvestorLimitLot(this.readLots(user), rounded);
-    const updated = await this.usersRepo.update(userId, {
-      investorLimitLots: lots,
-    } as Partial<User>);
-    return this.investorLimitSnapshotFromUser(updated);
+    return this.replaceInvestorPlan(userId, amount);
   }
 
   /**

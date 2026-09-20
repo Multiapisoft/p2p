@@ -14,6 +14,7 @@ import { getApiErrorMessage } from '@/shared/lib/api-error';
 import { formatCurrency, formatDate } from '@/shared/lib/utils';
 import { liveQueryOptions } from '@/shared/constants/live-query';
 import { WithdrawalOwnerPaymentsPanel } from '@/features/withdrawals/components/WithdrawalOwnerPaymentsPanel';
+import { supportApi } from '@/features/support/api/support.api';
 import {
   accountNumberError,
   bankNameError,
@@ -284,8 +285,15 @@ export function MyWithdrawalsPage() {
   });
 
   const raiseDispute = useMutation({
-    mutationFn: ({ paymentId, reason }: { paymentId: string; reason?: string }) =>
-      withdrawalsApi.disputePayment(paymentId, reason),
+    mutationFn: ({
+      paymentId,
+      reason,
+      attachments,
+    }: {
+      paymentId: string;
+      reason?: string;
+      attachments?: { key: string; publicUrl: string; filename: string }[];
+    }) => withdrawalsApi.disputePayment(paymentId, reason, attachments),
     onSuccess: () => {
       setActionError('');
       qc.invalidateQueries({ queryKey: ['admin-my-withdrawals'] });
@@ -453,8 +461,9 @@ export function MyWithdrawalsPage() {
                         }
                         disputing={raiseDispute.isPending}
                         onConfirm={(paymentId) => confirmReceived.mutate(paymentId)}
-                        onDispute={(paymentId, reason) =>
-                          raiseDispute.mutate({ paymentId, reason })
+                        uploadAttachment={supportApi.uploadAttachment}
+                        onDispute={(paymentId, reason, attachments) =>
+                          raiseDispute.mutate({ paymentId, reason, attachments })
                         }
                       />
                     ) : (

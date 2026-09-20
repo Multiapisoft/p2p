@@ -27,8 +27,15 @@ apiClient.interceptors.response.use(
         url.includes('/auth/forgot-password') ||
         url.includes('/auth/reset-password');
       if (!isAuthAttempt) {
+        const persistApi = useAuthStore.persist;
+        if (persistApi && !persistApi.hasHydrated()) {
+          return Promise.reject(error);
+        }
         useAuthStore.getState().logout();
-        window.location.href = '/login';
+        const next = `${window.location.pathname}${window.location.search || ''}`;
+        window.location.href = next.startsWith('/login')
+          ? '/login'
+          : `/login?next=${encodeURIComponent(next)}`;
       }
     }
     return Promise.reject(error);

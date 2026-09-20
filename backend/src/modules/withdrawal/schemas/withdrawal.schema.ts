@@ -108,8 +108,8 @@ export class Withdrawal {
    * Gate for P2P pay list: awaiting → listed (admin/business) → payers can fulfill.
    * Final wallet settle still uses status + payment approvals.
    */
-  @Prop({ type: String, enum: ['awaiting', 'listed', 'rejected'], default: 'awaiting', index: true })
-  p2pListStatus!: 'awaiting' | 'listed' | 'rejected';
+  @Prop({ type: String, enum: ['awaiting', 'listed', 'rejected', 'over_limit'], default: 'awaiting', index: true })
+  p2pListStatus!: 'awaiting' | 'listed' | 'rejected' | 'over_limit';
 
   @Prop()
   p2pListedAt?: Date;

@@ -1,6 +1,6 @@
 /**
  * Visibility rules:
- * - During user cancel TAT → only owner (user) sees edit/cancel on their panel
+ * - During user cancel TAT → only owner (user) sees cancel on their panel
  * - After TAT → business / admin can review for Platform Payment
  * - After listed (p2pListStatus=listed) → investors/users for pay
  */
@@ -90,9 +90,9 @@ export function userCanCancelWithdrawal(opts: {
   return cancellable && !listed && withinTat && (opts.paidAmount || 0) === 0;
 }
 
-/** Same TAT window as cancel — destination edit only. */
+/** Destination edit is disabled — owner may only cancel within TAT. */
 export function userCanEditWithdrawal(
-  opts: Parameters<typeof userCanCancelWithdrawal>[0],
+  _opts: Parameters<typeof userCanCancelWithdrawal>[0],
 ): boolean {
-  return userCanCancelWithdrawal(opts);
+  return false;
 }

@@ -15,7 +15,7 @@ describe('withdrawal-destination.validation (#15)', () => {
       expect(validatePersonName('Shaifali Kumar', true)).toBeNull();
     });
     it('rejects numbers in name', () => {
-      expect(validatePersonName('Raju123', true)).toMatch(/alphabets/);
+      expect(validatePersonName('Raju123', true)).toMatch(/letters, dots, and spaces/);
     });
     it('requires name when required=true', () => {
       expect(validatePersonName('  ', true)).toBe('Name is required');
@@ -68,7 +68,7 @@ describe('withdrawal-destination.validation (#15)', () => {
     it('bank name required and non-numeric', () => {
       expect(validateBankName('SBI')).toBeNull();
       expect(validateBankName('  ')).toBe('Bank name is required');
-      expect(validateBankName('HDFC2')).toMatch(/numeric/);
+      expect(validateBankName('HDFC2')).toMatch(/letters, dots, and spaces/);
     });
   });
 

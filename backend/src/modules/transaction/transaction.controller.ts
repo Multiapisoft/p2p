@@ -6,6 +6,7 @@ import { TransactionListQueryDto } from './dto/transaction.dto';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { UserRole } from '../../common/enums/role.enum';
 import { BusinessService } from '../business/business.service';
+import { subAdminBusinessIdsOrEmpty } from '../../common/utils/admin-business-scope.util';
 
 @Controller('transactions')
 export class TransactionController {
@@ -54,7 +55,10 @@ export class TransactionController {
 
   @Get('admin/all')
   @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN)
-  getAllTransactions(@Query() query: TransactionListQueryDto) {
+  getAllTransactions(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: TransactionListQueryDto,
+  ) {
     return this.transactionService.findAll({
       page: query.page,
       limit: query.limit,
@@ -63,6 +67,8 @@ export class TransactionController {
       type: query.type,
       userId: query.userId,
       direction: query.direction,
+      // Always pass array for sub-admin (empty = see nothing)
+      businessIds: subAdminBusinessIdsOrEmpty(user),
     });
   }
 }

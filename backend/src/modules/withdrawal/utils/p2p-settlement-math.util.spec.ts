@@ -45,6 +45,18 @@ describe('p2p-settlement-math (ledger + commissions + limits)', () => {
       expect(fees.adminFeeIn).toBe(750);
     });
 
+    it('does not pay investor bonus to a business-user payer', () => {
+      const fees = computePayFees({
+        payAmount: 5000,
+        wdFeePercent: WD_FEE,
+        depositFeePercent: DEP_FEE_B,
+        investorBonusPercent: INV_BONUS,
+        isInvestor: false,
+      });
+      expect(fees.investorBonus).toBe(0);
+      expect(fees.depositFee).toBe(500);
+    });
+
     it('skips deposit fee for investor; applies bonus %', () => {
       const fees = computePayFees({
         payAmount: 10_000,

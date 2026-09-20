@@ -14,6 +14,7 @@ import {
   type ListQueryOpts,
 } from '../../common/dto/list-query.dto';
 import { stripFeeCutFromDescription } from '../wallet/utils/platform-commission-ledger.util';
+import { IN_PROCESS_P2P_QUOTA_LEDGER_REFS } from '../business/utils/p2p-pay-quota-ledger.util';
 
 export interface CreateLedgerParams {
   userId: string;
@@ -39,6 +40,8 @@ export type TransactionListOpts = ListQueryOpts & {
   userId?: string;
   direction?: string;
   businessId?: string;
+  /** Sub-admin scope: restrict to these business ids. */
+  businessIds?: string[];
   /**
    * Business portal statement: owner wallet/limit rows PLUS this business's
    * users' deposit / withdrawal / investment / redemption lines.
@@ -120,6 +123,17 @@ export class TransactionService {
             : { businessId: bid },
         );
       }
+      if (opts.businessIds !== undefined) {
+        const oids = opts.businessIds
+          .filter((id) => Types.ObjectId.isValid(id))
+          .map((id) => new Types.ObjectId(id));
+        and.push({
+          $or: [
+            { businessId: { $in: oids } },
+            { businessId: { $in: opts.businessIds } },
+          ],
+        });
+      }
     }
     if (opts.direction && opts.direction !== 'all') {
       and.push({ direction: opts.direction });
@@ -156,6 +170,11 @@ export class TransactionService {
           },
         ],
       });
+      // In-process list reserve / unlist — not completed transactions.
+      and.push({
+        referenceType: { $nin: [...IN_PROCESS_P2P_QUOTA_LEDGER_REFS] },
+      });
+      and.push({ type: { $ne: LedgerType.LOCK } });
     }
 
     const filter = and.length ? { $and: and } : {};

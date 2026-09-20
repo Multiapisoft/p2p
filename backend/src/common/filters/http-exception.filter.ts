@@ -48,8 +48,20 @@ export class GlobalExceptionFilter implements ExceptionFilter {
           `${request?.method ?? '?'} ${request?.url ?? '?'} → ${exception.message}`,
           exception.stack,
         );
-        if (process.env.NODE_ENV !== 'production') {
-          message = exception.message || message;
+        const errName = exception.name || '';
+        const errMsg = exception.message || '';
+        if (
+          errName === 'ValidationError' ||
+          errMsg.toLowerCase().includes('validation failed')
+        ) {
+          status = HttpStatus.BAD_REQUEST;
+          message =
+            'Could not save payment. Check UTR and proof, then try again.';
+        } else if (errMsg.includes('E11000') || errMsg.toLowerCase().includes('duplicate key')) {
+          status = HttpStatus.BAD_REQUEST;
+          message = 'This reference is already used. Enter a unique UTR / TxID.';
+        } else if (process.env.NODE_ENV !== 'production') {
+          message = errMsg || message;
         }
       } else {
         this.logger.error(

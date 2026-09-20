@@ -114,6 +114,13 @@ export class User {
   @Prop({ type: Types.ObjectId, ref: 'Business', index: true })
   staffBusinessId?: Types.ObjectId;
 
+  /**
+   * Sub-admin only: businesses this operator may view/manage.
+   * Empty = no business data (lists return empty).
+   */
+  @Prop({ type: [{ type: Types.ObjectId, ref: 'Business' }], default: [] })
+  assignedBusinessIds?: Types.ObjectId[];
+
   @Prop({
     type: [
       {

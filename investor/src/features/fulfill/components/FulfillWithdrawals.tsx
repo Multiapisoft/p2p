@@ -432,9 +432,11 @@ export function FulfillWithdrawals({
     return { earned, pending };
   }, [myPayments]);
 
-  const addLimit = useMutation({
-    mutationFn: (amount: number) => fulfillApi.addInvestorLimit(amount),
+  const choosePlan = useMutation({
+    mutationFn: (planAmount: number) => fulfillApi.setInvestorPlan(planAmount),
     onSuccess: () => {
+      setFormError('');
+      closePay();
       qc.invalidateQueries({ queryKey: ['fulfill-available'] });
     },
   });
@@ -657,9 +659,7 @@ export function FulfillWithdrawals({
             added={limitAdded}
             lots={limitLots}
             planAmounts={platformSettings?.investorPlanAmounts}
-            pending={addLimit.isPending}
-            error={addLimit.error}
-            onAdd={(amount) => addLimit.mutate(amount)}
+            onAdd={() => undefined}
             readOnly={isInvest}
             allowChangePlan={isInvest}
             changePending={changePlan.isPending}
@@ -1014,9 +1014,9 @@ export function FulfillWithdrawals({
           lots={limitLots}
           firstLogin
           planAmounts={platformSettings?.investorPlanAmounts}
-          pending={addLimit.isPending}
-          error={addLimit.error}
-          onAdd={(amount) => addLimit.mutate(amount)}
+          pending={choosePlan.isPending}
+          error={choosePlan.error}
+          onAdd={(amount) => choosePlan.mutate(amount)}
         />
       </Modal>
 

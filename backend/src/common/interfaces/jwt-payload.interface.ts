@@ -12,4 +12,6 @@ export interface AuthenticatedUser {
   role: UserRole;
   staffBusinessId?: string | null;
   permissions?: string[];
+  /** Sub-admin: businesses they may operate on. */
+  assignedBusinessIds?: string[];
 }

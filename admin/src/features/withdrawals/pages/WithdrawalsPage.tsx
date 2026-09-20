@@ -18,6 +18,7 @@ import { PersonDetails } from '@/shared/components/PersonDetails';
 import { SplitPaymentsTab } from '../components/SplitPaymentsTab';
 import { RedemptionsTab } from '../components/RedemptionsTab';
 import { AssignPayerModal } from '../components/AssignPayerModal';
+import { adminDepositPayApi } from '@/features/deposits/api/admin-deposit-pay.api';
 import type { Withdrawal } from '@/shared/types/api.types';
 import { liveQueryOptions } from '@/shared/constants/live-query';
 
@@ -65,6 +66,12 @@ export function WithdrawalsPage() {
   const [payUtr, setPayUtr] = useState('');
   const [markPaidTarget, setMarkPaidTarget] = useState<WithdrawalRow | null>(null);
   const [markPaidUtr, setMarkPaidUtr] = useState('');
+  const [markPaidTxHash, setMarkPaidTxHash] = useState('');
+  const [markPaidProofKey, setMarkPaidProofKey] = useState('');
+  const [markPaidProofUrl, setMarkPaidProofUrl] = useState('');
+  const [markPaidProofUploading, setMarkPaidProofUploading] = useState(false);
+  const [rejectTarget, setRejectTarget] = useState<WithdrawalRow | null>(null);
+  const [rejectReason, setRejectReason] = useState('');
   const [actionError, setActionError] = useState('');
   const [detail, setDetail] = useState<WithdrawalRow | null>(null);
   const [assignTarget, setAssignTarget] = useState<WithdrawalRow | null>(null);
@@ -148,15 +155,47 @@ export function WithdrawalsPage() {
   });
 
   const markPaid = useMutation({
-    mutationFn: ({ id, utr }: { id: string; utr: string }) =>
-      withdrawalsApi.approve(id, utr),
+    mutationFn: ({
+      id,
+      utr,
+      txHash,
+      proofImageKey,
+      proofImageUrl,
+    }: {
+      id: string;
+      utr?: string;
+      txHash?: string;
+      proofImageKey?: string;
+      proofImageUrl?: string;
+    }) =>
+      withdrawalsApi.approve(id, {
+        utr,
+        txHash,
+        proofImageKey,
+        proofImageUrl,
+      }),
     onSuccess: () => {
       setMarkPaidTarget(null);
       setMarkPaidUtr('');
+      setMarkPaidTxHash('');
+      setMarkPaidProofKey('');
+      setMarkPaidProofUrl('');
       qc.invalidateQueries({ queryKey: ['withdrawals'] });
       setActionError('');
     },
     onError: (err) => setActionError(getApiErrorMessage(err, 'Mark paid failed')),
+  });
+
+  const rejectWithdrawal = useMutation({
+    mutationFn: ({ id, reason }: { id: string; reason: string }) =>
+      withdrawalsApi.reject(id, reason),
+    onSuccess: () => {
+      setRejectTarget(null);
+      setRejectReason('');
+      qc.invalidateQueries({ queryKey: ['withdrawals'] });
+      setActionError('');
+    },
+    onError: (err) => setActionError(getApiErrorMessage(err, 'Reject failed')),
   });
 
   const payAsAdmin = useMutation({
@@ -182,6 +221,7 @@ export function WithdrawalsPage() {
     if (w.origin === 'business' && s === 'awaiting') return 'Waiting admin verify';
     if (w.origin === 'business' && s === 'listed') return 'On pay list';
     if (s === 'listed') return 'Approved';
+    if (s === 'over_limit') return 'Over limit — admin approval';
     if (s === 'rejected') return 'Approval rejected';
     return 'Awaiting Platform Payment';
   }
@@ -554,7 +594,9 @@ export function WithdrawalsPage() {
                                       ? 'bg-secondary/15 text-secondary'
                                       : (w.p2pListStatus || 'awaiting') === 'rejected'
                                         ? 'bg-error/10 text-error'
-                                        : 'bg-outline-variant/40 text-on-surface-variant',
+                                        : w.p2pListStatus === 'over_limit'
+                                          ? 'bg-amber-500/15 text-amber-900'
+                                          : 'bg-outline-variant/40 text-on-surface-variant',
                                   )}
                                 >
                                   {p2pListLabel(w)}
@@ -593,7 +635,25 @@ export function WithdrawalsPage() {
                                     loading={listForP2p.isPending}
                                     onClick={() => listForP2p.mutate(w._id)}
                                   >
-                                    {w.origin === 'business' ? 'Verify' : 'Approve'}
+                                    {w.origin === 'business'
+                                      ? 'Verify'
+                                      : w.p2pListStatus === 'over_limit'
+                                        ? 'Approve over limit'
+                                        : 'Approve'}
+                                  </Button>
+                                )}
+                              {(w.status === 'pending' || w.status === 'processing') &&
+                                (w.paidAmount || 0) <= 0 && (
+                                  <Button
+                                    size="sm"
+                                    variant="danger"
+                                    onClick={() => {
+                                      setRejectTarget(w);
+                                      setRejectReason('');
+                                      setActionError('');
+                                    }}
+                                  >
+                                    Reject
                                   </Button>
                                 )}
                               {(w.status === 'pending' || w.status === 'processing') &&
@@ -620,6 +680,9 @@ export function WithdrawalsPage() {
                                           onClick={() => {
                                             setMarkPaidTarget(w);
                                             setMarkPaidUtr('');
+                                            setMarkPaidTxHash('');
+                                            setMarkPaidProofKey('');
+                                            setMarkPaidProofUrl('');
                                             setActionError('');
                                           }}
                                         >
@@ -843,38 +906,181 @@ export function WithdrawalsPage() {
 
       <Modal
         open={!!markPaidTarget}
-        onClose={() => setMarkPaidTarget(null)}
+        onClose={() => {
+          if (markPaid.isPending || markPaidProofUploading) return;
+          setMarkPaidTarget(null);
+          setActionError('');
+        }}
         title="Mark paid"
         className="sm:max-w-md"
       >
         {markPaidTarget ? (
-          <div className="space-y-3">
+          <form
+            className="space-y-3"
+            onSubmit={(e) => {
+              e.preventDefault();
+              const isUsdt = markPaidTarget.method === 'usdt';
+              const ref = isUsdt ? markPaidTxHash.trim() : markPaidUtr.trim();
+              if (!ref) {
+                setActionError(isUsdt ? 'Tx Hash is required' : 'UTR is required');
+                return;
+              }
+              markPaid.mutate({
+                id: markPaidTarget._id,
+                utr: isUsdt ? undefined : ref,
+                txHash: isUsdt ? ref : undefined,
+                proofImageKey: markPaidProofKey || undefined,
+                proofImageUrl: markPaidProofUrl || undefined,
+              });
+            }}
+          >
             <p className="text-sm text-on-surface-variant">
               Completes this business withdrawal after you already paid the destination.
             </p>
-            <Input
-              label="UTR / TxID"
-              value={markPaidUtr}
-              onChange={(e) => setMarkPaidUtr(e.target.value)}
-            />
+            {markPaidTarget.method === 'usdt' ? (
+              <Input
+                label="Tx Hash"
+                value={markPaidTxHash}
+                onChange={(e) => setMarkPaidTxHash(e.target.value)}
+                placeholder="Tx hash"
+                maxLength={66}
+              />
+            ) : (
+              <Input
+                label="UTR / RRN"
+                value={markPaidUtr}
+                onChange={(e) => setMarkPaidUtr(e.target.value)}
+                placeholder="UTR / RRN"
+                maxLength={22}
+              />
+            )}
+            <div>
+              <p className="mb-1 text-sm font-semibold">Payment evidence (optional)</p>
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp,image/*"
+                className="block w-full text-sm"
+                disabled={markPaidProofUploading || markPaid.isPending}
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  setMarkPaidProofUploading(true);
+                  setActionError('');
+                  try {
+                    const uploaded = await adminDepositPayApi.uploadProof(
+                      file,
+                      'withdrawal-approve-proof',
+                    );
+                    setMarkPaidProofKey(uploaded.key);
+                    setMarkPaidProofUrl(uploaded.publicUrl);
+                  } catch (err) {
+                    setMarkPaidProofKey('');
+                    setMarkPaidProofUrl('');
+                    setActionError(err instanceof Error ? err.message : 'Upload failed');
+                  } finally {
+                    setMarkPaidProofUploading(false);
+                    e.target.value = '';
+                  }
+                }}
+              />
+              {markPaidProofUploading ? (
+                <p className="mt-1 text-xs text-on-surface-variant">Uploading…</p>
+              ) : null}
+              {markPaidProofUrl ? (
+                <a
+                  href={markPaidProofUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-1 inline-block truncate text-xs font-semibold text-secondary hover:underline"
+                >
+                  Evidence attached — view
+                </a>
+              ) : null}
+            </div>
+            {actionError ? (
+              <div className="rounded-lg bg-error-container px-4 py-3 text-sm text-on-error-container">
+                {actionError}
+              </div>
+            ) : null}
             <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setMarkPaidTarget(null)}>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setMarkPaidTarget(null)}
+                disabled={markPaid.isPending}
+              >
                 Cancel
               </Button>
               <Button
-                loading={markPaid.isPending}
-                onClick={() => {
-                  if (!markPaidUtr.trim()) {
-                    setActionError('UTR is required');
-                    return;
-                  }
-                  markPaid.mutate({ id: markPaidTarget._id, utr: markPaidUtr.trim() });
-                }}
+                type="submit"
+                loading={markPaid.isPending || markPaidProofUploading}
               >
                 Confirm paid
               </Button>
             </div>
-          </div>
+          </form>
+        ) : null}
+      </Modal>
+
+      <Modal
+        open={!!rejectTarget}
+        onClose={() => {
+          if (rejectWithdrawal.isPending) return;
+          setRejectTarget(null);
+          setActionError('');
+        }}
+        title="Reject withdrawal"
+        className="sm:max-w-md"
+      >
+        {rejectTarget ? (
+          <form
+            className="space-y-3"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!rejectReason.trim()) {
+                setActionError('Reject reason is required');
+                return;
+              }
+              rejectWithdrawal.mutate({
+                id: rejectTarget._id,
+                reason: rejectReason.trim(),
+              });
+            }}
+          >
+            <p className="text-sm text-on-surface-variant">
+              Cancels request <span className="font-mono font-semibold">{rejectTarget.referenceId}</span>{' '}
+              and unlocks the user wallet. This cannot be undone.
+            </p>
+            <Input
+              label="Reason"
+              value={rejectReason}
+              onChange={(e) => setRejectReason(e.target.value)}
+              placeholder="Reason for rejection"
+              required
+            />
+            {actionError ? (
+              <div className="rounded-lg bg-error-container px-4 py-3 text-sm text-on-error-container">
+                {actionError}
+              </div>
+            ) : null}
+            <div className="flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setRejectTarget(null)}
+                disabled={rejectWithdrawal.isPending}
+              >
+                Back
+              </Button>
+              <Button
+                type="submit"
+                variant="danger"
+                loading={rejectWithdrawal.isPending}
+              >
+                Confirm reject
+              </Button>
+            </div>
+          </form>
         ) : null}
       </Modal>
 

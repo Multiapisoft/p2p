@@ -18,6 +18,8 @@ import { PaymentMethod } from '../../common/enums/payment-method.enum';
 import { TransactionStatus } from '../../common/enums/transaction-status.enum';
 import { CommissionTarget } from '../../common/enums/commission-target.enum';
 import { LedgerType, Currency, UserStatus } from '../../common/enums/currency.enum';
+import { businessScopeFilter, assertActorBusinessAccess } from '../../common/utils/admin-business-scope.util';
+import type { AuthenticatedUser } from '../../common/interfaces/jwt-payload.interface';
 import { Business, BusinessDocument } from '../business/schemas/business.schema';
 import { User, UserDocument } from '../users/schemas/user.schema';
 import { WebhookService } from '../webhook/webhook.service';
@@ -238,7 +240,17 @@ export class DepositService {
     return deposit;
   }
 
-  async approve(depositId: string, dto: ApproveDepositDto, approvedBy: string, actorId?: string) {
+  async approve(
+    depositId: string,
+    dto: ApproveDepositDto,
+    approvedBy: string,
+    actorId?: string,
+    actor?: Pick<AuthenticatedUser, 'role' | 'assignedBusinessIds'>,
+  ) {
+    const existing = await this.depositModel.findById(depositId).exec();
+    if (!existing) throw new NotFoundException('Deposit not found');
+    assertActorBusinessAccess(actor, existing.businessId?.toString());
+
     const deposit = await withOptionalTransaction(this.connection, async (session) => {
       const doc = await this.depositModel.findById(depositId).session(session || null);
       if (!doc) throw new NotFoundException('Deposit not found');
@@ -461,7 +473,17 @@ export class DepositService {
     return this.reject(depositId, dto, rejectedBy, actorId);
   }
 
-  async reject(depositId: string, dto: RejectDepositDto, rejectedBy?: string, actorId?: string) {
+  async reject(
+    depositId: string,
+    dto: RejectDepositDto,
+    rejectedBy?: string,
+    actorId?: string,
+    actor?: Pick<AuthenticatedUser, 'role' | 'assignedBusinessIds'>,
+  ) {
+    const existing = await this.depositModel.findById(depositId).exec();
+    if (!existing) throw new NotFoundException('Deposit not found');
+    assertActorBusinessAccess(actor, existing.businessId?.toString());
+
     const deposit = await this.depositModel
       .findByIdAndUpdate(
         depositId,
@@ -537,7 +559,11 @@ export class DepositService {
     return deposit;
   }
 
-  async findById(id: string, userId?: string) {
+  async findById(
+    id: string,
+    userId?: string,
+    actor?: Pick<AuthenticatedUser, 'role' | 'assignedBusinessIds'>,
+  ) {
     const q = this.depositModel.findById(id);
     if (!userId) {
       q.populate('userId', 'name email phone role status businessUserCode externalRef')
@@ -548,6 +574,9 @@ export class DepositService {
     if (!deposit) throw new NotFoundException('Deposit not found');
     if (userId && deposit.userId.toString() !== userId) {
       throw new ForbiddenException('Not your deposit');
+    }
+    if (!userId) {
+      assertActorBusinessAccess(actor, deposit.businessId?.toString());
     }
     return deposit;
   }
@@ -681,16 +710,21 @@ export class DepositService {
     );
   }
 
-  async findPending(opts: DepositListOpts = {}) {
+  async findPending(
+    opts: DepositListOpts = {},
+    actor?: { role?: string; assignedBusinessIds?: string[] },
+  ) {
+    const scope = businessScopeFilter(actor?.role, actor?.assignedBusinessIds);
     return this.queryDeposits(
-      {},
+      scope || {},
       { ...opts, status: opts.status || TransactionStatus.PENDING },
       'admin',
     );
   }
 
-  async findAll(opts: DepositListOpts = {}) {
-    return this.queryDeposits({}, opts, 'admin');
+  async findAll(opts: DepositListOpts = {}, actor?: { role?: string; assignedBusinessIds?: string[] }) {
+    const scope = businessScopeFilter(actor?.role, actor?.assignedBusinessIds);
+    return this.queryDeposits(scope || {}, opts, 'admin');
   }
 
   async getMethodSummary(status?: TransactionStatus) {

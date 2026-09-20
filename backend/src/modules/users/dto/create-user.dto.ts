@@ -51,6 +51,11 @@ export class CreateUserDto {
   @IsArray()
   @IsString({ each: true })
   permissions?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  assignedBusinessIds?: string[];
 }
 
 export class CreateBusinessStaffDto {

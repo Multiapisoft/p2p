@@ -30,6 +30,8 @@ import { CsvDownloadButton } from '@/shared/components/CsvDownloadButton';
 import { fetchAllPages } from '@/shared/lib/csv';
 import { confirmDialog } from '@/shared/ui/confirm/confirm.store';
 import { SavedWithdrawalMethodsPanel } from '../components/SavedWithdrawalMethodsPanel';
+import { TicketAttachmentPicker, type TicketFile } from '@/features/support/components/TicketAttachments';
+import { supportApi } from '@/features/support/api/support.api';
 import type {
   CreateWithdrawalPayload,
   PaymentMethod,
@@ -161,7 +163,6 @@ export function WithdrawalsPage() {
   const [pendingPayload, setPendingPayload] = useState<CreateWithdrawalPayload | null>(null);
   /** INR the user typed when method is USDT (API amount is converted USDT). */
   const [pendingInrAmount, setPendingInrAmount] = useState<number | null>(null);
-  const [editingId, setEditingId] = useState<string | null>(null);
   const [selectedSavedMethodId, setSelectedSavedMethodId] = useState('');
   const [saveCurrentMethod, setSaveCurrentMethod] = useState(false);
   const [saveAsDefault, setSaveAsDefault] = useState(false);
@@ -170,6 +171,7 @@ export function WithdrawalsPage() {
   const [actionError, setActionError] = useState('');
   const [disputeFor, setDisputeFor] = useState<WithdrawalSplitPayment | null>(null);
   const [disputeReason, setDisputeReason] = useState('');
+  const [disputeFiles, setDisputeFiles] = useState<TicketFile[]>([]);
   const [now, setNow] = useState(() => Date.now());
   const qc = useQueryClient();
 
@@ -253,6 +255,7 @@ export function WithdrawalsPage() {
     if (!stillPending) {
       setDisputeFor(null);
       setDisputeReason('');
+      setDisputeFiles([]);
     }
   }, [data, disputeFor]);
 
@@ -281,28 +284,6 @@ export function WithdrawalsPage() {
       toast.success('Withdrawal cancelled');
     },
     onError: (err) => toast.error('Cancel failed', withdrawalErrorMessage(err)),
-  });
-
-  const updateDestination = useMutation({
-    mutationFn: ({
-      id,
-      payload,
-    }: {
-      id: string;
-      payload: Pick<CreateWithdrawalPayload, 'upiDetails' | 'bankDetails' | 'usdtDetails'>;
-    }) => withdrawalsApi.updateDestination(id, payload),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['withdrawals'] });
-      setPendingPayload(null);
-      setShowForm(false);
-      resetForm();
-      toast.success('Withdrawal details updated');
-    },
-    onError: (err) => {
-      const msg = withdrawalErrorMessage(err);
-      setFormError(msg);
-      toast.error('Update failed', msg);
-    },
   });
 
   const saveMethod = useMutation({
@@ -356,12 +337,20 @@ export function WithdrawalsPage() {
   });
 
   const raiseDispute = useMutation({
-    mutationFn: ({ paymentId, reason }: { paymentId: string; reason?: string }) =>
-      withdrawalsApi.disputePayment(paymentId, reason),
+    mutationFn: ({
+      paymentId,
+      reason,
+      attachments,
+    }: {
+      paymentId: string;
+      reason?: string;
+      attachments?: TicketFile[];
+    }) => withdrawalsApi.disputePayment(paymentId, reason, attachments),
     onSuccess: async () => {
       setActionError('');
       setDisputeFor(null);
       setDisputeReason('');
+      setDisputeFiles([]);
       await qc.refetchQueries({ queryKey: ['withdrawals'] });
       toast.success('Dispute raised', 'A support ticket was created.');
     },
@@ -385,29 +374,9 @@ export function WithdrawalsPage() {
     setFormError('');
     setPendingPayload(null);
     setPendingInrAmount(null);
-    setEditingId(null);
     setSelectedSavedMethodId('');
     setSaveCurrentMethod(false);
     setSaveAsDefault(false);
-  };
-
-  const startEdit = (w: Withdrawal) => {
-    setEditingId(w._id);
-    setShowForm(true);
-    setMethod(w.method);
-    setAmount(String(w.amount));
-    setUpiId(w.upiDetails?.upiId || '');
-    setPayerName(w.upiDetails?.payerName || '');
-    setAccountNumber(w.bankDetails?.accountNumber || '');
-    setIfscCode(w.bankDetails?.ifscCode || '');
-    setAccountHolderName(w.bankDetails?.accountHolderName || '');
-    setBankName(w.bankDetails?.bankName || '');
-    setWalletAddress(w.usdtDetails?.walletAddress || '');
-    setNetwork(w.usdtDetails?.network || 'TRC20');
-    setFormError('');
-    setPendingPayload(null);
-    setPendingInrAmount(null);
-    setSelectedSavedMethodId('');
   };
 
   const savedMethods = (savedMethodsData?.items ?? profile?.savedWithdrawalMethods ?? []).filter(
@@ -429,11 +398,11 @@ export function WithdrawalsPage() {
   };
 
   useEffect(() => {
-    if (!showForm || editingId || !savedMethods.length) return;
+    if (!showForm || !savedMethods.length) return;
     if (selectedSavedMethodId) return;
     const preferred = savedMethods.find((m) => m.isDefault) || savedMethods[0];
     if (preferred) applySavedMethod(preferred);
-  }, [showForm, editingId, savedMethods, selectedSavedMethodId]);
+  }, [showForm, savedMethods, selectedSavedMethodId]);
 
   const displayCurrency = balance?.currency || 'INR';
   const walletIsUsdt = (displayCurrency || '').toUpperCase() === 'USDT';
@@ -446,24 +415,22 @@ export function WithdrawalsPage() {
    * Amount field is INR when creating:
    * - method is USDT (INR in → USDT out at rate), or
    * - USDT wallet paying out to UPI/Bank/CDM.
-   * While editing, amount stays as stored currency (read-only).
    */
-  const amountIsInrEntry = !editingId && (isUsdtMethod || walletIsUsdt);
-  const amountIsInrPayout = !editingId && walletIsUsdt && !isUsdtMethod;
+  const amountIsInrEntry = isUsdtMethod || walletIsUsdt;
+  const amountIsInrPayout = walletIsUsdt && !isUsdtMethod;
   const amountCurrency = isUsdtMethod
     ? 'USDT'
     : amountIsInrPayout
       ? 'INR'
       : displayCurrency;
-  const amountFieldLabel =
-    editingId && isUsdtMethod
-      ? 'Amount (USDT)'
-      : amountIsInrEntry
-        ? isUsdtMethod
-          ? 'Amount (INR)'
-          : 'Amount (INR to receive)'
-        : `Amount (${displayCurrency})`;
+  const amountFieldLabel = amountIsInrEntry
+    ? isUsdtMethod
+      ? 'Amount (INR)'
+      : 'Amount (INR to receive)'
+    : `Amount (${displayCurrency})`;
   const payRemaining = balance?.p2pPayRemainingInr;
+  const businessLimitExhausted =
+    isBusinessLinked && typeof payRemaining === 'number' && payRemaining < 1;
   const maxInr =
     balance?.approxInrAvailable ??
     (walletIsUsdt ? Math.floor((balance?.availableBalance ?? 0) * usdtInrRate * 100) / 100 : undefined);
@@ -499,23 +466,24 @@ export function WithdrawalsPage() {
       setFormError('Enter a valid amount');
       return;
     }
-    const usdtAmount =
-      !editingId && method === 'usdt' ? inrToUsdt(numAmount) : 0;
-    if (!editingId && method === 'usdt' && usdtAmount <= 0) {
+    const usdtAmount = method === 'usdt' ? inrToUsdt(numAmount) : 0;
+    if (method === 'usdt' && usdtAmount <= 0) {
       setFormError('Amount is too small for USDT conversion at the current rate');
       return;
     }
     if (isBusinessLinked && typeof payRemaining === 'number') {
-      if (numAmount > payRemaining) {
+      if (payRemaining < 1) {
         setFormError(
-          payRemaining < 1
-            ? 'No remaining pay limit. Deposit first — deposits increase the limit. Withdrawal must stay within remaining.'
-            : `Amount exceeds remaining pay limit (₹${payRemaining})`,
+          'No business pay limit available. Please contact admin to increase the limit.',
         );
         return;
       }
+      if (numAmount > payRemaining) {
+        setFormError(`Amount exceeds remaining pay limit (₹${payRemaining})`);
+        return;
+      }
     }
-    if (balance && !isBusinessLinked && !editingId) {
+    if (balance && !isBusinessLinked) {
       if (amountIsInrPayout || (isUsdtMethod && walletIsUsdt)) {
         const needUsdt = inrToUsdt(numAmount);
         if (needUsdt > balance.availableBalance) {
@@ -535,7 +503,7 @@ export function WithdrawalsPage() {
       amount: numAmount,
       method,
     };
-    if (!editingId && isUsdtMethod) {
+    if (isUsdtMethod) {
       setPendingInrAmount(numAmount);
     } else {
       setPendingInrAmount(null);
@@ -691,7 +659,6 @@ export function WithdrawalsPage() {
 
       <SavedWithdrawalMethodsPanel
         onUse={(saved) => {
-          setEditingId(null);
           setPendingPayload(null);
           setFormError('');
           applySavedMethod(saved);
@@ -699,8 +666,32 @@ export function WithdrawalsPage() {
         }}
       />
 
+      {isBusinessLinked && typeof payRemaining === 'number' && (
+        <div className="rounded-xl border border-outline-variant bg-surface-container-lowest px-4 py-3">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-wide text-on-surface-variant">
+                Business pay limit remaining
+              </p>
+              <p className="mt-1 text-2xl font-bold text-secondary">
+                {formatCurrency(payRemaining, 'INR')}
+              </p>
+            </div>
+            <p className="text-xs text-on-surface-variant">
+              Withdrawals cannot exceed this remaining limit
+            </p>
+          </div>
+          {businessLimitExhausted ? (
+            <p className="mt-3 rounded-lg border border-amber-300/70 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+              No pay limit available for your business. Please contact admin to increase the
+              limit. Deposits can also increase remaining.
+            </p>
+          ) : null}
+        </div>
+      )}
+
       {showForm && (
-        <Card title={editingId ? 'Edit withdrawal details' : 'Request withdrawal'}>
+        <Card title="Request withdrawal">
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="chip-scroll">
               {enabledMethods.map((m) => (
@@ -708,7 +699,6 @@ export function WithdrawalsPage() {
                   key={m.value}
                   type="button"
                   onClick={() => {
-                    if (editingId) return;
                     setMethod(m.value);
                     setSelectedSavedMethodId('');
                     setAmount('');
@@ -725,8 +715,7 @@ export function WithdrawalsPage() {
               ))}
             </div>
 
-            {!editingId && (
-              <div className="space-y-3 rounded-xl border border-outline-variant bg-surface-container-low px-4 py-3">
+            <div className="space-y-3 rounded-xl border border-outline-variant bg-surface-container-low px-4 py-3">
                 <label className="flex flex-col gap-1 text-sm font-semibold">
                   Saved withdrawal method
                   <select
@@ -774,9 +763,8 @@ export function WithdrawalsPage() {
                   </div>
                 )}
               </div>
-            )}
 
-            {walletIsUsdt && method !== 'usdt' && !editingId && (
+            {walletIsUsdt && method !== 'usdt' && (
               <div className="rounded-xl border border-outline-variant bg-surface-container-low px-4 py-3 text-sm">
                 <p className="font-semibold text-on-surface">USDT → INR conversion</p>
                 <p className="mt-1 text-on-surface-variant">
@@ -787,7 +775,7 @@ export function WithdrawalsPage() {
               </div>
             )}
 
-            {method === 'usdt' && !editingId && (
+            {method === 'usdt' && (
               <div className="rounded-xl border border-outline-variant bg-surface-container-low px-4 py-3 text-sm">
                 <p className="font-semibold text-on-surface">INR → USDT conversion</p>
                 <p className="mt-1 text-on-surface-variant">
@@ -807,17 +795,23 @@ export function WithdrawalsPage() {
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               required
-              disabled={!!editingId}
-              suffix={
-                editingId && method === 'usdt'
-                  ? 'USDT'
-                  : amountIsInrEntry
-                    ? 'INR'
-                    : displayCurrency
-              }
+              disabled={businessLimitExhausted}
+              suffix={amountIsInrEntry ? 'INR' : displayCurrency}
             />
 
-            {method === 'usdt' && !editingId && enteredInr > 0 && (
+            {isBusinessLinked && !businessLimitExhausted && typeof payRemaining === 'number' && (
+              <p className="text-xs text-on-surface-variant">
+                Max for this request: {formatCurrency(payRemaining, 'INR')} (business remaining)
+              </p>
+            )}
+
+            {businessLimitExhausted && (
+              <p className="rounded-lg border border-amber-300/70 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+                Withdrawals are blocked until admin increases your business pay limit.
+              </p>
+            )}
+
+            {method === 'usdt' && enteredInr > 0 && (
               <p className="rounded-xl border border-secondary/30 bg-secondary-container/40 px-4 py-3 text-sm text-on-secondary-container">
                 USDT to send:{' '}
                 <span className="font-bold">{formatCurrency(usdtFromInr, 'USDT')}</span>
@@ -952,7 +946,7 @@ export function WithdrawalsPage() {
               />
             )}
 
-            {!editingId && !selectedSavedMethodId && method !== 'cdm' && (
+            {!selectedSavedMethodId && method !== 'cdm' && (
               <div className="space-y-2 rounded-xl border border-outline-variant bg-surface-container-low px-4 py-3 text-sm">
                 <label className="flex items-center gap-2">
                   <input
@@ -981,7 +975,7 @@ export function WithdrawalsPage() {
               </div>
             )}
 
-            <Button type="submit" className="w-full sm:w-auto">
+            <Button type="submit" className="w-full sm:w-auto" disabled={businessLimitExhausted}>
               Review & continue
             </Button>
           </form>
@@ -1189,14 +1183,14 @@ export function WithdrawalsPage() {
                           canCancel &&
                           tatLeft > 0 && (
                             <p className="text-[11px] font-medium text-secondary sm:text-xs">
-                              You can edit or cancel for {formatSecondsMmSs(tatLeft)}
+                              You can cancel for {formatSecondsMmSs(tatLeft)}
                             </p>
                           )}
                         {(w.status === 'pending' || w.status === 'processing') && !canCancel && (
                           <p className="text-[11px] text-on-surface-variant sm:text-xs">
                             {w.p2pListStatus === 'listed'
                               ? 'Once approved (verified for payout), you cannot cancel. Contact business/admin.'
-                              : 'Edit/cancel window is over. Business or admin can cancel if needed.'}
+                              : 'Cancel window is over. Business or admin can cancel if needed.'}
                           </p>
                         )}
                       </div>
@@ -1211,15 +1205,6 @@ export function WithdrawalsPage() {
                           {expanded ? 'Hide' : 'Details'}
                         </Button>
                         {canCancel && tatLeft > 0 && (
-                          <>
-                            <Button
-                              size="sm"
-                              variant="secondary"
-                              className="flex-1 sm:flex-none"
-                              onClick={() => startEdit(w)}
-                            >
-                              Edit
-                            </Button>
                             <Button
                               size="sm"
                               variant="outline"
@@ -1238,7 +1223,6 @@ export function WithdrawalsPage() {
                             >
                               Cancel
                             </Button>
-                          </>
                         )}
                       </div>
                     </div>
@@ -1359,6 +1343,7 @@ export function WithdrawalsPage() {
                                           setActionError('');
                                           setDisputeFor(p);
                                           setDisputeReason('');
+                                          setDisputeFiles([]);
                                         }}
                                       >
                                         Dispute
@@ -1411,6 +1396,15 @@ export function WithdrawalsPage() {
                 placeholder="Payment not received, wrong amount, fake proof…"
               />
             </label>
+            <div className="mt-4">
+              <p className="mb-1.5 text-sm font-medium">Attachments (optional)</p>
+              <TicketAttachmentPicker
+                files={disputeFiles}
+                onChange={setDisputeFiles}
+                upload={supportApi.uploadAttachment}
+                disabled={raiseDispute.isPending}
+              />
+            </div>
             {actionError && <p className="mt-2 text-xs text-error">{actionError}</p>}
             <div className="mt-4 flex justify-end gap-2">
               <Button
@@ -1420,6 +1414,7 @@ export function WithdrawalsPage() {
                 onClick={() => {
                   setDisputeFor(null);
                   setDisputeReason('');
+                  setDisputeFiles([]);
                   setActionError('');
                 }}
               >
@@ -1434,6 +1429,7 @@ export function WithdrawalsPage() {
                   raiseDispute.mutate({
                     paymentId: disputeFor._id,
                     reason: disputeReason.trim() || undefined,
+                    attachments: disputeFiles.length ? disputeFiles : undefined,
                   })
                 }
               >
@@ -1447,17 +1443,17 @@ export function WithdrawalsPage() {
       <Modal
         open={!!pendingPayload}
         onClose={() => {
-          if (!create.isPending && !updateDestination.isPending) {
+          if (!create.isPending) {
             setPendingPayload(null);
             setPendingInrAmount(null);
           }
         }}
-        title={editingId ? 'Confirm updated details' : 'Confirm withdrawal'}
+        title="Confirm withdrawal"
       >
         {pendingPayload && (
           <div className="space-y-4">
             <p className="text-sm text-on-surface-variant">
-              {editingId ? 'Verify details before saving.' : 'Check details before submitting.'}
+              Check details before submitting.
             </p>
             <dl className="space-y-2 rounded-xl border border-outline-variant bg-surface-container-low/50 px-4 py-3 text-sm">
               <div className="flex justify-between gap-3">
@@ -1553,7 +1549,7 @@ export function WithdrawalsPage() {
               <Button
                 type="button"
                 variant="outline"
-                disabled={create.isPending || updateDestination.isPending}
+                disabled={create.isPending}
                 onClick={() => {
                   setPendingPayload(null);
                   setPendingInrAmount(null);
@@ -1565,7 +1561,6 @@ export function WithdrawalsPage() {
                 type="button"
                 loading={
                   create.isPending ||
-                  updateDestination.isPending ||
                   saveMethod.isPending ||
                   setDefaultMethod.isPending ||
                   deleteMethod.isPending
@@ -1579,30 +1574,19 @@ export function WithdrawalsPage() {
                     return;
                   }
                   setFormError('');
-                  if (editingId) {
-                    await updateDestination.mutateAsync({
-                      id: editingId,
-                      payload: {
-                        upiDetails: pendingPayload.upiDetails,
-                        bankDetails: pendingPayload.bankDetails,
-                        usdtDetails: pendingPayload.usdtDetails,
-                      },
+                  if (saveCurrentMethod && pendingPayload.method !== 'cdm') {
+                    await saveMethod.mutateAsync({
+                      method: pendingPayload.method,
+                      isDefault: saveAsDefault,
+                      upiDetails: pendingPayload.upiDetails,
+                      bankDetails: pendingPayload.bankDetails,
+                      usdtDetails: pendingPayload.usdtDetails,
                     });
-                  } else {
-                    if (saveCurrentMethod && pendingPayload.method !== 'cdm') {
-                      await saveMethod.mutateAsync({
-                        method: pendingPayload.method,
-                        isDefault: saveAsDefault,
-                        upiDetails: pendingPayload.upiDetails,
-                        bankDetails: pendingPayload.bankDetails,
-                        usdtDetails: pendingPayload.usdtDetails,
-                      });
-                    }
-                    await create.mutateAsync(pendingPayload);
                   }
+                  await create.mutateAsync(pendingPayload);
                 }}
               >
-                {editingId ? 'Confirm & save' : 'Confirm & submit'}
+                Confirm & submit
               </Button>
             </div>
           </div>

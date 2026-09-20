@@ -33,11 +33,12 @@ export class WithdrawalPayment {
   @Prop({ required: true, trim: true })
   utr!: string;
 
-  @Prop({ required: true })
-  proofImageKey!: string;
+  /** Optional when payer is assigned and submits UTR only. */
+  @Prop()
+  proofImageKey?: string;
 
-  @Prop({ required: true })
-  proofImageUrl!: string;
+  @Prop()
+  proofImageUrl?: string;
 
   @Prop({ type: String, enum: TransactionStatus, default: TransactionStatus.PENDING })
   status!: TransactionStatus;

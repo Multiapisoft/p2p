@@ -1,7 +1,39 @@
-import { IsNumber, IsOptional, IsString, Min, MinLength, ValidateIf } from 'class-validator';
+import {
+  ArrayMaxSize,
+  IsArray,
+  IsNumber,
+  IsOptional,
+  IsString,
+  MaxLength,
+  Min,
+  MinLength,
+  ValidateIf,
+  ValidateNested,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 import { ListQueryDto } from '../../../common/dto/list-query.dto';
 import { IsAppPaymentRef } from '../../../common/validators/contact.validators';
+
+export class DisputeAttachmentDto {
+  @IsString()
+  key!: string;
+
+  @IsString()
+  publicUrl!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(180)
+  filename?: string;
+
+  @IsOptional()
+  @IsString()
+  contentType?: string;
+
+  @IsOptional()
+  @IsNumber()
+  size?: number;
+}
 
 export class WithdrawalPaymentListQueryDto extends ListQueryDto {
   @IsOptional()
@@ -60,4 +92,11 @@ export class DisputeWithdrawalPaymentDto {
   @IsString()
   @MinLength(5)
   reason?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(5)
+  @ValidateNested({ each: true })
+  @Type(() => DisputeAttachmentDto)
+  attachments?: DisputeAttachmentDto[];
 }

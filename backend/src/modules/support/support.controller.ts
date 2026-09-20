@@ -10,6 +10,9 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../../common/interfaces/jwt-payload.interface';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { UserRole } from '../../common/enums/role.enum';
+import { Permissions } from '../../common/decorators/permissions.decorator';
+import { Permission } from '../../common/enums/permission.enum';
+import { assertActorBusinessAccess, subAdminBusinessIdsOrEmpty } from '../../common/utils/admin-business-scope.util';
 
 @Controller('support')
 export class SupportController {
@@ -35,6 +38,7 @@ export class SupportController {
 
   @Get('tickets/all')
   @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN)
+  @Permissions(Permission.SUPPORT_MANAGE)
   getAllTickets(
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: SupportListQueryDto,
@@ -48,6 +52,7 @@ export class SupportController {
       category: query.category,
       priority: query.priority,
       hideContact: user.role === UserRole.SUB_ADMIN,
+      businessIds: subAdminBusinessIdsOrEmpty(user),
     });
   }
 
@@ -58,6 +63,7 @@ export class SupportController {
       ticketId,
       isStaff ? undefined : user.userId,
       isStaff ? undefined : user.role,
+      isStaff ? user : undefined,
     );
   }
 
@@ -67,12 +73,17 @@ export class SupportController {
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: ReplyTicketDto,
   ) {
-    return this.supportService.reply(ticketId, user.userId, dto, user.role);
+    return this.supportService.reply(ticketId, user.userId, dto, user.role, user);
   }
 
   @Patch('tickets/:ticketId')
   @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN)
-  updateStatus(@Param('ticketId') ticketId: string, @Body() dto: UpdateTicketStatusDto) {
-    return this.supportService.updateStatus(ticketId, dto);
+  @Permissions(Permission.SUPPORT_MANAGE)
+  updateStatus(
+    @Param('ticketId') ticketId: string,
+    @Body() dto: UpdateTicketStatusDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.supportService.updateStatus(ticketId, dto, user);
   }
 }

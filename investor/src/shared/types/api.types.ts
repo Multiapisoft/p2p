@@ -108,9 +108,10 @@ export interface Withdrawal {
   sourceAmount?: number;
   sourceCurrency?: string;
   exchangeRate?: number;
-  p2pListStatus?: 'awaiting' | 'listed' | 'rejected';
+  p2pListStatus?: 'awaiting' | 'listed' | 'rejected' | 'over_limit';
   /** True while within cancel TAT and not yet listed for Platform Payment. */
   userCanCancel?: boolean;
+  /** Always false — destination edit is disabled. */
   userCanEdit?: boolean;
   userEditExpiresAt?: string;
   tatSecondsRemaining?: number;

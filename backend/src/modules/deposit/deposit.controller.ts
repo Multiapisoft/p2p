@@ -60,8 +60,11 @@ export class DepositController {
   @Get('all')
   @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN)
   @Permissions(Permission.DEPOSITS_MANAGE)
-  getAll(@Query() query: DepositListQueryDto) {
-    return this.depositService.findAll(query);
+  getAll(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: DepositListQueryDto,
+  ) {
+    return this.depositService.findAll(query, user);
   }
 
   @Get('business')
@@ -141,8 +144,11 @@ export class DepositController {
   @Get('pending')
   @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN)
   @Permissions(Permission.DEPOSITS_MANAGE)
-  getPending(@Query() query: DepositListQueryDto) {
-    return this.depositService.findPending(query);
+  getPending(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: DepositListQueryDto,
+  ) {
+    return this.depositService.findPending(query, user);
   }
 
   @Get('investor')
@@ -160,7 +166,11 @@ export class DepositController {
   @Get(':id')
   getOne(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
     const isStaff = user.role === UserRole.ADMIN || user.role === UserRole.SUB_ADMIN;
-    return this.depositService.findById(id, isStaff ? undefined : user.userId);
+    return this.depositService.findById(
+      id,
+      isStaff ? undefined : user.userId,
+      isStaff ? user : undefined,
+    );
   }
 
   @Patch(':id/cancel')
@@ -176,7 +186,7 @@ export class DepositController {
     @Body() dto: ApproveDepositDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.depositService.approve(id, dto, user.email, user.userId);
+    return this.depositService.approve(id, dto, user.email, user.userId, user);
   }
 
   @Patch(':id/reject')
@@ -187,6 +197,6 @@ export class DepositController {
     @Body() dto: RejectDepositDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.depositService.reject(id, dto, user.email, user.userId);
+    return this.depositService.reject(id, dto, user.email, user.userId, user);
   }
 }

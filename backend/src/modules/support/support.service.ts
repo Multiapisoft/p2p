@@ -12,6 +12,11 @@ import { User, UserDocument } from '../users/schemas/user.schema';
 import { sanitizeTicketAttachments } from './utils/ticket-attachment.util';
 import { mongoRefEquals, mongoRefId } from './utils/mongo-ref-id.util';
 import { NotificationService } from '../notification/notification.service';
+import {
+  assertActorBusinessAccess,
+  businessScopeFilter,
+} from '../../common/utils/admin-business-scope.util';
+import type { AuthenticatedUser } from '../../common/interfaces/jwt-payload.interface';
 
 export type CreateTicketMeta = {
   participantIds?: string[];
@@ -30,6 +35,8 @@ export type SupportListOpts = {
   priority?: string;
   /** When true, omit phone from populated user (sub-admin). */
   hideContact?: boolean;
+  /** Sub-admin business scope. */
+  businessIds?: string[];
 };
 
 @Injectable()
@@ -158,6 +165,10 @@ export class SupportService {
   ): Record<string, unknown> {
     const and: Record<string, unknown>[] = [base];
 
+    if (opts.businessIds !== undefined) {
+      const scope = businessScopeFilter(UserRole.SUB_ADMIN, opts.businessIds);
+      if (scope) and.push(scope);
+    }
     if (opts.status && opts.status !== 'all') {
       and.push({ status: opts.status });
     }
@@ -297,7 +308,12 @@ export class SupportService {
     };
   }
 
-  async findByTicketId(ticketId: string, userId?: string, role?: UserRole) {
+  async findByTicketId(
+    ticketId: string,
+    userId?: string,
+    role?: UserRole,
+    actor?: Pick<AuthenticatedUser, 'role' | 'assignedBusinessIds'>,
+  ) {
     const ticket = await this.ticketModel
       .findOne({ ticketId })
         .populate(
@@ -313,6 +329,9 @@ export class SupportService {
     } else if (userId) {
       await this.assertCanAccess(ticket, userId, UserRole.USER);
     }
+    if (!userId && actor) {
+      assertActorBusinessAccess(actor, ticket.businessId?.toString() || null);
+    }
     return ticket;
   }
 
@@ -321,11 +340,15 @@ export class SupportService {
     authorId: string,
     dto: ReplyTicketDto,
     role: UserRole,
+    actor?: Pick<AuthenticatedUser, 'role' | 'assignedBusinessIds'>,
   ) {
     const ticket = await this.ticketModel.findOne({ ticketId }).exec();
     if (!ticket) throw new NotFoundException('Ticket not found');
 
     await this.assertCanAccess(ticket, authorId, role);
+    if ([UserRole.ADMIN, UserRole.SUB_ADMIN].includes(role)) {
+      assertActorBusinessAccess(actor, ticket.businessId?.toString() || null);
+    }
 
     const attachments = sanitizeTicketAttachments(dto.attachments, authorId);
     const message =
@@ -350,7 +373,15 @@ export class SupportService {
     return ticket;
   }
 
-  async updateStatus(ticketId: string, dto: UpdateTicketStatusDto) {
+  async updateStatus(
+    ticketId: string,
+    dto: UpdateTicketStatusDto,
+    actor?: Pick<AuthenticatedUser, 'role' | 'assignedBusinessIds'>,
+  ) {
+    const existing = await this.ticketModel.findOne({ ticketId }).exec();
+    if (!existing) throw new NotFoundException('Ticket not found');
+    assertActorBusinessAccess(actor, existing.businessId?.toString() || null);
+
     const update: Record<string, unknown> = {};
     if (dto.status) update.status = dto.status;
     if (dto.assignedTo) update.assignedTo = dto.assignedTo;

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { apiErrorMessage, formatCurrency, formatDate } from '@/shared/lib/utils';
 import type { InvestorLimitLot } from '@/features/fulfill/api/fulfill.api';
 
@@ -40,9 +40,36 @@ export function InvestorLimitPanel({
   onChangePlan?: (amount: number) => void;
 }) {
   const [changing, setChanging] = useState(false);
+  const [lockedPlan, setLockedPlan] = useState<number | null>(null);
   const used = Math.max(0, added - remaining);
   const plans = (planAmounts?.length ? planAmounts : DEFAULT_PLANS).filter((n) => n > 0);
-  const busy = !!(pending || changePending);
+  const requestPending = !!(pending || changePending);
+  const busy = !!(requestPending || lockedPlan != null);
+
+  useEffect(() => {
+    if (!requestPending && (error || changeError)) {
+      setLockedPlan(null);
+    }
+  }, [requestPending, error, changeError]);
+
+  useEffect(() => {
+    if (!requestPending && remaining > 0) {
+      setLockedPlan(null);
+      setChanging(false);
+    }
+  }, [requestPending, remaining]);
+
+  const pickFirstPlan = (amount: number) => {
+    if (busy) return;
+    setLockedPlan(amount);
+    onAdd(amount);
+  };
+
+  const pickChangePlan = (amount: number) => {
+    if (busy || !onChangePlan) return;
+    setLockedPlan(amount);
+    onChangePlan(amount);
+  };
 
   return (
     <div className={compact ? 'space-y-3' : 'space-y-4'}>
@@ -90,9 +117,14 @@ export function InvestorLimitPanel({
               key={p}
               type="button"
               disabled={busy}
-              onClick={() => onAdd(p)}
-              className="rounded-full border border-outline-variant px-3 py-1.5 text-xs font-semibold hover:bg-secondary-container disabled:opacity-50"
+              onClick={() => pickFirstPlan(p)}
+              className={`rounded-full border px-3 py-1.5 text-xs font-semibold disabled:opacity-50 ${
+                lockedPlan === p
+                  ? 'border-secondary bg-secondary-container text-on-secondary-container'
+                  : 'border-outline-variant hover:bg-secondary-container'
+              }`}
             >
+              {lockedPlan === p && busy ? 'Selecting… ' : ''}
               {formatCurrency(p)}
             </button>
           ))}
@@ -111,8 +143,12 @@ export function InvestorLimitPanel({
                 key={`change-${p}`}
                 type="button"
                 disabled={busy}
-                onClick={() => onChangePlan(p)}
-                className="rounded-full border border-outline-variant px-3 py-1.5 text-xs font-semibold hover:bg-secondary-container disabled:opacity-50"
+                onClick={() => pickChangePlan(p)}
+                className={`rounded-full border px-3 py-1.5 text-xs font-semibold disabled:opacity-50 ${
+                  lockedPlan === p
+                    ? 'border-secondary bg-secondary-container text-on-secondary-container'
+                    : 'border-outline-variant hover:bg-secondary-container'
+                }`}
               >
                 {formatCurrency(p)}
               </button>
@@ -122,7 +158,10 @@ export function InvestorLimitPanel({
             type="button"
             className="text-[11px] font-medium text-on-surface-variant underline-offset-2 hover:underline"
             disabled={busy}
-            onClick={() => setChanging(false)}
+            onClick={() => {
+              setChanging(false);
+              setLockedPlan(null);
+            }}
           >
             Cancel
           </button>

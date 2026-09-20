@@ -9,6 +9,29 @@ export type P2pPayQuotaLedgerReason =
   | 'wd_fee'
   | 'deposit_fee';
 
+/** List reserve / unlist are in-process — do not write business ledger until pay completes. */
+export function shouldSkipInProcessQuotaLedger(
+  reason?: P2pPayQuotaLedgerReason | string | null,
+): boolean {
+  return reason === 'list_reserve' || reason === 'list_release';
+}
+
+/** Ledger referenceTypes created while a WD is listed but not yet paid/completed. */
+export const IN_PROCESS_P2P_QUOTA_LEDGER_REFS = [
+  'withdrawal_list',
+  'withdrawal_unlist',
+  'withdrawal_reject',
+  'withdrawal_cancel',
+] as const;
+
+export function isInProcessP2pQuotaLedgerRef(
+  referenceType?: string | null,
+): boolean {
+  return (IN_PROCESS_P2P_QUOTA_LEDGER_REFS as readonly string[]).includes(
+    referenceType || '',
+  );
+}
+
 export type P2pPayQuotaRef = {
   referenceType?: string;
   referenceId?: string;

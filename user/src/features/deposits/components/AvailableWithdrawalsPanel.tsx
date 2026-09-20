@@ -633,9 +633,6 @@ export function AvailableWithdrawalsPanel({
                           w.creditIfPayFull.netCredited,
                           w.creditIfPayFull.creditCurrency || 'INR',
                         )}
-                        {w.creditIfPayFull.bonusAmount > 0
-                          ? ` (+${formatCurrency(w.creditIfPayFull.bonusAmount)} bonus)`
-                          : ''}
                       </p>
                     )}
                   </div>
@@ -770,11 +767,6 @@ export function AvailableWithdrawalsPanel({
                 <p className="mt-1 font-bold text-secondary">
                   {formatCurrency(creditPreview.netCredited, creditPreview.creditCurrency || 'INR')}
                 </p>
-                {creditPreview.bonusAmount > 0 && (
-                  <p className="text-xs text-on-surface-variant">
-                    incl. bonus +{formatCurrency(creditPreview.bonusAmount)}
-                  </p>
-                )}
               </div>
             )}
 

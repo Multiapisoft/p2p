@@ -5,6 +5,7 @@ import { Button } from '@/shared/components/ui/Button';
 import { StatusBadge } from '@/shared/components/ui/Badge';
 import { formatCurrency, formatDate } from '@/shared/lib/utils';
 import { confirmDialog } from '@/shared/ui/confirm/confirm.store';
+import { TicketAttachmentPicker, type TicketFile } from '@/features/support/components/TicketAttachments';
 import type { TransactionStatus, WithdrawalSplitPayment } from '@/shared/types/api.types';
 
 function paymentCanAct(p: WithdrawalSplitPayment) {
@@ -37,7 +38,8 @@ type Props = {
   payments: WithdrawalSplitPayment[];
   currency: string;
   onConfirm: (paymentId: string) => void;
-  onDispute: (paymentId: string, reason?: string) => void;
+  onDispute: (paymentId: string, reason?: string, attachments?: TicketFile[]) => void;
+  uploadAttachment: (file: File) => Promise<TicketFile>;
   confirmingId?: string | null;
   disputing?: boolean;
   actionError?: string;
@@ -49,6 +51,7 @@ export function WithdrawalOwnerPaymentsPanel({
   currency,
   onConfirm,
   onDispute,
+  uploadAttachment,
   confirmingId,
   disputing,
   actionError,
@@ -56,6 +59,7 @@ export function WithdrawalOwnerPaymentsPanel({
 }: Props) {
   const [disputeFor, setDisputeFor] = useState<WithdrawalSplitPayment | null>(null);
   const [disputeReason, setDisputeReason] = useState('');
+  const [disputeFiles, setDisputeFiles] = useState<TicketFile[]>([]);
 
   if (!payments.length) return null;
 
@@ -149,6 +153,7 @@ export function WithdrawalOwnerPaymentsPanel({
                       onClearError?.();
                       setDisputeFor(p);
                       setDisputeReason('');
+                      setDisputeFiles([]);
                     }}
                   >
                     Dispute
@@ -181,6 +186,15 @@ export function WithdrawalOwnerPaymentsPanel({
                 placeholder="Payment not received, wrong amount, fake proof…"
               />
             </label>
+            <div className="mt-4">
+              <p className="mb-1.5 text-sm font-medium">Attachments (optional)</p>
+              <TicketAttachmentPicker
+                files={disputeFiles}
+                onChange={setDisputeFiles}
+                upload={uploadAttachment}
+                disabled={disputing}
+              />
+            </div>
             {actionError && <p className="mt-2 text-xs text-error">{actionError}</p>}
             <div className="mt-4 flex justify-end gap-2">
               <Button
@@ -190,6 +204,7 @@ export function WithdrawalOwnerPaymentsPanel({
                 onClick={() => {
                   setDisputeFor(null);
                   setDisputeReason('');
+                  setDisputeFiles([]);
                   onClearError?.();
                 }}
               >
@@ -201,9 +216,14 @@ export function WithdrawalOwnerPaymentsPanel({
                 size="sm"
                 loading={disputing}
                 onClick={() => {
-                  onDispute(disputeFor._id, disputeReason.trim() || undefined);
+                  onDispute(
+                    disputeFor._id,
+                    disputeReason.trim() || undefined,
+                    disputeFiles.length ? disputeFiles : undefined,
+                  );
                   setDisputeFor(null);
                   setDisputeReason('');
+                  setDisputeFiles([]);
                 }}
               >
                 Submit dispute

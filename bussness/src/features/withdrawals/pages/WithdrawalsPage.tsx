@@ -20,7 +20,8 @@ import { resolveUser } from '@/shared/lib/entity-user';
 import { BusinessWithdrawalForm } from '../components/BusinessWithdrawalForm';
 import { AssignPayerModal } from '../components/AssignPayerModal';
 import { WithdrawalOwnerPaymentsPanel } from '../components/WithdrawalOwnerPaymentsPanel';
-import { useAuthStore } from '@/features/auth/store/auth.store';
+import { supportApi } from '@/features/support/api/support.api';
+import { businessDepositPayApi } from '@/features/deposits/api/business-deposit-pay.api';
 import type { Withdrawal } from '@/shared/types/api.types';
 import { liveQueryOptions } from '@/shared/constants/live-query';
 
@@ -260,8 +261,15 @@ export function WithdrawalsPage({
   });
 
   const raiseDispute = useMutation({
-    mutationFn: ({ paymentId, reason }: { paymentId: string; reason?: string }) =>
-      withdrawalsApi.disputePayment(paymentId, reason),
+    mutationFn: ({
+      paymentId,
+      reason,
+      attachments,
+    }: {
+      paymentId: string;
+      reason?: string;
+      attachments?: { key: string; publicUrl: string; filename: string }[];
+    }) => withdrawalsApi.disputePayment(paymentId, reason, attachments),
     onSuccess: () => {
       setActionError('');
       qc.invalidateQueries({ queryKey: ['business-withdrawals'] });
@@ -288,6 +296,7 @@ export function WithdrawalsPage({
     if (w.origin === 'business' && s === 'awaiting') return 'Waiting admin verify';
     if (w.origin === 'business' && s === 'listed') return 'On pay list';
     if (s === 'listed') return 'Approved';
+    if (s === 'over_limit') return 'Waiting admin (over limit)';
     if (s === 'rejected') return 'Approval rejected';
     return 'Awaiting approval';
   }
@@ -558,7 +567,8 @@ export function WithdrawalsPage({
                             (w.paidAmount || 0) <= 0 &&
                             w.origin !== 'business' && (
                               <>
-                                {(w.p2pListStatus || 'awaiting') !== 'listed' ? (
+                                {(w.p2pListStatus || 'awaiting') !== 'listed' &&
+                                w.p2pListStatus !== 'over_limit' ? (
                                   <Button
                                     size="sm"
                                     onClick={() => listForP2p.mutate(w._id)}
@@ -566,6 +576,10 @@ export function WithdrawalsPage({
                                   >
                                     Approve
                                   </Button>
+                                ) : w.p2pListStatus === 'over_limit' ? (
+                                  <span className="self-center text-[11px] font-semibold text-amber-800">
+                                    Waiting admin (over limit)
+                                  </span>
                                 ) : null}
                                 <Button
                                   size="sm"
@@ -590,6 +604,8 @@ export function WithdrawalsPage({
                                   setActionError('');
                                   setUtr('');
                                   setTxHash('');
+                                  setProofKey('');
+                                  setProofUrl('');
                                   setApproveTarget(w);
                                 }}
                               >
@@ -657,6 +673,25 @@ export function WithdrawalsPage({
                         </div>
                       </div>
                     </div>
+                    {origin === 'business' && (w.payments?.length || 0) > 0 ? (
+                      <div className="border-t border-outline-variant/60 px-3 py-3 sm:px-4">
+                        <WithdrawalOwnerPaymentsPanel
+                          payments={w.payments!}
+                          currency={w.currency}
+                          actionError={actionError}
+                          onClearError={() => setActionError('')}
+                          confirmingId={
+                            confirmReceived.isPending ? confirmReceived.variables : null
+                          }
+                          disputing={raiseDispute.isPending}
+                          onConfirm={(paymentId) => confirmReceived.mutate(paymentId)}
+                          uploadAttachment={supportApi.uploadAttachment}
+                          onDispute={(paymentId, reason, attachments) =>
+                            raiseDispute.mutate({ paymentId, reason, attachments })
+                          }
+                        />
+                      </div>
+                    ) : null}
                   </article>
                 );
               })}
@@ -743,7 +778,8 @@ export function WithdrawalsPage({
                     detail.status === 'pending' &&
                     (detail.paidAmount || 0) <= 0 && (
                     <div className="mt-4 flex flex-wrap gap-2">
-                      {(detail.p2pListStatus || 'awaiting') !== 'listed' ? (
+                      {(detail.p2pListStatus || 'awaiting') !== 'listed' &&
+                      detail.p2pListStatus !== 'over_limit' ? (
                         <Button
                           className="flex-1"
                           loading={listForP2p.isPending}
@@ -751,6 +787,13 @@ export function WithdrawalsPage({
                         >
                               Approve
                         </Button>
+                      ) : detail.p2pListStatus === 'over_limit' ? (
+                        <p className="w-full text-sm font-medium text-amber-800">
+                          Over remaining limit — waiting admin approval.
+                          {detail.p2pListRejectReason
+                            ? ` ${detail.p2pListRejectReason}`
+                            : ''}
+                        </p>
                       ) : null}
                       <Button
                         className="flex-1"
@@ -836,7 +879,8 @@ export function WithdrawalsPage({
                     <DetailRow label="Completed" value={formatDate(detail.completedAt)} />
                   ) : null}
 
-                  {(detail.payments?.length || 0) > 0 && origin === 'business' && (
+                  {(detail.payments?.length || 0) > 0 &&
+                    (origin === 'business' || detail.origin === 'business') && (
                     <div className="mt-4">
                       <WithdrawalOwnerPaymentsPanel
                         payments={detail.payments!}
@@ -848,14 +892,17 @@ export function WithdrawalsPage({
                         }
                         disputing={raiseDispute.isPending}
                         onConfirm={(paymentId) => confirmReceived.mutate(paymentId)}
-                        onDispute={(paymentId, reason) =>
-                          raiseDispute.mutate({ paymentId, reason })
+                        uploadAttachment={supportApi.uploadAttachment}
+                        onDispute={(paymentId, reason, attachments) =>
+                          raiseDispute.mutate({ paymentId, reason, attachments })
                         }
                       />
                     </div>
                   )}
 
-                  {(detail.payments?.length || 0) > 0 && origin !== 'business' && (
+                  {(detail.payments?.length || 0) > 0 &&
+                    origin !== 'business' &&
+                    detail.origin !== 'business' && (
                     <div className="mt-4">
                       <p className="mb-2 text-sm font-semibold">
                         {(detail.payments?.length || 0) <= 1 ? 'Payment' : 'Payments'}
@@ -979,37 +1026,28 @@ export function WithdrawalsPage({
             <p className="mb-1 text-sm font-semibold">Payment evidence (optional)</p>
             <input
               type="file"
-              accept="image/*,application/pdf"
+              accept="image/jpeg,image/png,image/webp,image/*"
               className="block w-full text-sm"
+              disabled={proofUploading || approveMutation.isPending}
               onChange={async (e) => {
                 const file = e.target.files?.[0];
                 if (!file) return;
                 setProofUploading(true);
                 setActionError('');
                 try {
-                  const form = new FormData();
-                  form.append('file', file);
-                  form.append('purpose', 'withdrawal-approve-proof');
-                  const base = process.env.NEXT_PUBLIC_API_URL || '/api/v1';
-                  const authToken = useAuthStore.getState().token || '';
-                  const res = await fetch(`${base}/uploads/proof`, {
-                    method: 'POST',
-                    headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
-                    body: form,
-                  });
-                  const json = (await res.json()) as {
-                    data?: { key?: string; url?: string };
-                    key?: string;
-                    url?: string;
-                    message?: string;
-                  };
-                  if (!res.ok) throw new Error(json.message || 'Upload failed');
-                  setProofKey(json.data?.key || json.key || '');
-                  setProofUrl(json.data?.url || json.url || '');
+                  const uploaded = await businessDepositPayApi.uploadProof(
+                    file,
+                    'withdrawal-approve-proof',
+                  );
+                  setProofKey(uploaded.key);
+                  setProofUrl(uploaded.publicUrl);
                 } catch (err) {
+                  setProofKey('');
+                  setProofUrl('');
                   setActionError(err instanceof Error ? err.message : 'Upload failed');
                 } finally {
                   setProofUploading(false);
+                  e.target.value = '';
                 }
               }}
             />
@@ -1017,7 +1055,14 @@ export function WithdrawalsPage({
               <p className="mt-1 text-xs text-on-surface-variant">Uploading…</p>
             ) : null}
             {proofUrl ? (
-              <p className="mt-1 truncate text-xs text-secondary">Evidence attached</p>
+              <a
+                href={proofUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-1 inline-block truncate text-xs font-semibold text-secondary hover:underline"
+              >
+                Evidence attached — view
+              </a>
             ) : null}
           </div>
           {actionError && (

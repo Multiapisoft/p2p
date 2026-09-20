@@ -1,5 +1,5 @@
 import { apiGet, apiPatch, apiPost } from '@/shared/api/client';
-import type { Paginated, PaymentMethod, Withdrawal } from '@/shared/types/api.types';
+import type { Paginated, PaymentMethod, TicketAttachment, Withdrawal } from '@/shared/types/api.types';
 
 export type WithdrawalsListQuery = {
   page?: number;
@@ -58,6 +58,13 @@ export const withdrawalsApi = {
     apiPatch<Withdrawal>(`/withdrawals/${id}/reject`, { reason }),
   confirmPaymentReceived: (paymentId: string) =>
     apiPatch(`/withdrawal-payments/${paymentId}/confirm-received`),
-  disputePayment: (paymentId: string, reason?: string) =>
-    apiPost(`/withdrawal-payments/${paymentId}/dispute`, reason ? { reason } : {}),
+  disputePayment: (
+    paymentId: string,
+    reason?: string,
+    attachments?: TicketAttachment[],
+  ) =>
+    apiPost(`/withdrawal-payments/${paymentId}/dispute`, {
+      ...(reason ? { reason } : {}),
+      ...(attachments?.length ? { attachments } : {}),
+    }),
 };

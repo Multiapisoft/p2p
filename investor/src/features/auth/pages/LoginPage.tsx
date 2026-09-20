@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useMutation } from '@tanstack/react-query';
 import { loginApi } from '@/features/auth/api/auth.api';
-import { useAuthHydrated } from '@/features/auth/hooks/useAuthHydrated';
+import { useAuthHydrated, safeAuthNextPath } from '@/features/auth/hooks/useAuthHydrated';
 import { useAuthStore } from '@/features/auth/store/auth.store';
 import { Button } from '@/shared/components/ui/Button';
 import { Input } from '@/shared/components/ui/Input';
@@ -18,7 +18,9 @@ export function LoginPage() {
   const setAuth = useAuthStore((s) => s.setAuth);
 
   useEffect(() => {
-    if (hydrated && token) router.replace('/home');
+    if (!hydrated || !token) return;
+    const params = new URLSearchParams(window.location.search);
+    router.replace(safeAuthNextPath(params.get('next') || params.get('redirect'), '/home'));
   }, [hydrated, token, router]);
 
   const [email, setEmail] = useState('');
@@ -35,7 +37,8 @@ export function LoginPage() {
         return;
       }
       setAuth(data.accessToken, data.user);
-      router.replace('/home');
+      const params = new URLSearchParams(window.location.search);
+      router.replace(safeAuthNextPath(params.get('next') || params.get('redirect'), '/home'));
     },
     onError: (err: unknown) => {
       const code = (err as { response?: { data?: { code?: string } } }).response?.data?.code;

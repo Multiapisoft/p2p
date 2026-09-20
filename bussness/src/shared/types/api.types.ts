@@ -249,7 +249,7 @@ export interface Withdrawal {
   paymentCount?: number;
   payments?: WithdrawalPaymentBrief[];
   failureReason?: string;
-  p2pListStatus?: 'awaiting' | 'listed' | 'rejected';
+  p2pListStatus?: 'awaiting' | 'listed' | 'rejected' | 'over_limit';
   origin?: 'user' | 'investor' | 'business';
   p2pListedAt?: string;
   p2pListedBy?: string;

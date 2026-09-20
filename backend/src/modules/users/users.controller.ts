@@ -10,8 +10,14 @@ import {
 } from './dto/create-user.dto';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { UserRole } from '../../common/enums/role.enum';
+import { Permissions } from '../../common/decorators/permissions.decorator';
+import { Permission } from '../../common/enums/permission.enum';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../../common/interfaces/jwt-payload.interface';
+import {
+  assertActorBusinessAccess,
+  subAdminBusinessIdsOrEmpty,
+} from '../../common/utils/admin-business-scope.util';
 
 @Controller('users')
 export class UsersController {
@@ -98,13 +104,27 @@ export class UsersController {
 
   @Get()
   @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN)
-  findAll(@Query() query: UserListQueryDto) {
-    return this.usersService.findAll(query);
+  @Permissions(Permission.USERS_MANAGE)
+  findAll(@CurrentUser() user: AuthenticatedUser, @Query() query: UserListQueryDto) {
+    return this.usersService.findAll({
+      ...query,
+      referredByBusinessIds: subAdminBusinessIdsOrEmpty(user),
+    });
   }
 
   @Get(':id')
   @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN)
-  findOne(@Param('id') id: string) {
-    return this.usersService.findById(id);
+  @Permissions(Permission.USERS_MANAGE)
+  async findOne(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
+    const profile = await this.usersService.findById(id);
+    if (user.role === UserRole.SUB_ADMIN) {
+      const referred =
+        typeof profile.referredByBusiness === 'object' && profile.referredByBusiness
+          ? (profile.referredByBusiness as { _id?: string })._id?.toString() ||
+            String(profile.referredByBusiness)
+          : profile.referredByBusiness?.toString();
+      assertActorBusinessAccess(user, referred || null);
+    }
+    return profile;
   }
 }

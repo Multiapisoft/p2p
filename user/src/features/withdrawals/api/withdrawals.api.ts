@@ -1,5 +1,10 @@
 import { apiGet, apiPatch, apiPost } from '@/shared/api/client';
-import type { CreateWithdrawalPayload, Paginated, Withdrawal } from '@/shared/types/api.types';
+import type {
+  CreateWithdrawalPayload,
+  Paginated,
+  TicketAttachment,
+  Withdrawal,
+} from '@/shared/types/api.types';
 
 export type WithdrawalListQuery = {
   page?: number;
@@ -21,13 +26,16 @@ export const withdrawalsApi = {
       method: query.method && query.method !== 'all' ? query.method : undefined,
     }),
   create: (payload: CreateWithdrawalPayload) => apiPost<Withdrawal>('/withdrawals', payload),
-  updateDestination: (
-    id: string,
-    payload: Pick<CreateWithdrawalPayload, 'upiDetails' | 'bankDetails' | 'usdtDetails'>,
-  ) => apiPatch<Withdrawal>(`/withdrawals/${id}/destination`, payload),
   cancel: (id: string) => apiPatch<Withdrawal>(`/withdrawals/${id}/cancel`),
   confirmPaymentReceived: (paymentId: string) =>
     apiPatch(`/withdrawal-payments/${paymentId}/confirm-received`),
-  disputePayment: (paymentId: string, reason?: string) =>
-    apiPost(`/withdrawal-payments/${paymentId}/dispute`, reason ? { reason } : {}),
+  disputePayment: (
+    paymentId: string,
+    reason?: string,
+    attachments?: TicketAttachment[],
+  ) =>
+    apiPost(`/withdrawal-payments/${paymentId}/dispute`, {
+      ...(reason ? { reason } : {}),
+      ...(attachments?.length ? { attachments } : {}),
+    }),
 };

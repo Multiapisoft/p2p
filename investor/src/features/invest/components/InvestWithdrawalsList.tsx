@@ -259,21 +259,25 @@ export function InvestWithdrawalsList() {
       }>('/platform-settings'),
   });
 
-  const addLimit = useMutation({
-    mutationFn: (amount: number) => fulfillApi.addInvestorLimit(amount),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['invest-withdrawals'] });
-      qc.invalidateQueries({ queryKey: ['portfolio'] });
+  const choosePlan = useMutation({
+    mutationFn: (planAmount: number) => fulfillApi.setInvestorPlan(planAmount),
+    onSuccess: async () => {
+      setFormError('');
+      closePay();
+      await qc.invalidateQueries({ queryKey: ['invest-withdrawals'] });
+      await qc.invalidateQueries({ queryKey: ['portfolio'] });
+      await refetch();
     },
   });
 
   const changePlan = useMutation({
     mutationFn: (planAmount: number) => fulfillApi.setInvestorPlan(planAmount),
-    onSuccess: () => {
+    onSuccess: async () => {
       setFormError('');
       closePay();
-      qc.invalidateQueries({ queryKey: ['invest-withdrawals'] });
-      qc.invalidateQueries({ queryKey: ['portfolio'] });
+      await qc.invalidateQueries({ queryKey: ['invest-withdrawals'] });
+      await qc.invalidateQueries({ queryKey: ['portfolio'] });
+      await refetch();
     },
   });
 
@@ -399,6 +403,14 @@ export function InvestWithdrawalsList() {
         return;
       }
     } else {
+      if (!utr.trim()) {
+        setFormError(
+          target.method === 'usdt'
+            ? 'USDT / TRX transaction hash (TxID) is required'
+            : 'UTR is required',
+        );
+        return;
+      }
       if (refErr) {
         setFormError(refErr);
         return;
@@ -412,7 +424,9 @@ export function InvestWithdrawalsList() {
   };
 
   const items = data?.items ?? [];
+  /** Investor queue is one-at-a-time — only show the assigned next request. */
   const nextWithdrawal = items[0] ?? null;
+  const displayItems = nextWithdrawal ? [nextWithdrawal] : [];
   const queueTotal = data?.queueTotal ?? data?.total ?? 0;
   const needsLimit = !!(data?.needsLimit ?? data?.needsPlan);
   const showBonus = true;
@@ -488,9 +502,9 @@ export function InvestWithdrawalsList() {
       <div className="overflow-hidden rounded-xl border border-outline-variant/60 bg-surface-container-lowest">
         <div className="flex items-center justify-between border-b border-outline-variant/50 px-3 py-2">
           <p className="text-xs font-semibold text-on-surface-variant">
-            {items.length
-              ? items.length > 1
-                ? `Payable now (${items.length})`
+            {nextWithdrawal
+              ? queueTotal > 1
+                ? `Your next payment · ${queueTotal} in queue`
                 : 'Your next payment'
               : 'Waiting for assignment'}
           </p>
@@ -541,7 +555,7 @@ export function InvestWithdrawalsList() {
           </div>
         ) : (
           <div className={`space-y-3 p-4 ${isFetching ? 'opacity-70' : ''}`}>
-            {items.map((w) => {
+            {displayItems.map((w) => {
               const meta = METHOD_META[w.method];
               const payDue = requiredPayFor(w, limitRemaining);
               const skipOnly = payDue <= 0 && canSkipWithdrawal(w);
@@ -658,9 +672,9 @@ export function InvestWithdrawalsList() {
           lots={limitLots}
           firstLogin
           planAmounts={platformSettings?.investorPlanAmounts}
-          pending={addLimit.isPending}
-          error={addLimit.error}
-          onAdd={(amount) => addLimit.mutate(amount)}
+          pending={choosePlan.isPending}
+          error={choosePlan.error}
+          onAdd={(amount) => choosePlan.mutate(amount)}
         />
       </Modal>
 

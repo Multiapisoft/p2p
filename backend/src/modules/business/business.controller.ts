@@ -12,8 +12,11 @@ import { BusinessService } from './business.service';
 import { BusinessListQueryDto, CreateBusinessDto, UpdateBusinessDto, UpdateBusinessTxnFlagsDto, SetP2pPayLimitDto, SetHighlightLimitDto } from './dto/business.dto';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { UserRole } from '../../common/enums/role.enum';
+import { Permissions } from '../../common/decorators/permissions.decorator';
+import { Permission } from '../../common/enums/permission.enum';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../../common/interfaces/jwt-payload.interface';
+import { assertActorBusinessAccess } from '../../common/utils/admin-business-scope.util';
 import { ApiKeyGuard } from '../../common/guards/api-key.guard';
 import { CurrentBusiness } from '../../common/decorators/current-business.decorator';
 import type { BusinessDocument } from './schemas/business.schema';
@@ -183,8 +186,12 @@ export class BusinessController {
 
   @Get()
   @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN)
-  findAll(@Query() query: BusinessListQueryDto) {
-    return this.businessService.findAll(query);
+  @Permissions(Permission.BUSINESS_MANAGE)
+  findAll(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: BusinessListQueryDto,
+  ) {
+    return this.businessService.findAll(query, user);
   }
 
   @Post(':id/approve')
@@ -195,31 +202,57 @@ export class BusinessController {
 
   @Patch(':id/p2p-pay-limit')
   @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN)
-  setP2pPayLimit(@Param('id') id: string, @Body() dto: SetP2pPayLimitDto) {
+  @Permissions(Permission.BUSINESS_MANAGE)
+  setP2pPayLimit(
+    @Param('id') id: string,
+    @Body() dto: SetP2pPayLimitDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    assertActorBusinessAccess(user, id);
     return this.businessService.setP2pPayLimit(id, dto.p2pPayLimit, undefined, dto.mode ?? 'set');
   }
 
   @Patch(':id/highlight-limit')
   @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN)
-  setHighlightLimit(@Param('id') id: string, @Body() dto: SetHighlightLimitDto) {
+  @Permissions(Permission.BUSINESS_MANAGE)
+  setHighlightLimit(
+    @Param('id') id: string,
+    @Body() dto: SetHighlightLimitDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    assertActorBusinessAccess(user, id);
     return this.businessService.setHighlightLimitPerMonth(id, dto.highlightLimitPerMonth);
   }
 
   @Patch(':id/txn-flags')
   @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN)
-  updateTxnFlags(@Param('id') id: string, @Body() dto: UpdateBusinessTxnFlagsDto) {
+  @Permissions(Permission.BUSINESS_MANAGE)
+  updateTxnFlags(
+    @Param('id') id: string,
+    @Body() dto: UpdateBusinessTxnFlagsDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    assertActorBusinessAccess(user, id);
     return this.businessService.updateTxnFlags(id, dto);
   }
 
   @Patch(':id')
   @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN)
-  updateByAdmin(@Param('id') id: string, @Body() dto: UpdateBusinessDto) {
+  @Permissions(Permission.BUSINESS_MANAGE)
+  updateByAdmin(
+    @Param('id') id: string,
+    @Body() dto: UpdateBusinessDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    assertActorBusinessAccess(user, id);
     return this.businessService.updateByAdmin(id, dto);
   }
 
   @Get(':id/stats')
   @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN)
-  getStats(@Param('id') id: string) {
+  @Permissions(Permission.BUSINESS_MANAGE)
+  getStats(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
+    assertActorBusinessAccess(user, id);
     return this.businessService.getStats(id);
   }
 

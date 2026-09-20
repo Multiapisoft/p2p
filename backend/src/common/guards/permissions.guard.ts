@@ -26,10 +26,10 @@ export class PermissionsGuard implements CanActivate {
     if (user.role === UserRole.ADMIN) return true;
 
     if (user.role === UserRole.BUSINESS) {
+      // Admin-panel perms (e.g. withdrawals.manage) on shared routes are for sub-admins.
+      // Business actors are gated by Roles + assertStaffCan in the handler.
       const businessRequired = required.filter((p) => isBusinessStaffPermission(p));
-      if (!businessRequired.length) {
-        throw new ForbiddenException('Insufficient permissions');
-      }
+      if (!businessRequired.length) return true;
       const dbUser = await this.usersRepo.findById(user.userId);
       if (!dbUser) throw new ForbiddenException('Insufficient permissions');
       if (!dbUser.staffBusinessId) return true;

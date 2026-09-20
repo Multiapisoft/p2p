@@ -10,6 +10,9 @@ import { Permissions } from '../../common/decorators/permissions.decorator';
 import { UserRole } from '../../common/enums/role.enum';
 import { Permission } from '../../common/enums/permission.enum';
 import { CommissionTarget } from '../../common/enums/commission-target.enum';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import type { AuthenticatedUser } from '../../common/interfaces/jwt-payload.interface';
+import { assertSubAdminBusinessAccess } from '../../common/utils/admin-business-scope.util';
 
 @Controller('commissions')
 @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN)
@@ -24,25 +27,35 @@ export class CommissionController {
 
   @Get()
   findAll(
+    @CurrentUser() user: AuthenticatedUser,
     @Query('targetType') targetType?: CommissionTarget,
     @Query('targetId') targetId?: string,
   ) {
     if (targetType) {
+      if (targetType === CommissionTarget.BUSINESS && targetId) {
+        assertSubAdminBusinessAccess(user.role, user.assignedBusinessIds, targetId);
+      }
       return this.commissionService.findForTarget(targetType, targetId);
     }
-    return this.commissionService.findAll();
+    return this.commissionService.findAll(user);
   }
 
   @Get('business/:businessId')
-  getBusinessCommissions(@Param('businessId') businessId: string) {
+  getBusinessCommissions(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('businessId') businessId: string,
+  ) {
+    assertSubAdminBusinessAccess(user.role, user.assignedBusinessIds, businessId);
     return this.commissionService.getBusinessCommissions(businessId);
   }
 
   @Post('business/:businessId')
   upsertBusiness(
+    @CurrentUser() user: AuthenticatedUser,
     @Param('businessId') businessId: string,
     @Body() dto: UpsertBusinessCommissionsDto,
   ) {
+    assertSubAdminBusinessAccess(user.role, user.assignedBusinessIds, businessId);
     return this.commissionService.upsertBusinessCommissions(businessId, dto);
   }
 

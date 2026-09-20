@@ -2,22 +2,30 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { apiGet, apiPost } from '@/shared/api/client';
+import { apiGet, apiPatch, apiPost } from '@/shared/api/client';
 import { Card } from '@/shared/components/ui/Card';
 import { Button } from '@/shared/components/ui/Button';
 import { Input } from '@/shared/components/ui/Input';
-import type { User, Paginated } from '@/shared/types/api.types';
+import { Modal } from '@/shared/components/ui/Modal';
+import type { User, Paginated, Business } from '@/shared/types/api.types';
 import { useAuthStore } from '@/features/auth/store/auth.store';
 import { getApiErrorMessage } from '@/shared/lib/api-error';
 import {
   platformSettingsApi,
   type PlatformSettings,
 } from '@/features/settings/api/platform-settings.api';
+import { businessesApi } from '@/features/businesses/api/businesses.api';
 
 import { TwoFactorPanel } from '@/features/settings/components/TwoFactorPanel';
 import { PERMISSIONS } from '@/shared/constants/permissions';
 
 const ALL_PERMISSIONS = Object.values(PERMISSIONS);
+
+function businessIdOf(id: string | { _id?: string } | undefined): string {
+  if (!id) return '';
+  if (typeof id === 'string') return id;
+  return id._id || '';
+}
 
 export function SettingsPage() {
   const user = useAuthStore((s) => s.user);
@@ -26,6 +34,13 @@ export function SettingsPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [perms, setperms] = useState<string[]>(['deposits.manage', 'withdrawals.manage']);
+  const [assignedBizIds, setAssignedBizIds] = useState<string[]>([]);
+  const [editTarget, setEditTarget] = useState<User | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editPerms, setEditPerms] = useState<string[]>([]);
+  const [editBizIds, setEditBizIds] = useState<string[]>([]);
+  const [editPassword, setEditPassword] = useState('');
+  const [subError, setSubError] = useState('');
 
   const canManagePlatform =
     user?.role === 'admin' ||
@@ -158,6 +173,13 @@ export function SettingsPage() {
     enabled: user?.role === 'admin',
   });
 
+  const { data: businessesData } = useQuery({
+    queryKey: ['businesses-for-subadmin'],
+    queryFn: () => businessesApi.list({ page: 1, limit: 200 }),
+    enabled: user?.role === 'admin',
+  });
+  const businesses = (businessesData?.items ?? []) as Business[];
+
   const [subSearch, setSubSearch] = useState('');
   const filteredSubs = useMemo(() => {
     const q = subSearch.trim().toLowerCase();
@@ -169,16 +191,52 @@ export function SettingsPage() {
     );
   }, [subAdmins, subSearch]);
 
+  const bizNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const b of businesses) map.set(b._id, b.name);
+    return map;
+  }, [businesses]);
+
   const createSubAdmin = useMutation({
     mutationFn: () =>
-      apiPost('/admin/sub-admins', { name, email, password, permissions: perms }),
+      apiPost('/admin/sub-admins', {
+        name,
+        email,
+        password,
+        permissions: perms,
+        assignedBusinessIds: assignedBizIds,
+      }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['sub-admins'] });
       setName('');
       setEmail('');
       setPassword('');
+      setAssignedBizIds([]);
+      setSubError('');
     },
+    onError: (err) => setSubError(getApiErrorMessage(err, 'Could not create sub-admin')),
   });
+
+  const updateSubAdmin = useMutation({
+    mutationFn: () =>
+      apiPatch(`/admin/sub-admins/${editTarget!._id}`, {
+        name: editName.trim() || undefined,
+        permissions: editPerms,
+        assignedBusinessIds: editBizIds,
+        ...(editPassword.trim() ? { password: editPassword.trim() } : {}),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['sub-admins'] });
+      setEditTarget(null);
+      setEditPassword('');
+      setSubError('');
+    },
+    onError: (err) => setSubError(getApiErrorMessage(err, 'Could not update sub-admin')),
+  });
+
+  function toggleBiz(list: string[], id: string, set: (v: string[]) => void) {
+    set(list.includes(id) ? list.filter((x) => x !== id) : [...list, id]);
+  }
 
   return (
     <div className="mx-auto max-w-3xl space-y-4 sm:space-y-6">
@@ -487,6 +545,42 @@ export function SettingsPage() {
                 ))}
               </div>
             </div>
+            <div>
+              <p className="mb-2 text-sm font-semibold">Businesses they can control</p>
+              <p className="mb-2 text-xs text-on-surface-variant">
+                Sub-admin only sees deposits, withdrawals, commissions, and transactions for these
+                businesses.
+              </p>
+              {businesses.length ? (
+                <div className="max-h-48 space-y-1 overflow-y-auto rounded-lg border border-outline-variant p-2">
+                  {businesses.map((b) => (
+                    <label
+                      key={b._id}
+                      className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-surface-container-low"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={assignedBizIds.includes(b._id)}
+                        onChange={() => toggleBiz(assignedBizIds, b._id, setAssignedBizIds)}
+                      />
+                      <span className="min-w-0 truncate">
+                        {b.name}
+                        {b.referralCode ? (
+                          <span className="text-on-surface-variant"> · {b.referralCode}</span>
+                        ) : null}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-on-surface-variant">No businesses yet.</p>
+              )}
+            </div>
+            {subError && !editTarget ? (
+              <p className="rounded-lg border border-error/30 bg-error/5 px-3 py-2 text-sm text-error">
+                {subError}
+              </p>
+            ) : null}
             <Button type="submit" className="w-full sm:w-auto" loading={createSubAdmin.isPending}>
               Create Sub-Admin
             </Button>
@@ -504,19 +598,45 @@ export function SettingsPage() {
                 onChange={(e) => setSubSearch(e.target.value)}
               />
               {filteredSubs.length ? (
-                filteredSubs.map((s) => (
-                  <div
-                    key={s._id}
-                    className="flex flex-col gap-0.5 py-2 text-sm sm:flex-row sm:justify-between"
-                  >
-                    <span className="min-w-0 break-words">
-                      {s.name} ({s.email})
-                    </span>
-                    <span className="shrink-0 text-on-surface-variant">
-                      {s.permissions?.length ?? 0} perms
-                    </span>
-                  </div>
-                ))
+                <div className="space-y-2">
+                  {filteredSubs.map((s) => {
+                    const bizIds = (s.assignedBusinessIds || []).map((id) => businessIdOf(id));
+                    return (
+                      <div
+                        key={s._id}
+                        className="flex flex-col gap-2 rounded-xl border border-outline-variant/70 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between"
+                      >
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium">
+                            {s.name}{' '}
+                            <span className="font-normal text-on-surface-variant">({s.email})</span>
+                          </p>
+                          <p className="mt-0.5 text-xs text-on-surface-variant">
+                            {s.permissions?.length ?? 0} perms ·{' '}
+                            {bizIds.length
+                              ? bizIds.map((id) => bizNameById.get(id) || id.slice(-6)).join(', ')
+                              : 'No businesses'}
+                          </p>
+                        </div>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            setEditTarget(s);
+                            setEditName(s.name);
+                            setEditPerms([...(s.permissions || [])]);
+                            setEditBizIds(bizIds);
+                            setEditPassword('');
+                            setSubError('');
+                          }}
+                        >
+                          Edit rights
+                        </Button>
+                      </div>
+                    );
+                  })}
+                </div>
               ) : (
                 <p className="text-sm text-on-surface-variant">No matches</p>
               )}
@@ -524,6 +644,110 @@ export function SettingsPage() {
           ) : null}
         </Card>
       )}
+
+      <Modal
+        open={!!editTarget}
+        onClose={() => {
+          if (updateSubAdmin.isPending) return;
+          setEditTarget(null);
+          setSubError('');
+        }}
+        title="Edit sub-admin"
+        className="sm:max-w-lg"
+      >
+        {editTarget ? (
+          <form
+            className="space-y-4"
+            onSubmit={(e) => {
+              e.preventDefault();
+              setSubError('');
+              updateSubAdmin.mutate();
+            }}
+          >
+            <p className="text-sm text-on-surface-variant">{editTarget.email}</p>
+            <Input
+              label="Name"
+              value={editName}
+              onChange={(e) => setEditName(e.target.value)}
+              required
+            />
+            <Input
+              label="New password (optional)"
+              type="password"
+              value={editPassword}
+              onChange={(e) => setEditPassword(e.target.value)}
+              placeholder="Leave blank to keep current"
+            />
+            <div>
+              <p className="mb-2 text-sm font-semibold">Permissions</p>
+              <div className="chip-scroll">
+                {ALL_PERMISSIONS.map((p) => (
+                  <label
+                    key={p}
+                    className={`cursor-pointer rounded-full border px-2.5 py-1 text-[11px] sm:px-3 sm:text-xs ${
+                      editPerms.includes(p)
+                        ? 'border-secondary bg-secondary-container'
+                        : 'border-outline-variant'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      className="sr-only"
+                      checked={editPerms.includes(p)}
+                      onChange={() =>
+                        setEditPerms((prev) =>
+                          prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p],
+                        )
+                      }
+                    />
+                    {p}
+                  </label>
+                ))}
+              </div>
+            </div>
+            <div>
+              <p className="mb-2 text-sm font-semibold">Businesses they can control</p>
+              {businesses.length ? (
+                <div className="max-h-48 space-y-1 overflow-y-auto rounded-lg border border-outline-variant p-2">
+                  {businesses.map((b) => (
+                    <label
+                      key={b._id}
+                      className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-surface-container-low"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={editBizIds.includes(b._id)}
+                        onChange={() => toggleBiz(editBizIds, b._id, setEditBizIds)}
+                      />
+                      <span className="min-w-0 truncate">{b.name}</span>
+                    </label>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-on-surface-variant">No businesses yet.</p>
+              )}
+            </div>
+            {subError ? (
+              <p className="rounded-lg border border-error/30 bg-error/5 px-3 py-2 text-sm text-error">
+                {subError}
+              </p>
+            ) : null}
+            <div className="flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setEditTarget(null)}
+                disabled={updateSubAdmin.isPending}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" loading={updateSubAdmin.isPending}>
+                Save changes
+              </Button>
+            </div>
+          </form>
+        ) : null}
+      </Modal>
     </div>
   );
 }

@@ -40,6 +40,7 @@ export interface User {
   role: UserRole;
   status: string;
   permissions?: string[];
+  assignedBusinessIds?: string[];
   referredByBusiness?: string;
   referredBusiness?: ReferredBusiness;
   businessUserCode?: string;
@@ -142,7 +143,7 @@ export interface Withdrawal {
   paymentCount?: number;
   payments?: WithdrawalPaymentBrief[];
   commissionAmount?: number;
-  p2pListStatus?: 'awaiting' | 'listed' | 'rejected';
+  p2pListStatus?: 'awaiting' | 'listed' | 'rejected' | 'over_limit';
   origin?: 'user' | 'investor' | 'business';
   p2pListedAt?: string;
   p2pListedBy?: string;
@@ -175,6 +176,7 @@ export interface Business {
   name: string;
   slug: string;
   status: string;
+  referralCode?: string;
   totalDeposits: number;
   totalUsers: number;
   commissionRate: number;

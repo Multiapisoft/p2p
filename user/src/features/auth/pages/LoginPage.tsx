@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useMutation } from '@tanstack/react-query';
 import { loginApi } from '@/features/auth/api/auth.api';
+import { useAuthHydrated, safeAuthNextPath } from '@/features/auth/hooks/useAuthHydrated';
 import { useAuthStore } from '@/features/auth/store/auth.store';
 import { Button } from '@/shared/components/ui/Button';
 import { Input } from '@/shared/components/ui/Input';
@@ -15,12 +16,18 @@ import { getApiErrorMessage } from '@/shared/lib/api-error';
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const hydrated = useAuthHydrated();
   const token = useAuthStore((s) => s.token);
   const setAuth = useAuthStore((s) => s.setAuth);
 
   useEffect(() => {
-      if (token) router.replace('/home');
-  }, [token, router]);
+    if (!hydrated || !token) return;
+    const next = safeAuthNextPath(
+      searchParams.get('next') || searchParams.get('redirect'),
+      '/home',
+    );
+    router.replace(next);
+  }, [hydrated, token, router, searchParams]);
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -55,8 +62,9 @@ function LoginForm() {
       }
       setAuth(data.accessToken, data.user);
       toast.success('Welcome back');
-      const next = searchParams.get('next') || searchParams.get('redirect') || '/home';
-      router.replace(next.startsWith('/') ? next : '/home');
+      router.replace(
+        safeAuthNextPath(searchParams.get('next') || searchParams.get('redirect'), '/home'),
+      );
     },
     onError: (err: unknown) => {
       const code = (err as { response?: { data?: { code?: string } } }).response?.data?.code;

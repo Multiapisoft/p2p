@@ -18,6 +18,9 @@ import { RedisService } from '../../redis/redis.service';
 import { Business, BusinessDocument } from '../business/schemas/business.schema';
 import { BusinessService } from '../business/business.service';
 import { p2pPayQuotaRemaining } from '../business/utils/p2p-pay-quota.util';
+import {
+  commissionBusinessScopeFilter,
+} from '../../common/utils/admin-business-scope.util';
 
 export interface CommissionResult {
   amount: number;
@@ -79,8 +82,10 @@ export class CommissionService {
     return config;
   }
 
-  async findAll() {
-    return this.commissionModel.find().sort({ targetType: 1, minAmount: 1 }).exec();
+  async findAll(actor?: { role?: string; assignedBusinessIds?: string[] }) {
+    const scope = commissionBusinessScopeFilter(actor?.role, actor?.assignedBusinessIds);
+    const filter = scope || {};
+    return this.commissionModel.find(filter).sort({ targetType: 1, minAmount: 1 }).exec();
   }
 
   async findForTarget(targetType: CommissionTarget, targetId?: string) {

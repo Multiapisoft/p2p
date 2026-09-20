@@ -27,13 +27,16 @@ import {
   MIN_PARTIAL_INR,
   minPartialAmount,
 } from '../withdrawal/utils/partial-pay.util';
+import { businessDocumentScopeFilter } from '../../common/utils/admin-business-scope.util';
 import {
   p2pPayQuotaCap,
   p2pPayQuotaRemaining,
   p2pPayLimitExceededError,
+  remainingForPayingListedWithdrawal,
 } from './utils/p2p-pay-quota.util';
 import {
   p2pPayQuotaLedgerDescription,
+  shouldSkipInProcessQuotaLedger,
   type P2pPayQuotaLedgerAction,
   type P2pPayQuotaRef,
 } from './utils/p2p-pay-quota-ledger.util';
@@ -911,7 +914,8 @@ export class BusinessService {
 
   /**
    * Cap a withdrawal pay amount by business P2P INR remaining.
-   * `payCurrency` / method decide whether remaining INR is converted to USDT.
+   * `listedReservedInr` is this WD's list-time reserve already in p2pPayUsed —
+   * add it back so paying the listed request is not treated as extra quota.
    */
   async getMaxPayableAmount(
     businessId: string | undefined,
@@ -919,12 +923,16 @@ export class BusinessService {
     payCurrency: string,
     method?: string,
     inrToPayCurrency?: (inr: number) => number,
+    listedReservedInr = 0,
   ): Promise<{ maxPayable: number; p2pPayRemainingInr: number | null }> {
     const open = Math.max(0, withdrawalRemaining);
     if (!businessId || open <= 0) {
       return { maxPayable: open, p2pPayRemainingInr: null };
     }
-    const remInr = await this.getP2pPayRemaining(businessId);
+    const remInr = remainingForPayingListedWithdrawal(
+      await this.getP2pPayRemaining(businessId),
+      listedReservedInr,
+    );
     if (remInr <= 0) {
       return { maxPayable: 0, p2pPayRemainingInr: 0 };
     }
@@ -1000,9 +1008,15 @@ export class BusinessService {
   }
 
   /**
-   * Reserve pay volume against business quota (on payment submit).
+   * Reserve pay volume against business quota (list-for-P2P).
+   * Admin may pass allowOverLimit when approving a business over-quota list.
    */
-  async reserveP2pPay(businessId: string, amount: number, ref?: P2pPayQuotaRef) {
+  async reserveP2pPay(
+    businessId: string,
+    amount: number,
+    ref?: P2pPayQuotaRef,
+    opts?: { allowOverLimit?: boolean },
+  ) {
     const rounded = Math.round(amount * 100) / 100;
     if (rounded <= 0) return;
     const business = await this.businessModel.findById(businessId).exec();
@@ -1015,29 +1029,36 @@ export class BusinessService {
       hold,
     });
 
-    const cap = this.quotaCapExpr();
-    const updated = await this.businessModel
-      .findOneAndUpdate(
-        {
-          _id: businessId,
-          $expr: {
-            $lte: [
-              {
-                $round: [
-                  {
-                    $add: [{ $ifNull: ['$p2pPayUsed', 0] }, rounded],
-                  },
-                  2,
-                ],
-              },
-              cap,
-            ],
+    let updated: BusinessDocument | null;
+    if (opts?.allowOverLimit) {
+      updated = await this.businessModel
+        .findByIdAndUpdate(businessId, { $inc: { p2pPayUsed: rounded } }, { new: true })
+        .exec();
+    } else {
+      const cap = this.quotaCapExpr();
+      updated = await this.businessModel
+        .findOneAndUpdate(
+          {
+            _id: businessId,
+            $expr: {
+              $lte: [
+                {
+                  $round: [
+                    {
+                      $add: [{ $ifNull: ['$p2pPayUsed', 0] }, rounded],
+                    },
+                    2,
+                  ],
+                },
+                cap,
+              ],
+            },
           },
-        },
-        { $inc: { p2pPayUsed: rounded } },
-        { new: true },
-      )
-      .exec();
+          { $inc: { p2pPayUsed: rounded } },
+          { new: true },
+        )
+        .exec();
+    }
 
     if (!updated) {
       const remaining = p2pPayQuotaRemaining({
@@ -1144,6 +1165,10 @@ export class BusinessService {
             : refType === 'deposit'
               ? 'user_deposit'
               : undefined);
+    // In-process list reserve / unlist is quota accounting only — ledger on completed pays/fees.
+    if (shouldSkipInProcessQuotaLedger(reason)) {
+      return;
+    }
     await this.transactionService.record({
       userId: ownerId,
       type: LedgerType.P2P_LIMIT,
@@ -1179,9 +1204,15 @@ export class BusinessService {
     await this.redis.del(`business:${businessId}`);
   }
 
-  async findAll(opts: BusinessListOpts = {}) {
+  async findAll(
+    opts: BusinessListOpts = {},
+    actor?: { role?: string; assignedBusinessIds?: string[] },
+  ) {
     const { page, limit, skip, search, status, sort } = normalizeListOpts(opts);
     const and: Record<string, unknown>[] = [];
+
+    const scope = businessDocumentScopeFilter(actor?.role, actor?.assignedBusinessIds);
+    if (scope) and.push(scope);
 
     if (status) and.push({ status });
     if (search) {

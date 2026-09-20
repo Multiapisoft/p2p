@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useMutation } from '@tanstack/react-query';
 import { loginApi } from '@/features/auth/api/auth.api';
+import { useAuthHydrated, safeAuthNextPath } from '@/features/auth/hooks/useAuthHydrated';
 import { useAuthStore } from '@/features/auth/store/auth.store';
 import { Button } from '@/shared/components/ui/Button';
 import { Input } from '@/shared/components/ui/Input';
@@ -12,12 +13,15 @@ import { emailError, normalizeEmail } from '@/shared/lib/validation';
 
 export function LoginPage() {
   const router = useRouter();
+  const hydrated = useAuthHydrated();
   const token = useAuthStore((s) => s.token);
   const setAuth = useAuthStore((s) => s.setAuth);
 
   useEffect(() => {
-    if (token) router.replace('/');
-  }, [token, router]);
+    if (!hydrated || !token) return;
+    const params = new URLSearchParams(window.location.search);
+    router.replace(safeAuthNextPath(params.get('next') || params.get('redirect'), '/'));
+  }, [hydrated, token, router]);
 
   const [email, setEmail] = useState('admin@p2p.local');
   const [password, setPassword] = useState('Admin@123456');
@@ -33,7 +37,8 @@ export function LoginPage() {
         return;
       }
       setAuth(data.accessToken, data.user);
-      router.replace('/');
+      const params = new URLSearchParams(window.location.search);
+      router.replace(safeAuthNextPath(params.get('next') || params.get('redirect'), '/'));
     },
     onError: (err: unknown) => {
       const code = (err as { response?: { data?: { code?: string } } }).response?.data?.code;

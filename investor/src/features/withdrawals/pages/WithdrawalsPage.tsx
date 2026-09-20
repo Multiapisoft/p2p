@@ -26,6 +26,7 @@ import { formatSecondsMmSs } from '@/shared/lib/upi-qr';
 import { liveQueryOptions } from '@/shared/constants/live-query';
 import { SavedWithdrawalMethodsPanel } from '../components/SavedWithdrawalMethodsPanel';
 import { WithdrawalOwnerPaymentsPanel } from '../components/WithdrawalOwnerPaymentsPanel';
+import { supportApi } from '@/features/support/api/support.api';
 import { confirmDialog } from '@/shared/ui/confirm/confirm.store';
 import type {
   CreateWithdrawalPayload,
@@ -99,7 +100,6 @@ export function WithdrawalsPage() {
   const [network, setNetwork] = useState('TRC20');
   const [formError, setFormError] = useState('');
   const [pendingPayload, setPendingPayload] = useState<CreateWithdrawalPayload | null>(null);
-  const [editingId, setEditingId] = useState<string | null>(null);
   const [selectedSavedMethodId, setSelectedSavedMethodId] = useState('');
   const [saveCurrentMethod, setSaveCurrentMethod] = useState(false);
   const [saveAsDefault, setSaveAsDefault] = useState(false);
@@ -176,28 +176,9 @@ export function WithdrawalsPage() {
     setNetwork('TRC20');
     setFormError('');
     setPendingPayload(null);
-    setEditingId(null);
     setSelectedSavedMethodId('');
     setSaveCurrentMethod(false);
     setSaveAsDefault(false);
-  };
-
-  const startEdit = (w: Withdrawal) => {
-    setEditingId(w._id);
-    setShowForm(true);
-    setMethod(w.method);
-    setAmount(String(w.sourceAmount ?? w.amount));
-    setUpiId(w.upiDetails?.upiId || '');
-    setPayerName(w.upiDetails?.payerName || '');
-    setAccountNumber(w.bankDetails?.accountNumber || '');
-    setIfscCode(w.bankDetails?.ifscCode || '');
-    setAccountHolderName(w.bankDetails?.accountHolderName || '');
-    setBankName(w.bankDetails?.bankName || '');
-    setWalletAddress(w.usdtDetails?.walletAddress || '');
-    setNetwork(w.usdtDetails?.network || 'TRC20');
-    setFormError('');
-    setPendingPayload(null);
-    setSelectedSavedMethodId('');
   };
 
   const saveMethod = useMutation({
@@ -246,11 +227,11 @@ export function WithdrawalsPage() {
   };
 
   useEffect(() => {
-    if (!showForm || editingId || !savedMethods.length) return;
+    if (!showForm || !savedMethods.length) return;
     if (selectedSavedMethodId) return;
     const preferred = savedMethods.find((m) => m.isDefault) || savedMethods[0];
     if (preferred) applySavedMethod(preferred);
-  }, [showForm, editingId, savedMethods, selectedSavedMethodId]);
+  }, [showForm, savedMethods, selectedSavedMethodId]);
 
   const create = useMutation({
     mutationFn: (payload: CreateWithdrawalPayload) => withdrawalsApi.create(payload),
@@ -264,25 +245,6 @@ export function WithdrawalsPage() {
     },
     onError: (err: unknown) => {
       setFormError(apiErrorMessage(err, 'Withdrawal failed'));
-    },
-  });
-
-  const updateDestination = useMutation({
-    mutationFn: ({
-      id,
-      payload,
-    }: {
-      id: string;
-      payload: Pick<CreateWithdrawalPayload, 'upiDetails' | 'bankDetails' | 'usdtDetails'>;
-    }) => withdrawalsApi.updateDestination(id, payload),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['my-withdrawals'] });
-      setPendingPayload(null);
-      setShowForm(false);
-      resetForm();
-    },
-    onError: (err: unknown) => {
-      setFormError(apiErrorMessage(err, 'Update failed'));
     },
   });
 
@@ -307,8 +269,15 @@ export function WithdrawalsPage() {
   });
 
   const raiseDispute = useMutation({
-    mutationFn: ({ paymentId, reason }: { paymentId: string; reason?: string }) =>
-      withdrawalsApi.disputePayment(paymentId, reason),
+    mutationFn: ({
+      paymentId,
+      reason,
+      attachments,
+    }: {
+      paymentId: string;
+      reason?: string;
+      attachments?: { key: string; publicUrl: string; filename: string }[];
+    }) => withdrawalsApi.disputePayment(paymentId, reason, attachments),
     onSuccess: () => {
       setActionError('');
       qc.invalidateQueries({ queryKey: ['my-withdrawals'] });
@@ -333,7 +302,7 @@ export function WithdrawalsPage() {
       setFormError(`Minimum withdrawal is ₹${minWithdrawal}`);
       return;
     }
-    if (num > available && !editingId) {
+    if (num > available) {
       setFormError(`Insufficient balance (${formatCurrency(available)})`);
       return;
     }
@@ -430,7 +399,7 @@ export function WithdrawalsPage() {
               }
             }}
           >
-            {showForm ? 'Close' : editingId ? 'Edit withdrawal' : 'New Withdrawal'}
+            {showForm ? 'Close' : 'New Withdrawal'}
           </Button>
         </div>
       </div>
@@ -449,7 +418,6 @@ export function WithdrawalsPage() {
 
       <SavedWithdrawalMethodsPanel
         onUse={(saved) => {
-          setEditingId(null);
           setPendingPayload(null);
           setFormError('');
           applySavedMethod(saved);
@@ -468,10 +436,8 @@ export function WithdrawalsPage() {
                     key={m.value}
                     type="button"
                     onClick={() => {
-                      if (!editingId) {
-                        setMethod(m.value);
-                        setSelectedSavedMethodId('');
-                      }
+                      setMethod(m.value);
+                      setSelectedSavedMethodId('');
                     }}
                     className={`rounded-full px-3 py-1.5 text-sm font-semibold ${
                       method === m.value
@@ -485,8 +451,7 @@ export function WithdrawalsPage() {
               </div>
             </div>
 
-            {!editingId && (
-              <div className="space-y-3 rounded-xl border border-outline-variant bg-surface-container-low px-4 py-3">
+            <div className="space-y-3 rounded-xl border border-outline-variant bg-surface-container-low px-4 py-3">
                 <label className="flex flex-col gap-1 text-sm font-semibold">
                   Saved withdrawal method
                   <select
@@ -534,7 +499,6 @@ export function WithdrawalsPage() {
                   </div>
                 )}
               </div>
-            )}
 
             <Input
               label={method === 'usdt' ? 'Amount (INR → USDT open)' : 'Amount (INR)'}
@@ -545,7 +509,6 @@ export function WithdrawalsPage() {
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               required
-              disabled={!!editingId}
             />
 
             {method === 'upi' && (
@@ -614,7 +577,7 @@ export function WithdrawalsPage() {
               </>
             )}
 
-            {!editingId && !selectedSavedMethodId && (
+            {!selectedSavedMethodId && (
               <div className="space-y-2 rounded-xl border border-outline-variant bg-surface-container-low px-4 py-3 text-sm">
                 <label className="flex items-center gap-2">
                   <input
@@ -762,14 +725,14 @@ export function WithdrawalsPage() {
                     <DestinationLine w={w} />
                     {(w.status === 'pending' || w.status === 'processing') && canCancel && tatLeft > 0 && (
                       <p className="mt-1 text-[11px] font-medium text-secondary">
-                        You can edit or cancel for {formatSecondsMmSs(tatLeft)}
+                        You can cancel for {formatSecondsMmSs(tatLeft)}
                       </p>
                     )}
                     {(w.status === 'pending' || w.status === 'processing') && !canCancel && (
                       <p className="mt-1 text-[11px] text-on-surface-variant">
                         {w.p2pListStatus === 'listed'
                           ? 'Once approved (verified for payout), you cannot cancel. Contact business/admin.'
-                          : 'Edit/cancel window is over. Business or admin can cancel if needed.'}
+                          : 'Cancel window is over. Business or admin can cancel if needed.'}
                       </p>
                     )}
                   </div>
@@ -784,10 +747,6 @@ export function WithdrawalsPage() {
                         {expanded ? 'Hide' : 'Details'}
                       </Button>
                       {canCancel && tatLeft > 0 && (
-                        <>
-                          <Button size="sm" variant="secondary" onClick={() => startEdit(w)}>
-                            Edit
-                          </Button>
                           <Button
                             size="sm"
                             variant="danger"
@@ -805,7 +764,6 @@ export function WithdrawalsPage() {
                           >
                             Cancel
                           </Button>
-                        </>
                       )}
                     </div>
                   </div>
@@ -847,8 +805,9 @@ export function WithdrawalsPage() {
                       }
                       disputing={raiseDispute.isPending}
                       onConfirm={(paymentId) => confirmReceived.mutate(paymentId)}
-                      onDispute={(paymentId, reason) =>
-                        raiseDispute.mutate({ paymentId, reason })
+                      uploadAttachment={supportApi.uploadAttachment}
+                      onDispute={(paymentId, reason, attachments) =>
+                        raiseDispute.mutate({ paymentId, reason, attachments })
                       }
                     />
                     {!payments.length && (
@@ -867,16 +826,16 @@ export function WithdrawalsPage() {
       <Modal
         open={!!pendingPayload}
         onClose={() => {
-          if (!create.isPending && !updateDestination.isPending) setPendingPayload(null);
+          if (!create.isPending) setPendingPayload(null);
         }}
-        title={editingId ? 'Confirm updated details' : 'Confirm withdrawal'}
+        title="Confirm withdrawal"
         footer={
           pendingPayload ? (
             <div className="flex flex-wrap justify-end gap-2">
               <Button
                 type="button"
                 variant="outline"
-                disabled={create.isPending || updateDestination.isPending}
+                disabled={create.isPending}
                 onClick={() => setPendingPayload(null)}
               >
                 Back
@@ -885,7 +844,6 @@ export function WithdrawalsPage() {
                 type="button"
                 loading={
                   create.isPending ||
-                  updateDestination.isPending ||
                   saveMethod.isPending ||
                   setDefaultMethod.isPending ||
                   deleteMethod.isPending
@@ -899,30 +857,19 @@ export function WithdrawalsPage() {
                     return;
                   }
                   setFormError('');
-                  if (editingId) {
-                    await updateDestination.mutateAsync({
-                      id: editingId,
-                      payload: {
-                        upiDetails: pendingPayload.upiDetails,
-                        bankDetails: pendingPayload.bankDetails,
-                        usdtDetails: pendingPayload.usdtDetails,
-                      },
+                  if (saveCurrentMethod && pendingPayload.method !== 'cdm') {
+                    await saveMethod.mutateAsync({
+                      method: pendingPayload.method,
+                      isDefault: saveAsDefault,
+                      upiDetails: pendingPayload.upiDetails,
+                      bankDetails: pendingPayload.bankDetails,
+                      usdtDetails: pendingPayload.usdtDetails,
                     });
-                  } else {
-                    if (saveCurrentMethod && pendingPayload.method !== 'cdm') {
-                      await saveMethod.mutateAsync({
-                        method: pendingPayload.method,
-                        isDefault: saveAsDefault,
-                        upiDetails: pendingPayload.upiDetails,
-                        bankDetails: pendingPayload.bankDetails,
-                        usdtDetails: pendingPayload.usdtDetails,
-                      });
-                    }
-                    await create.mutateAsync(pendingPayload);
                   }
+                  await create.mutateAsync(pendingPayload);
                 }}
               >
-                {editingId ? 'Confirm & save' : 'Confirm & submit'}
+                Confirm & submit
               </Button>
             </div>
           ) : null
@@ -931,7 +878,7 @@ export function WithdrawalsPage() {
         {pendingPayload && (
           <div className="space-y-4">
             <p className="text-sm text-on-surface-variant">
-              {editingId ? 'Verify details before saving.' : 'Check details before submitting.'}
+              Check details before submitting.
             </p>
             <dl className="space-y-2 rounded-xl border border-outline-variant bg-surface-container-low/50 px-4 py-3 text-sm">
               <div className="flex justify-between gap-3">

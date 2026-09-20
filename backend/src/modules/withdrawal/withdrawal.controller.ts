@@ -49,29 +49,35 @@ export class WithdrawalController {
   @Get('pending')
   @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN)
   @Permissions(Permission.WITHDRAWALS_MANAGE)
-  getPending(@Query() query: WithdrawalListQueryDto) {
-    return this.withdrawalService.findPending({
-      page: query.page,
-      limit: query.limit,
-      status: query.status || TransactionStatus.PENDING,
-      search: query.search,
-      sort: query.sort,
-      method: query.method,
-    });
+  getPending(@CurrentUser() user: AuthenticatedUser, @Query() query: WithdrawalListQueryDto) {
+    return this.withdrawalService.findPending(
+      {
+        page: query.page,
+        limit: query.limit,
+        status: query.status || TransactionStatus.PENDING,
+        search: query.search,
+        sort: query.sort,
+        method: query.method,
+      },
+      user,
+    );
   }
 
   @Get('all')
   @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN)
   @Permissions(Permission.WITHDRAWALS_MANAGE)
-  getAll(@Query() query: WithdrawalListQueryDto) {
-    return this.withdrawalService.findAll({
-      page: query.page,
-      limit: query.limit,
-      status: query.status,
-      search: query.search,
-      sort: query.sort,
-      method: query.method,
-    });
+  getAll(@CurrentUser() user: AuthenticatedUser, @Query() query: WithdrawalListQueryDto) {
+    return this.withdrawalService.findAll(
+      {
+        page: query.page,
+        limit: query.limit,
+        status: query.status,
+        search: query.search,
+        sort: query.sort,
+        method: query.method,
+      },
+      user,
+    );
   }
 
   @Post('platform')
@@ -140,6 +146,7 @@ export class WithdrawalController {
 
   @Patch(':id/approve')
   @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN, UserRole.BUSINESS)
+  @Permissions(Permission.WITHDRAWALS_MANAGE)
   async approve(
     @Param('id') id: string,
     @Body() dto: ProcessWithdrawalDto,
@@ -157,11 +164,12 @@ export class WithdrawalController {
         user.email,
       );
     }
-    return this.withdrawalService.approveAsAdmin(id, dto, user.email);
+    return this.withdrawalService.approveAsAdmin(id, dto, user.email, user);
   }
 
   @Patch(':id/list-for-p2p')
   @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN, UserRole.BUSINESS)
+  @Permissions(Permission.WITHDRAWALS_MANAGE)
   async listForP2p(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
     if (user.role === UserRole.BUSINESS) {
       await this.businessService.assertStaffCan(user.userId, Permission.BUSINESS_WITHDRAWALS);
@@ -170,11 +178,13 @@ export class WithdrawalController {
       userId: user.userId,
       email: user.email,
       role: user.role,
+      assignedBusinessIds: user.assignedBusinessIds,
     });
   }
 
   @Patch(':id/priority')
   @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN, UserRole.BUSINESS)
+  @Permissions(Permission.WITHDRAWALS_MANAGE)
   async setPriority(
     @Param('id') id: string,
     @Body() dto: SetWithdrawalPriorityDto,
@@ -187,11 +197,13 @@ export class WithdrawalController {
       userId: user.userId,
       email: user.email,
       role: user.role,
+      assignedBusinessIds: user.assignedBusinessIds,
     });
   }
 
   @Patch(':id/unlist-for-p2p')
   @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN, UserRole.BUSINESS)
+  @Permissions(Permission.WITHDRAWALS_MANAGE)
   async unlistForP2p(
     @Param('id') id: string,
     @Body() dto: RejectP2pListDto,
@@ -202,13 +214,19 @@ export class WithdrawalController {
     }
     return this.withdrawalService.rejectP2pList(
       id,
-      { userId: user.userId, email: user.email, role: user.role },
+      {
+        userId: user.userId,
+        email: user.email,
+        role: user.role,
+        assignedBusinessIds: user.assignedBusinessIds,
+      },
       dto.reason,
     );
   }
 
   @Patch(':id/assign')
   @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN, UserRole.BUSINESS)
+  @Permissions(Permission.WITHDRAWALS_MANAGE)
   async assignPayer(
     @Param('id') id: string,
     @Body() dto: AssignWithdrawalDto,
@@ -221,11 +239,13 @@ export class WithdrawalController {
       userId: user.userId,
       email: user.email,
       role: user.role,
+      assignedBusinessIds: user.assignedBusinessIds,
     });
   }
 
   @Patch(':id/unassign')
   @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN, UserRole.BUSINESS)
+  @Permissions(Permission.WITHDRAWALS_MANAGE)
   async unassignPayer(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
     if (user.role === UserRole.BUSINESS) {
       await this.businessService.assertStaffCan(user.userId, Permission.BUSINESS_WITHDRAWALS);
@@ -234,11 +254,13 @@ export class WithdrawalController {
       userId: user.userId,
       email: user.email,
       role: user.role,
+      assignedBusinessIds: user.assignedBusinessIds,
     });
   }
 
   @Patch(':id/reject')
   @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN, UserRole.BUSINESS)
+  @Permissions(Permission.WITHDRAWALS_MANAGE)
   async reject(
     @Param('id') id: string,
     @Body() dto: RejectWithdrawalDto,
@@ -253,13 +275,13 @@ export class WithdrawalController {
         dto,
       );
     }
-    return this.withdrawalService.rejectAsAdmin(id, dto);
+    return this.withdrawalService.rejectAsAdmin(id, dto, user);
   }
 
   @Get(':id')
   @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN)
   @Permissions(Permission.WITHDRAWALS_MANAGE)
-  getAdminDetail(@Param('id') id: string) {
-    return this.withdrawalService.findByIdForAdmin(id);
+  getAdminDetail(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.withdrawalService.findByIdForAdmin(id, user);
   }
 }

@@ -1,6 +1,10 @@
 import { Controller, Get, Post, Patch, Body, Param, Query } from '@nestjs/common';
 import { AdminService } from './admin.service';
-import { CreateSubAdminDto, UpdateUserStatusDto } from './dto/admin.dto';
+import {
+  CreateSubAdminDto,
+  UpdateSubAdminDto,
+  UpdateUserStatusDto,
+} from './dto/admin.dto';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { UserRole } from '../../common/enums/role.enum';
 import { Permissions } from '../../common/decorators/permissions.decorator';
@@ -15,8 +19,8 @@ export class AdminController {
 
   @Get('dashboard')
   @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN)
-  getDashboard() {
-    return this.adminService.getDashboardStats();
+  getDashboard(@CurrentUser() user: AuthenticatedUser) {
+    return this.adminService.getDashboardStats(user);
   }
 
   @Post('sub-admins')
@@ -32,6 +36,12 @@ export class AdminController {
   @Roles(UserRole.ADMIN)
   listSubAdmins(@Query() pagination: PaginationDto) {
     return this.adminService.listSubAdmins(pagination.page, pagination.limit);
+  }
+
+  @Patch('sub-admins/:id')
+  @Roles(UserRole.ADMIN)
+  updateSubAdmin(@Param('id') id: string, @Body() dto: UpdateSubAdminDto) {
+    return this.adminService.updateSubAdmin(id, dto);
   }
 
   @Patch('users/:id/status')
