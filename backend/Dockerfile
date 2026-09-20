@@ -2,9 +2,9 @@
 
 FROM node:22-alpine AS build
 WORKDIR /app
-RUN corepack enable && corepack prepare pnpm@latest --activate
+RUN corepack enable && corepack prepare pnpm@9.15.9 --activate
 COPY package.json pnpm-lock.yaml ./
-RUN pnpm install --frozen-lockfile --config.dangerouslyAllowAllBuilds=true
+RUN pnpm install --frozen-lockfile
 COPY . .
 RUN pnpm build
 
@@ -15,9 +15,9 @@ RUN apk add --no-cache wget \
   && addgroup -S app \
   && adduser -S app -G app \
   && corepack enable \
-  && corepack prepare pnpm@latest --activate
+  && corepack prepare pnpm@9.15.9 --activate
 COPY package.json pnpm-lock.yaml ./
-RUN pnpm install --prod --frozen-lockfile --config.dangerouslyAllowAllBuilds=true \
+RUN pnpm install --prod --frozen-lockfile \
   && chown -R app:app /app
 COPY --from=build --chown=app:app /app/dist ./dist
 COPY --from=build --chown=app:app /app/scripts ./scripts
