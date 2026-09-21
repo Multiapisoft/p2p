@@ -628,7 +628,11 @@ export function AvailableWithdrawalsPanel({
                     </p>
                     {w.creditIfPayFull && w.remainingAmount > 0 && (
                       <p className="mt-1 text-[11px] font-semibold text-secondary">
-                        Credit if you pay full ≈{' '}
+                        {w.maxPayable != null &&
+                        w.maxPayable > 0 &&
+                        w.maxPayable + 0.0001 < w.remainingAmount
+                          ? 'Credit if you pay max ≈ '
+                          : 'Credit if you pay full ≈ '}
                         {formatCurrency(
                           w.creditIfPayFull.netCredited,
                           w.creditIfPayFull.creditCurrency || 'INR',

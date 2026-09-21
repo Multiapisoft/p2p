@@ -747,25 +747,42 @@ export class WithdrawalPaymentService {
                   },
                 ],
               }
-            : {
-                $or: [
-                  { $lte: [remainingExpr, matchAmount] },
-                  {
-                    $and: [
-                      { $eq: ['$method', PaymentMethod.USDT] },
-                      { $gte: [matchAmount, MIN_PARTIAL_USDT] },
-                      { $gte: [remainingExpr, matchAmount + MIN_PARTIAL_USDT] },
-                    ],
-                  },
-                  {
-                    $and: [
-                      { $ne: ['$method', PaymentMethod.USDT] },
-                      { $gte: [matchAmount, MIN_PARTIAL_INR] },
-                      { $gte: [remainingExpr, matchAmount + MIN_PARTIAL_INR] },
-                    ],
-                  },
-                ],
-              },
+            : (() => {
+                // User deposit amount is always INR. Never compare raw USDT open
+                // (e.g. 22 USDT) to an INR budget (e.g. ₹2000) — that falsely
+                // shows tiny USDT WDs and hides real UPI/Bank listings.
+                const minUsdtPartialInr =
+                  Math.round(MIN_PARTIAL_USDT * usdtInrRate * 100) / 100;
+                return {
+                  $or: [
+                    { $lte: [remainingInrExpr, matchAmount] },
+                    {
+                      $and: [
+                        isUsdtDoc,
+                        { $gte: [matchAmount, minUsdtPartialInr] },
+                        {
+                          $gte: [
+                            remainingInrExpr,
+                            { $add: [matchAmount, minUsdtPartialInr] },
+                          ],
+                        },
+                      ],
+                    },
+                    {
+                      $and: [
+                        { $not: [isUsdtDoc] },
+                        { $gte: [matchAmount, MIN_PARTIAL_INR] },
+                        {
+                          $gte: [
+                            remainingInrExpr,
+                            matchAmount + MIN_PARTIAL_INR,
+                          ],
+                        },
+                      ],
+                    },
+                  ],
+                };
+              })(),
         });
       }
     }

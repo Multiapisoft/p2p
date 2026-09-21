@@ -53,7 +53,7 @@ export function DepositAmountModal({
           <p className="text-sm text-on-surface-variant">{description}</p>
         ) : null}
         <Input
-          label="Amount"
+          label="Amount (INR)"
           type="number"
           min={1}
           step="1"
