@@ -36,6 +36,11 @@ export type P2pPayQuotaRef = {
   referenceType?: string;
   referenceId?: string;
   reason?: P2pPayQuotaLedgerReason;
+  /**
+   * When consuming after a business-origin WD is marked COMPLETED, pass the
+   * gross WD amount so remainingBefore still counts the open hold that just ended.
+   */
+  holdRelease?: number;
 };
 
 export function p2pPayQuotaLedgerDescription(params: {

@@ -43,6 +43,7 @@ import { sanitizeBusinessStaffPermissions } from '../../common/utils/business-st
 import { assertValidWithdrawalDestination } from '../withdrawal/utils/withdrawal-destination.validation';
 import { PlatformSettingsService } from '../platform-settings/platform-settings.service';
 import { resolveDepositMethods, resolveWithdrawalMethods } from '../business/utils/payment-methods.util';
+import { userToPlainRecord } from './utils/user-to-plain.util';
 import { PaymentMethod } from '../../common/enums/payment-method.enum';
 import {
   buildSavedWithdrawalMethodLabel,
@@ -945,8 +946,8 @@ export class UsersService {
     }));
   }
 
-  private sanitize(user: UserDocument) {
-    const obj = user.toObject() as unknown as Record<string, unknown>;
+  private sanitize(user: UserDocument | Record<string, unknown>) {
+    const obj = userToPlainRecord(user);
     delete obj.password;
     delete obj.twoFactorSecret;
 
@@ -971,14 +972,16 @@ export class UsersService {
     }
 
     obj.savedWithdrawalMethods = this.normalizeSavedMethods(
-      (user.savedWithdrawalMethods || []) as SavedWithdrawalMethod[],
+      ((user as UserDocument).savedWithdrawalMethods ||
+        (obj.savedWithdrawalMethods as SavedWithdrawalMethod[]) ||
+        []) as SavedWithdrawalMethod[],
     );
 
     return obj;
   }
 
   /** Sanitize and ensure referredBusiness is populated for admin/profile responses. */
-  private async sanitizeWithBusiness(user: UserDocument) {
+  private async sanitizeWithBusiness(user: UserDocument | Record<string, unknown>) {
     const obj = this.sanitize(user) as Record<string, unknown>;
     const settings = await this.platformSettingsService.get();
     const platformAllow = !!settings.allowMobileNumberUpi;
@@ -997,10 +1000,15 @@ export class UsersService {
 
     if (existing?._id) {
       bizId = String(existing._id);
-    } else if (user.referredByBusiness) {
-      bizId = user.referredByBusiness.toString();
-    } else if (typeof obj.referredByBusiness === 'string') {
-      bizId = obj.referredByBusiness;
+    } else {
+      const rawRef =
+        (user as UserDocument).referredByBusiness ?? obj.referredByBusiness;
+      if (rawRef) {
+        bizId =
+          typeof rawRef === 'object' && rawRef !== null && '_id' in (rawRef as object)
+            ? String((rawRef as { _id: unknown })._id)
+            : String(rawRef);
+      }
     }
 
     let bizAllow: boolean | undefined;

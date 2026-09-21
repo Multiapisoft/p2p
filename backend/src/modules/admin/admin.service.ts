@@ -22,6 +22,7 @@ import { CommissionService } from '../commission/commission.service';
 import { CommissionTarget } from '../../common/enums/commission-target.enum';
 import { assignedBusinessOids } from '../../common/utils/admin-business-scope.util';
 import type { AuthenticatedUser } from '../../common/interfaces/jwt-payload.interface';
+import { UsersRepository } from '../users/users.repository';
 
 @Injectable()
 export class AdminService implements OnModuleInit {
@@ -34,6 +35,7 @@ export class AdminService implements OnModuleInit {
     @InjectModel(Business.name) private businessModel: Model<BusinessDocument>,
     private config: ConfigService,
     private usersService: UsersService,
+    private usersRepo: UsersRepository,
     private commissionService: CommissionService,
   ) {}
 
@@ -164,10 +166,9 @@ export class AdminService implements OnModuleInit {
       patch.password = await bcrypt.hash(dto.password.trim(), 12);
     }
 
-    const updated = await this.userModel
-      .findByIdAndUpdate(id, { $set: patch }, { new: true })
-      .exec();
-    if (!updated) throw new NotFoundException('Sub-admin not found');
+    // Must go through usersRepo so Redis `user:{id}` cache is invalidated —
+    // otherwise findById returns a plain cached object and sanitize crashes.
+    await this.usersRepo.update(id, patch);
     return this.usersService.findById(id);
   }
 

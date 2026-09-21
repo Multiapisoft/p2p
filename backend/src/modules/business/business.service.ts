@@ -898,12 +898,15 @@ export class BusinessService {
     if (rounded <= 0) return;
     const business = await this.businessModel.findById(businessId).exec();
     if (!business) throw new NotFoundException('Business not found');
-    const hold = await this.sumOpenBusinessOriginHold(businessId);
+    const openHold = await this.sumOpenBusinessOriginHold(businessId);
+    // After COMPLETED, open hold no longer includes this WD — reinstate for remainingBefore.
+    const holdRelease = Math.max(0, Number(ref?.holdRelease) || 0);
+    const holdBefore = openHold + holdRelease;
     const remainingBefore = p2pPayQuotaRemaining({
       p2pPayLimit: business.p2pPayLimit,
       p2pPayEarned: business.p2pPayEarned,
       p2pPayUsed: business.p2pPayUsed,
-      hold,
+      hold: holdBefore,
     });
     const updated = await this.businessModel
       .findByIdAndUpdate(businessId, { $inc: { p2pPayUsed: rounded } }, { new: true })
@@ -911,11 +914,12 @@ export class BusinessService {
     await this.redis.del(`business:${businessId}`);
     await this.bustP2pRemaining(businessId);
     if (!updated) return;
+    const holdAfter = await this.sumOpenBusinessOriginHold(businessId);
     const remainingAfter = p2pPayQuotaRemaining({
       p2pPayLimit: updated.p2pPayLimit,
       p2pPayEarned: updated.p2pPayEarned,
       p2pPayUsed: updated.p2pPayUsed,
-      hold,
+      hold: holdAfter,
     });
     await this.recordQuotaLedger({
       business: updated,
@@ -1167,10 +1171,16 @@ export class BusinessService {
     if (opts.amount <= 0) return;
     const ownerId = opts.business.ownerId?.toString();
     if (!ownerId) return;
+    // Deduct rows always show in DEBIT even when remaining rises (hold released >
+    // net consumed, e.g. business fee excluded from limit).
     const direction =
-      opts.remainingAfter >= opts.remainingBefore
-        ? LedgerDirection.CREDIT
-        : LedgerDirection.DEBIT;
+      opts.action === 'deduct'
+        ? LedgerDirection.DEBIT
+        : opts.action === 'add' || opts.action === 'release'
+          ? LedgerDirection.CREDIT
+          : opts.remainingAfter >= opts.remainingBefore
+            ? LedgerDirection.CREDIT
+            : LedgerDirection.DEBIT;
     const refType = opts.ref?.referenceType;
     const feeToAdmin =
       refType === 'withdrawal_payment_fee' || refType === 'withdrawal_payment_deposit_fee';

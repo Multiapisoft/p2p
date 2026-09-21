@@ -385,7 +385,8 @@ export class WithdrawalPaymentService {
         : Promise.resolve({ amount: 0, percentage: 0 }),
     ]);
     let withdrawalFee = wdTake.amount;
-    let depositFee = depTake.amount;
+    // Investors: no deposit fee / no payer-business limit earn (bonus path only).
+    let depositFee = isInvestor ? 0 : depTake.amount;
     let investorBonus = bonus.amount;
 
     // Fees tracked for admin/business only — NEVER deducted from payer/investor wallet.
@@ -2369,10 +2370,9 @@ export class WithdrawalPaymentService {
 
     const payInr = breakdown.payAmountInr;
 
-    // Limit math on payment verify:
-    // - Cross-biz: release list reserve on WD-owner; earn +pay on payer business
-    // - Same-biz: no release; earn +pay (deposit → limit up); both fees from same biz
-    // - Investor: no release, no earn (list reserve stays consumed); WD fee only
+    // Payer's business (whichever business this user belongs to):
+    // +pay → earned limit up; deposit fee burns used (collected after settle below).
+    // Investors never boost a business limit; business-as-payer skips quota.
     const sameBiz =
       !!wdBizId && !!payerBizId && wdBizId === payerBizId;
     if (
@@ -2387,7 +2387,7 @@ export class WithdrawalPaymentService {
         reason: 'list_release',
       });
     }
-    if (!isInvestor && payerBizId && !skipP2pPayQuota) {
+    if (payerBizId && !isInvestor && !skipP2pPayQuota) {
       await this.businessService.creditP2pPayQuota(payerBizId, payInr, {
         referenceType: 'withdrawal_payment',
         referenceId: payment._id.toString(),
@@ -2457,8 +2457,127 @@ export class WithdrawalPaymentService {
       toParty: payer ? `${payer.name} wallet` : undefined,
     });
 
-    // 2) Fees: WD fee from owner business; deposit fee from payer business.
-    //    Debit business wallet → credit admin, and deduct same from P2P pay limit.
+    // 2) Fees + investor bonus run after withdrawer settle (below) so:
+    //    - fee allowOverdraft cannot eat locked WD principal
+    //    - admin receives WD fee before paying investor bonus
+    payment.commissionAmount = totalCommission;
+    payment.bonusAmount = 0;
+    payment.netCreditedAmount = principalCredit;
+    payment.status = TransactionStatus.COMPLETED;
+    payment.processedBy = processedBy;
+    payment.completedAt = new Date();
+    if (notes) payment.notes = notes;
+    payment.autoApproveAt = undefined;
+    await payment.save();
+
+    withdrawal.reservedAmount = Math.max(
+      0,
+      (withdrawal.reservedAmount || 0) - payment.amount,
+    );
+    withdrawal.paidAmount = (withdrawal.paidAmount || 0) + payment.amount;
+
+    // Confirmed slice leaves locked balance immediately (unlock + debit withdrawer).
+    // Investor USDT opens lock INR (sourceAmount) while open amount is USDT.
+    const settleInInr =
+      withdrawal.sourceCurrency === Currency.INR &&
+      withdrawal.currency === Currency.USDT &&
+      !!withdrawal.exchangeRate;
+    const settleCurrency = settleInInr ? Currency.INR : withdrawal.currency;
+    const settleAmount = settleInInr
+      ? this.exchangeRateService.usdtToInr(payment.amount)
+      : payment.amount;
+
+    const withdrawerWallet = await this.walletService.getOrCreate(
+      withdrawal.userId.toString(),
+      settleCurrency,
+      withdrawal.businessId?.toString(),
+    );
+    // Unlock the pay slice, then debit the full settle amount. Do this BEFORE
+    // business fee debit — fee uses allowOverdraft and must not eat locked WD funds
+    // (that caused ₹10k WD → ₹9,800 withdrawal + ₹200 fee from the same lock).
+    const lockRelease = Math.min(
+      withdrawerWallet.lockedBalance || 0,
+      settleAmount,
+    );
+    if (lockRelease > 0) {
+      await this.walletService.unlock(withdrawerWallet._id.toString(), lockRelease);
+    }
+    const refreshedWithdrawer = await this.walletService.findById(
+      withdrawerWallet._id.toString(),
+    );
+    const wdWallet = refreshedWithdrawer || withdrawerWallet;
+    const withdrawerBalanceBefore = wdWallet.balance;
+    let updatedWithdrawerWallet = wdWallet;
+    if (settleAmount > 0) {
+      updatedWithdrawerWallet = await this.walletService.debit(
+        wdWallet._id.toString(),
+        settleAmount,
+        'totalWithdrawn',
+        undefined,
+        { allowOverdraft: true },
+      );
+      await this.transactionService.record({
+        userId: withdrawal.userId.toString(),
+        walletId: wdWallet._id.toString(),
+        type: LedgerType.WITHDRAWAL,
+        amount: settleAmount,
+        currency: settleCurrency,
+        balanceBefore: withdrawerBalanceBefore,
+        balanceAfter: updatedWithdrawerWallet.balance,
+        referenceType: 'withdrawal_payment',
+        referenceId: payment._id.toString(),
+        description:
+          `Withdrawal payment confirmed — ${payment.referenceId}` +
+          (settleInInr
+            ? ` (${payment.amount} USDT → ₹${settleAmount})`
+            : ''),
+        businessId: withdrawal.businessId?.toString(),
+      });
+    }
+    withdrawal.settledFromLock = (withdrawal.settledFromLock || 0) + payment.amount;
+
+    // Older confirms (before per-payment unlock) may still be sitting in lock.
+    const lockGap = Math.max(0, withdrawal.paidAmount - (withdrawal.settledFromLock || 0));
+    if (lockGap > 0) {
+      const gapSettle = settleInInr
+        ? this.exchangeRateService.usdtToInr(lockGap)
+        : lockGap;
+      const latest =
+        (await this.walletService.findById(wdWallet._id.toString())) ||
+        updatedWithdrawerWallet;
+      const gapUnlock = Math.min(latest.lockedBalance || 0, gapSettle);
+      if (gapUnlock > 0) {
+        await this.walletService.unlock(wdWallet._id.toString(), gapUnlock);
+      }
+      const afterUnlock =
+        (await this.walletService.findById(wdWallet._id.toString())) || latest;
+      if (gapSettle > 0) {
+        const gapBefore = afterUnlock.balance;
+        const gapWallet = await this.walletService.debit(
+          wdWallet._id.toString(),
+          gapSettle,
+          'totalWithdrawn',
+          undefined,
+          { allowOverdraft: true },
+        );
+        await this.transactionService.record({
+          userId: withdrawal.userId.toString(),
+          walletId: wdWallet._id.toString(),
+          type: LedgerType.WITHDRAWAL,
+          amount: gapSettle,
+          currency: settleCurrency,
+          balanceBefore: gapBefore,
+          balanceAfter: gapWallet.balance,
+          referenceType: 'withdrawal',
+          referenceId: withdrawal._id.toString(),
+          description: `Withdrawal lock catch-up for previously confirmed payments`,
+          businessId: withdrawal.businessId?.toString(),
+        });
+      }
+      withdrawal.settledFromLock = (withdrawal.settledFromLock || 0) + lockGap;
+    }
+
+    // Fees AFTER full WD settle: business wallet → admin; also burn pay limit.
     const feeCommon = {
       currency: Currency.INR,
       fromUserId: payment.payerUserId.toString(),
@@ -2475,19 +2594,18 @@ export class WithdrawalPaymentService {
         businessAmount: withdrawalFee,
         businessId: wdBizId,
       });
-      if (withdrawal.origin !== 'business') {
-        await this.businessService.consumeP2pPay(wdBizId, withdrawalFee, {
-          referenceType: 'withdrawal_payment_fee',
-          referenceId: payment._id.toString(),
-          reason: 'wd_fee',
-        });
-      }
+      await this.businessService.consumeP2pPay(wdBizId, withdrawalFee, {
+        referenceType: 'withdrawal_payment_fee',
+        referenceId: payment._id.toString(),
+        reason: 'wd_fee',
+      });
     }
-    if (depositFee > 0 && payerBizId) {
+    // Deposit fee → payer's business (same as classic deposit approve).
+    if (depositFee > 0 && payerBizId && !isInvestor) {
       await this.platformCommissionService.creditCollectedFees({
         ...feeCommon,
-        platformAmount: depositFee,
-        businessAmount: 0,
+        platformAmount: 0,
+        businessAmount: depositFee,
         businessId: payerBizId,
       });
       if (!skipP2pPayQuota) {
@@ -2499,7 +2617,7 @@ export class WithdrawalPaymentService {
       }
     }
 
-    // 3) Investor bonus — only UserRole.INVESTOR; never business/user payers.
+    // Investor bonus after fees so admin commission wallet is funded first.
     let creditedBonus = 0;
     if (investorBonus > 0 && isInvestorPayerRole(payer?.role)) {
       creditedBonus = investorBonus;
@@ -2546,7 +2664,6 @@ export class WithdrawalPaymentService {
       });
     }
 
-    // 4) Investor→investor referral rewards from admin (first vs next pay %).
     if (isInvestor && payer && principalCredit > 0) {
       await this.payInvestorReferralRewards({
         payer,
@@ -2558,125 +2675,10 @@ export class WithdrawalPaymentService {
       });
     }
 
-    payment.commissionAmount = totalCommission;
-    payment.bonusAmount = creditedBonus;
-    payment.netCreditedAmount = principalCredit + creditedBonus;
-    payment.status = TransactionStatus.COMPLETED;
-    payment.processedBy = processedBy;
-    payment.completedAt = new Date();
-    if (notes) payment.notes = notes;
-    payment.autoApproveAt = undefined;
-    await payment.save();
-
-    // Fees → admin; investor bonus / referral deducted from admin (ledger above).
-
-    withdrawal.reservedAmount = Math.max(
-      0,
-      (withdrawal.reservedAmount || 0) - payment.amount,
-    );
-    withdrawal.paidAmount = (withdrawal.paidAmount || 0) + payment.amount;
-
-    // Confirmed slice leaves locked balance immediately (unlock + debit withdrawer).
-    // Investor USDT opens lock INR (sourceAmount) while open amount is USDT.
-    const settleInInr =
-      withdrawal.sourceCurrency === Currency.INR &&
-      withdrawal.currency === Currency.USDT &&
-      !!withdrawal.exchangeRate;
-    const settleCurrency = settleInInr ? Currency.INR : withdrawal.currency;
-    const settleAmount = settleInInr
-      ? this.exchangeRateService.usdtToInr(payment.amount)
-      : payment.amount;
-
-    const withdrawerWallet = await this.walletService.getOrCreate(
-      withdrawal.userId.toString(),
-      settleCurrency,
-      withdrawal.businessId?.toString(),
-    );
-    // Unlock+debit safely: never throw "Insufficient balance" on receive confirm
-    // when lock/conversion differs slightly from settle amount.
-    const lockRelease = Math.min(
-      withdrawerWallet.lockedBalance || 0,
-      settleAmount,
-    );
-    if (lockRelease > 0) {
-      await this.walletService.unlock(withdrawerWallet._id.toString(), lockRelease);
-    }
-    const refreshedWithdrawer = await this.walletService.findById(
-      withdrawerWallet._id.toString(),
-    );
-    const wdWallet = refreshedWithdrawer || withdrawerWallet;
-    const available = Math.max(0, wdWallet.balance - (wdWallet.lockedBalance || 0));
-    const debitAmt = Math.min(available, settleAmount);
-    const withdrawerBalanceBefore = wdWallet.balance;
-    let updatedWithdrawerWallet = wdWallet;
-    if (debitAmt > 0) {
-      updatedWithdrawerWallet = await this.walletService.debit(
-        wdWallet._id.toString(),
-        debitAmt,
-        'totalWithdrawn',
-      );
-      await this.transactionService.record({
-        userId: withdrawal.userId.toString(),
-        walletId: wdWallet._id.toString(),
-        type: LedgerType.WITHDRAWAL,
-        amount: debitAmt,
-        currency: settleCurrency,
-        balanceBefore: withdrawerBalanceBefore,
-        balanceAfter: updatedWithdrawerWallet.balance,
-        referenceType: 'withdrawal_payment',
-        referenceId: payment._id.toString(),
-        description:
-          `Withdrawal payment confirmed — ${payment.referenceId}` +
-          (settleInInr
-            ? ` (${payment.amount} USDT → ₹${settleAmount})`
-            : ''),
-        businessId: withdrawal.businessId?.toString(),
-      });
-    }
-    withdrawal.settledFromLock = (withdrawal.settledFromLock || 0) + payment.amount;
-
-    // Older confirms (before per-payment unlock) may still be sitting in lock.
-    const lockGap = Math.max(0, withdrawal.paidAmount - (withdrawal.settledFromLock || 0));
-    if (lockGap > 0) {
-      const gapSettle = settleInInr
-        ? this.exchangeRateService.usdtToInr(lockGap)
-        : lockGap;
-      const latest =
-        (await this.walletService.findById(wdWallet._id.toString())) ||
-        updatedWithdrawerWallet;
-      const gapUnlock = Math.min(latest.lockedBalance || 0, gapSettle);
-      if (gapUnlock > 0) {
-        await this.walletService.unlock(wdWallet._id.toString(), gapUnlock);
-      }
-      const afterUnlock =
-        (await this.walletService.findById(wdWallet._id.toString())) || latest;
-      const gapAvail = Math.max(
-        0,
-        afterUnlock.balance - (afterUnlock.lockedBalance || 0),
-      );
-      const gapDebit = Math.min(gapAvail, gapSettle);
-      if (gapDebit > 0) {
-        const gapBefore = afterUnlock.balance;
-        const gapWallet = await this.walletService.debit(
-          wdWallet._id.toString(),
-          gapDebit,
-          'totalWithdrawn',
-        );
-        await this.transactionService.record({
-          userId: withdrawal.userId.toString(),
-          walletId: wdWallet._id.toString(),
-          type: LedgerType.WITHDRAWAL,
-          amount: gapDebit,
-          currency: settleCurrency,
-          balanceBefore: gapBefore,
-          balanceAfter: gapWallet.balance,
-          referenceType: 'withdrawal',
-          referenceId: withdrawal._id.toString(),
-          description: `Withdrawal lock catch-up for previously confirmed payments`,
-          businessId: withdrawal.businessId?.toString(),
-        });
-      }
-      withdrawal.settledFromLock = (withdrawal.settledFromLock || 0) + lockGap;
+    if (creditedBonus > 0) {
+      payment.bonusAmount = creditedBonus;
+      payment.netCreditedAmount = principalCredit + creditedBonus;
+      await payment.save();
     }
 
     if (withdrawal.paidAmount >= withdrawal.amount) {
@@ -3096,10 +3098,15 @@ export class WithdrawalPaymentService {
     await withdrawal.save(session ? { session } : undefined);
 
     if (withdrawal.origin === 'business' && withdrawal.businessId) {
+      // Gross WD amount moves hold → used. Fee already burned pay limit on approve.
       await this.businessService.consumeP2pPay(
         withdrawal.businessId.toString(),
         withdrawal.amount,
-        { referenceType: 'withdrawal', referenceId: withdrawal._id.toString() },
+        {
+          referenceType: 'withdrawal',
+          referenceId: withdrawal._id.toString(),
+          holdRelease: withdrawal.amount,
+        },
       );
     }
 

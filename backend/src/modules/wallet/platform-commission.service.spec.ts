@@ -244,10 +244,21 @@ describe('PlatformCommissionService', () => {
     );
   });
 
-  it('collects WD fee as businessAmount and deposit fee as platformAmount from business', async () => {
+  it('collects WD fee and deposit fee as businessAmount → admin (both from business)', async () => {
     await service.creditCollectedFees({
-      platformAmount: 250,
+      platformAmount: 0,
       businessAmount: 500,
+      fromUserId: 'payer-1',
+      fromName: 'Rahul',
+      fromRole: 'user',
+      referenceType: 'withdrawal_payment',
+      referenceId: 'pay-id',
+      referenceLabel: 'PAY-1',
+      businessId: 'biz-1',
+    });
+    await service.creditCollectedFees({
+      platformAmount: 0,
+      businessAmount: 250,
       fromUserId: 'payer-1',
       fromName: 'Rahul',
       fromRole: 'user',
@@ -260,26 +271,30 @@ describe('PlatformCommissionService', () => {
     expect(walletService.debit).toHaveBeenCalledTimes(2);
     expect(walletService.debit).toHaveBeenCalledWith(
       'biz-wallet',
-      250,
+      500,
       false,
       undefined,
       { allowOverdraft: true },
     );
     expect(walletService.debit).toHaveBeenCalledWith(
       'biz-wallet',
-      500,
+      250,
       false,
       undefined,
       { allowOverdraft: true },
     );
     expect(walletService.credit).toHaveBeenCalledTimes(2);
-    expect(transactionService.record).toHaveBeenCalledWith(
-      expect.objectContaining({
-        userId: 'admin-id',
-        direction: LedgerDirection.CREDIT,
-        amount: 250,
-        description: expect.stringContaining('Deposit fee ₹250'),
-      }),
+    expect(walletService.credit).toHaveBeenCalledWith(
+      'admin-wallet',
+      500,
+      false,
+      undefined,
+    );
+    expect(walletService.credit).toHaveBeenCalledWith(
+      'admin-wallet',
+      250,
+      false,
+      undefined,
     );
     expect(transactionService.record).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -288,6 +303,44 @@ describe('PlatformCommissionService', () => {
         amount: 500,
         description: expect.stringContaining('Business fee ₹500'),
       }),
+    );
+    expect(transactionService.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'admin-id',
+        direction: LedgerDirection.CREDIT,
+        amount: 250,
+        description: expect.stringContaining('Business fee ₹250'),
+      }),
+    );
+  });
+
+  it('investor bonus never debits business wallet — only admin', async () => {
+    walletService.debit.mockClear();
+    await service.debitInvestorCommission({
+      amount: 200,
+      toUserId: 'inv-1',
+      toName: 'Anita',
+      toRole: UserRole.INVESTOR,
+      referenceType: 'withdrawal_payment_bonus',
+      referenceId: 'pay-id',
+      referenceLabel: 'PAY-1',
+      businessId: 'biz-1',
+    });
+
+    expect(walletService.debit).toHaveBeenCalledTimes(1);
+    expect(walletService.debit).toHaveBeenCalledWith(
+      'admin-wallet',
+      200,
+      false,
+      undefined,
+      { allowOverdraft: true },
+    );
+    expect(walletService.debit).not.toHaveBeenCalledWith(
+      'biz-wallet',
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
     );
   });
 });
