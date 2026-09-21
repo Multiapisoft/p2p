@@ -188,21 +188,18 @@ export class TransactionService {
     }
 
     if (opts.hideP2pFeeDuplicates) {
-      // Fees write both a wallet debit (commission) and a pay-limit deduct.
-      // Business ledger shows only the limit row — same amount, clearer for operators.
+      // Fees are written to the business wallet (commission) and often also to
+      // pay-limit. Show the wallet fee once; hide the paired pay-limit fee row
+      // so ₹200 (2%) does not appear twice. Business-origin WDs only write the
+      // wallet fee — hiding commission used to make the fee invisible.
       and.push({
-        $nor: [
-          {
-            type: LedgerType.COMMISSION,
-            flow: LedgerFlow.PLATFORM_FEE,
-            direction: LedgerDirection.DEBIT,
-            referenceType: { $in: ['withdrawal_payment', 'deposit'] },
-          },
-        ],
-      });
-      // In-process list reserve / unlist — not completed transactions.
-      and.push({
-        referenceType: { $nin: [...IN_PROCESS_P2P_QUOTA_LEDGER_REFS] },
+        referenceType: {
+          $nin: [
+            ...IN_PROCESS_P2P_QUOTA_LEDGER_REFS,
+            'withdrawal_payment_fee',
+            'withdrawal_payment_deposit_fee',
+          ],
+        },
       });
       and.push({ type: { $ne: LedgerType.LOCK } });
     }
