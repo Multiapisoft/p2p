@@ -23,6 +23,12 @@ export class AdminController {
     return this.adminService.getDashboardStats(user);
   }
 
+  @Get('business-options')
+  @Roles(UserRole.ADMIN)
+  listBusinessOptions() {
+    return this.adminService.listBusinessOptions();
+  }
+
   @Post('sub-admins')
   @Roles(UserRole.ADMIN)
   createSubAdmin(

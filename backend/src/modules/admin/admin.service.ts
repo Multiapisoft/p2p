@@ -171,6 +171,21 @@ export class AdminService implements OnModuleInit {
     return this.usersService.findById(id);
   }
 
+  async listBusinessOptions() {
+    const rows = await this.businessModel
+      .find({})
+      .select('_id name referralCode status')
+      .sort({ name: 1 })
+      .lean()
+      .exec();
+    return rows.map((b) => ({
+      _id: b._id.toString(),
+      name: b.name,
+      referralCode: b.referralCode || null,
+      status: b.status,
+    }));
+  }
+
   private async assertBusinessIdsExist(ids?: string[]) {
     if (!ids?.length) return;
     const oids = assignedBusinessOids(ids);

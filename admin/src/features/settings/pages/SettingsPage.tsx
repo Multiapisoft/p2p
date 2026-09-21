@@ -7,19 +7,30 @@ import { Card } from '@/shared/components/ui/Card';
 import { Button } from '@/shared/components/ui/Button';
 import { Input } from '@/shared/components/ui/Input';
 import { Modal } from '@/shared/components/ui/Modal';
-import type { User, Paginated, Business } from '@/shared/types/api.types';
+import type { User, Paginated } from '@/shared/types/api.types';
 import { useAuthStore } from '@/features/auth/store/auth.store';
 import { getApiErrorMessage } from '@/shared/lib/api-error';
 import {
   platformSettingsApi,
   type PlatformSettings,
 } from '@/features/settings/api/platform-settings.api';
-import { businessesApi } from '@/features/businesses/api/businesses.api';
 
 import { TwoFactorPanel } from '@/features/settings/components/TwoFactorPanel';
 import { PERMISSIONS } from '@/shared/constants/permissions';
 
-const ALL_PERMISSIONS = Object.values(PERMISSIONS);
+/** Admin-assignable chips only (exclude business-staff-only permissions). */
+const ALL_PERMISSIONS = [
+  PERMISSIONS.DEPOSITS,
+  PERMISSIONS.WITHDRAWALS,
+  PERMISSIONS.USERS,
+  PERMISSIONS.BUSINESS,
+  PERMISSIONS.COMMISSIONS,
+  PERMISSIONS.SUPPORT,
+  PERMISSIONS.PAYMENT_CONFIG,
+  PERMISSIONS.AUDIT,
+  PERMISSIONS.WALLET,
+  PERMISSIONS.PLATFORM_SETTINGS,
+] as const;
 
 function businessIdOf(id: string | { _id?: string } | undefined): string {
   if (!id) return '';
@@ -173,12 +184,15 @@ export function SettingsPage() {
     enabled: user?.role === 'admin',
   });
 
-  const { data: businessesData } = useQuery({
-    queryKey: ['businesses-for-subadmin'],
-    queryFn: () => businessesApi.list({ page: 1, limit: 200 }),
+  const { data: businessesData, isError: businessesError, isLoading: businessesLoading } = useQuery({
+    queryKey: ['admin-business-options'],
+    queryFn: () =>
+      apiGet<Array<{ _id: string; name: string; referralCode?: string | null; status?: string }>>(
+        '/admin/business-options',
+      ),
     enabled: user?.role === 'admin',
   });
-  const businesses = (businessesData?.items ?? []) as Business[];
+  const businesses = Array.isArray(businessesData) ? businessesData : [];
 
   const [subSearch, setSubSearch] = useState('');
   const filteredSubs = useMemo(() => {
@@ -524,24 +538,20 @@ export function SettingsPage() {
               <p className="mb-2 text-sm font-semibold">Permissions</p>
               <div className="chip-scroll">
                 {ALL_PERMISSIONS.map((p) => (
-                  <label
+                  <button
                     key={p}
-                    className={`cursor-pointer rounded-full border px-2.5 py-1 text-[11px] sm:px-3 sm:text-xs ${
+                    type="button"
+                    className={`rounded-full border px-2.5 py-1 text-[11px] sm:px-3 sm:text-xs ${
                       perms.includes(p) ? 'border-secondary bg-secondary-container' : 'border-outline-variant'
                     }`}
+                    onClick={() =>
+                      setperms((prev) =>
+                        prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p],
+                      )
+                    }
                   >
-                    <input
-                      type="checkbox"
-                      className="sr-only"
-                      checked={perms.includes(p)}
-                      onChange={() =>
-                        setperms((prev) =>
-                          prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p],
-                        )
-                      }
-                    />
                     {p}
-                  </label>
+                  </button>
                 ))}
               </div>
             </div>
@@ -551,7 +561,11 @@ export function SettingsPage() {
                 Sub-admin only sees deposits, withdrawals, commissions, and transactions for these
                 businesses.
               </p>
-              {businesses.length ? (
+              {businessesLoading ? (
+                <p className="text-xs text-on-surface-variant">Loading businesses…</p>
+              ) : businessesError ? (
+                <p className="text-xs text-error">Could not load businesses. Refresh and try again.</p>
+              ) : businesses.length ? (
                 <div className="max-h-48 space-y-1 overflow-y-auto rounded-lg border border-outline-variant p-2">
                   {businesses.map((b) => (
                     <label
@@ -682,32 +696,32 @@ export function SettingsPage() {
               <p className="mb-2 text-sm font-semibold">Permissions</p>
               <div className="chip-scroll">
                 {ALL_PERMISSIONS.map((p) => (
-                  <label
+                  <button
                     key={p}
-                    className={`cursor-pointer rounded-full border px-2.5 py-1 text-[11px] sm:px-3 sm:text-xs ${
+                    type="button"
+                    className={`rounded-full border px-2.5 py-1 text-[11px] sm:px-3 sm:text-xs ${
                       editPerms.includes(p)
                         ? 'border-secondary bg-secondary-container'
                         : 'border-outline-variant'
                     }`}
+                    onClick={() =>
+                      setEditPerms((prev) =>
+                        prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p],
+                      )
+                    }
                   >
-                    <input
-                      type="checkbox"
-                      className="sr-only"
-                      checked={editPerms.includes(p)}
-                      onChange={() =>
-                        setEditPerms((prev) =>
-                          prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p],
-                        )
-                      }
-                    />
                     {p}
-                  </label>
+                  </button>
                 ))}
               </div>
             </div>
             <div>
               <p className="mb-2 text-sm font-semibold">Businesses they can control</p>
-              {businesses.length ? (
+              {businessesLoading ? (
+                <p className="text-xs text-on-surface-variant">Loading businesses…</p>
+              ) : businessesError ? (
+                <p className="text-xs text-error">Could not load businesses. Refresh and try again.</p>
+              ) : businesses.length ? (
                 <div className="max-h-48 space-y-1 overflow-y-auto rounded-lg border border-outline-variant p-2">
                   {businesses.map((b) => (
                     <label

@@ -186,11 +186,12 @@ export class BusinessController {
 
   @Get()
   @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN)
-  @Permissions(Permission.BUSINESS_MANAGE)
   findAll(
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: BusinessListQueryDto,
   ) {
+    // No @Permissions — sub-admins are scoped by assignedBusinessIds.
+    // Admin settings (assign businesses to sub-admins) must work without business.manage.
     return this.businessService.findAll(query, user);
   }
 
