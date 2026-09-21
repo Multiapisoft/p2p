@@ -360,6 +360,15 @@ export class CommissionService {
     targetId?: string,
     paymentMethod?: PaymentMethod,
   ) {
+    const cacheKey = `commission:cfg:${targetType}:${targetId || '_'}:${paymentMethod || '_'}`;
+    const cached = await this.redis.get<Array<Record<string, unknown>>>(cacheKey);
+    if (Array.isArray(cached)) {
+      return cached.map((row) => ({
+        ...row,
+        targetId: row.targetId,
+      })) as unknown as CommissionConfigDocument[];
+    }
+
     const filter: Record<string, unknown> = { targetType, isActive: true };
 
     if (targetId) {
@@ -378,7 +387,9 @@ export class CommissionService {
       ];
     }
 
-    return this.commissionModel.find(filter).exec();
+    const docs = await this.commissionModel.find(filter).lean().exec();
+    await this.redis.set(cacheKey, docs.length ? docs : [], 120);
+    return docs as unknown as CommissionConfigDocument[];
   }
 
   async calculate(

@@ -23,25 +23,29 @@ export function useP2pListLive(queryKeys: readonly string[] = LIVE_QUERY_ROOTS) 
       transports: ['websocket', 'polling'],
       withCredentials: true,
       reconnection: true,
-      reconnectionDelay: 500,
-      reconnectionDelayMax: 4000,
+      reconnectionDelay: 1_500,
+      reconnectionDelayMax: 8_000,
+      randomizationFactor: 0.5,
     });
 
+    let debounce: ReturnType<typeof setTimeout> | null = null;
     const refresh = () => {
-      for (const key of queryKeys) {
-        void qc.invalidateQueries({
-          queryKey: [key],
-          refetchType: 'active',
-        });
-      }
+      if (debounce) clearTimeout(debounce);
+      debounce = setTimeout(() => {
+        for (const key of queryKeys) {
+          void qc.invalidateQueries({
+            queryKey: [key],
+            refetchType: 'active',
+          });
+        }
+      }, 200);
     };
 
     socket.on(LIST_CHANGED, refresh);
-    socket.on('connect', refresh);
 
     return () => {
+      if (debounce) clearTimeout(debounce);
       socket.off(LIST_CHANGED, refresh);
-      socket.off('connect', refresh);
       socket.disconnect();
     };
   }, [token, qc, keysSig, queryKeys]);

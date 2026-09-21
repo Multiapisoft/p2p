@@ -823,14 +823,21 @@ export class BusinessService {
 
   /** Remaining INR that can still be withdrawn / paid toward this business. */
   async getP2pPayRemaining(businessId: string): Promise<number> {
-    const business = await this.businessModel.findById(businessId).exec();
+    return this.redis.getOrSet(`business:p2p-remaining:${businessId}`, 20, async () => {
+      const business = await this.businessModel
+        .findById(businessId)
+        .select('p2pPayLimit p2pPayEarned p2pPayUsed')
+        .lean()
+        .exec();
     if (!business) throw new NotFoundException('Business not found');
     const hold = await this.sumOpenBusinessOriginHold(businessId);
-    return p2pPayQuotaRemaining({
+    const remaining = p2pPayQuotaRemaining({
       p2pPayLimit: business.p2pPayLimit,
       p2pPayEarned: business.p2pPayEarned,
       p2pPayUsed: business.p2pPayUsed,
       hold,
+    });
+    return remaining;
     });
   }
 
@@ -842,6 +849,12 @@ export class BusinessService {
       throw new BadRequestException(p2pPayLimitExceededError(remaining));
     }
     return remaining;
+  }
+
+  /** Bust cached remaining after any quota mutation. */
+  private async bustP2pRemaining(businessId: string) {
+    await this.redis.del(`business:p2p-remaining:${businessId}`);
+    await this.redis.del('business:p2p-exhausted-ids');
   }
 
   /** Credit quota when this business's users complete a deposit / pay any user. */
@@ -876,6 +889,7 @@ export class BusinessService {
       remainingAfter,
       ref: { referenceType: 'p2p_pay_limit_add', referenceId: businessId, ...ref },
     });
+    await this.bustP2pRemaining(businessId);
   }
 
   /** Move a completed business-origin WD from hold into used (no remaining check). */
@@ -895,6 +909,7 @@ export class BusinessService {
       .findByIdAndUpdate(businessId, { $inc: { p2pPayUsed: rounded } }, { new: true })
       .exec();
     await this.redis.del(`business:${businessId}`);
+    await this.bustP2pRemaining(businessId);
     if (!updated) return;
     const remainingAfter = p2pPayQuotaRemaining({
       p2pPayLimit: updated.p2pPayLimit,
@@ -924,13 +939,15 @@ export class BusinessService {
     method?: string,
     inrToPayCurrency?: (inr: number) => number,
     listedReservedInr = 0,
+    /** Request-scoped remaining to avoid N+1 getP2pPayRemaining on list. */
+    cachedRemainingInr?: number,
   ): Promise<{ maxPayable: number; p2pPayRemainingInr: number | null }> {
     const open = Math.max(0, withdrawalRemaining);
     if (!businessId || open <= 0) {
       return { maxPayable: open, p2pPayRemainingInr: null };
     }
     const remInr = remainingForPayingListedWithdrawal(
-      await this.getP2pPayRemaining(businessId),
+      cachedRemainingInr ?? (await this.getP2pPayRemaining(businessId)),
       listedReservedInr,
     );
     if (remInr <= 0) {
@@ -1071,6 +1088,7 @@ export class BusinessService {
       );
     }
     await this.redis.del(`business:${businessId}`);
+    await this.bustP2pRemaining(businessId);
     const remainingAfter = p2pPayQuotaRemaining({
       p2pPayLimit: updated.p2pPayLimit,
       p2pPayEarned: updated.p2pPayEarned,
@@ -1108,6 +1126,7 @@ export class BusinessService {
       { $set: { p2pPayUsed: 0 } },
     );
     await this.redis.del(`business:${businessId}`);
+    await this.bustP2pRemaining(businessId);
     const updated = await this.businessModel.findById(businessId).exec();
     if (!updated) return;
     const remainingAfter = p2pPayQuotaRemaining({
@@ -1132,6 +1151,7 @@ export class BusinessService {
         },
       });
     }
+    await this.bustP2pRemaining(businessId);
   }
 
   private async recordQuotaLedger(opts: {

@@ -98,6 +98,30 @@ export class RedisService implements OnModuleDestroy {
     }
   }
 
+  /**
+   * Read-through cache. Loader runs only on miss.
+   * Fail-open: if Redis is down, always loads.
+   */
+  async getOrSet<T>(
+    key: string,
+    ttlSeconds: number,
+    loader: () => Promise<T>,
+  ): Promise<T> {
+    if (this.ready) {
+      try {
+        const data = await this.client!.get(this.key(key));
+        if (data !== null) return JSON.parse(data) as T;
+      } catch {
+        // fall through to loader
+      }
+    }
+    const value = await loader();
+    if (value !== undefined) {
+      await this.set(key, value, ttlSeconds);
+    }
+    return value;
+  }
+
   async ping(): Promise<string> {
     if (!this.client) throw new Error('Redis disabled');
     if (!this.available) throw new Error('Redis not connected');

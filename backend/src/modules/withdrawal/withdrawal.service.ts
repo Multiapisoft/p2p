@@ -1055,21 +1055,27 @@ export class WithdrawalService {
         p2pListStatus: 'listed',
         status: { $in: [TransactionStatus.PENDING, TransactionStatus.PROCESSING] },
       })
+      .select('amount paidAmount reservedAmount method currency sourceAmount exchangeRate')
+      .lean()
       .exec();
 
-    let existingListedOpenFees = 0;
-    for (const w of listed) {
-      const unpaidInr = this.unpaidAmountInrForFee(w);
-      if (unpaidInr <= 0) continue;
-      const fee = await this.commissionService.calculate(
-        unpaidInr,
-        CommissionTarget.BUSINESS,
-        businessId,
-        w.method,
-        'withdrawal',
-      );
-      existingListedOpenFees = roundMoney(existingListedOpenFees + (fee.amount || 0));
-    }
+    const feeParts = await Promise.all(
+      listed.map(async (w) => {
+        const unpaidInr = this.unpaidAmountInrForFee(w as WithdrawalDocument);
+        if (unpaidInr <= 0) return 0;
+        const fee = await this.commissionService.calculate(
+          unpaidInr,
+          CommissionTarget.BUSINESS,
+          businessId,
+          w.method,
+          'withdrawal',
+        );
+        return fee.amount || 0;
+      }),
+    );
+    const existingListedOpenFees = roundMoney(
+      feeParts.reduce((s, n) => s + n, 0),
+    );
 
     const newFeeResult = await this.commissionService.calculate(
       newOpenInr,

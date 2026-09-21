@@ -353,50 +353,46 @@ export class WithdrawalPaymentService {
     isInvestor: boolean,
     payCurrency: string = Currency.INR,
   ) {
-    let withdrawalFee = 0;
-    let depositFee = 0;
-    let investorBonus = 0;
-
     // WD fee from withdrawal-owner business (admin "Withdrawal / P2P" rate).
-    if (wdBusinessId) {
-      const wdTake = await this.commissionService.calculate(
-        amount,
-        CommissionTarget.BUSINESS,
-        wdBusinessId,
-        method,
-        'withdrawal',
-      );
-      withdrawalFee = wdTake.amount;
-    }
-
-    // Deposit fee from payer's business (admin "Deposit" rate). Investors have no business.
-    if (payerBusinessId) {
-      const depTake = await this.commissionService.calculate(
-        amount,
-        CommissionTarget.BUSINESS,
-        payerBusinessId,
-        method,
-        'deposit',
-      );
-      depositFee = depTake.amount;
-    }
+    // Deposit fee from payer's business. Investor bonus from WD-owner rates.
+    const [wdTake, depTake, bonus] = await Promise.all([
+      wdBusinessId
+        ? this.commissionService.calculate(
+            amount,
+            CommissionTarget.BUSINESS,
+            wdBusinessId,
+            method,
+            'withdrawal',
+          )
+        : Promise.resolve({ amount: 0, percentage: 0 }),
+      payerBusinessId
+        ? this.commissionService.calculate(
+            amount,
+            CommissionTarget.BUSINESS,
+            payerBusinessId,
+            method,
+            'deposit',
+          )
+        : Promise.resolve({ amount: 0, percentage: 0 }),
+      isInvestor && wdBusinessId
+        ? this.commissionService.calculate(
+            amount,
+            CommissionTarget.INVESTOR_BONUS,
+            wdBusinessId,
+            method,
+          )
+        : Promise.resolve({ amount: 0, percentage: 0 }),
+    ]);
+    let withdrawalFee = wdTake.amount;
+    let depositFee = depTake.amount;
+    let investorBonus = bonus.amount;
 
     // Fees tracked for admin/business only — NEVER deducted from payer/investor wallet.
     let commissionAmount = Math.round((withdrawalFee + depositFee) * 100) / 100;
     let principalCredit = Math.round(amount * 100) / 100;
-    let bonusPercentage = 0;
+    let bonusPercentage = isInvestor && wdBusinessId ? bonus.percentage || 0 : 0;
 
-    // Extra wallet credit is investor-only, from the WD-owner business rates — never the payer's.
-    if (isInvestor && wdBusinessId) {
-      const bonus = await this.commissionService.calculate(
-        amount,
-        CommissionTarget.INVESTOR_BONUS,
-        wdBusinessId,
-        method,
-      );
-      investorBonus = bonus.amount;
-      bonusPercentage = bonus.percentage || 0;
-    } else {
+    if (!isInvestor || !wdBusinessId) {
       investorBonus = 0;
       bonusPercentage = 0;
     }
@@ -912,6 +908,50 @@ export class WithdrawalPaymentService {
 
     const payerBusinessId = await this.businessService.findBusinessIdForUser(payer);
 
+    // Prefetch once per unique business — list used to N+1 rates + remaining + partial rules.
+    const quotaBizIds = [
+      ...new Set(
+        items
+          .map((w) => w.businessId?.toString() || payerBusinessId || '')
+          .filter((id): id is string => !!id),
+      ),
+    ];
+    const ratesByBiz = new Map<
+      string,
+      Awaited<ReturnType<BusinessService['getUsdtRates']>>
+    >();
+    const remainingByBiz = new Map<string, number>();
+    const partialByBiz = new Map<
+      string,
+      { allowPartial: boolean; minPartial: number }
+    >();
+
+    const platformPartial = isInvestor
+      ? false
+      : await this.platformSettingsService.allowPartialPay();
+
+    await Promise.all(
+      quotaBizIds.map(async (bizId) => {
+        const [rates, rem, minPartial, allowPartial] = await Promise.all([
+          this.businessService.getUsdtRates(bizId),
+          this.businessService.getP2pPayRemaining(bizId).catch(() => 0),
+          this.businessService.resolveMinPartialPay(bizId),
+          isInvestor
+            ? Promise.resolve(false)
+            : this.businessService.resolveAllowPartialPay(platformPartial, bizId),
+        ]);
+        ratesByBiz.set(bizId, rates);
+        remainingByBiz.set(bizId, rem);
+        partialByBiz.set(bizId, { allowPartial, minPartial });
+      }),
+    );
+
+    // USDT rows need method/currency-aware min; cache null-biz defaults once.
+    const defaultPartial = {
+      allowPartial: isInvestor ? false : platformPartial,
+      minPartial: await this.businessService.resolveMinPartialPay(null),
+    };
+
     const itemsWithCredit = await Promise.all(
       items.map(async (w) => {
         const reservedLive = pendingMap.get(w._id.toString()) ?? w.reservedAmount ?? 0;
@@ -927,7 +967,9 @@ export class WithdrawalPaymentService {
         }
         const wdBusinessId = w.businessId?.toString();
         const quotaBusinessId = wdBusinessId || payerBusinessId;
-        const bizRates = await this.businessService.getUsdtRates(quotaBusinessId);
+        const bizRates = quotaBusinessId
+          ? ratesByBiz.get(quotaBusinessId) || {}
+          : {};
         const { maxPayable: businessMax, p2pPayRemainingInr } =
           w.origin === 'business' || isBusinessPayer
             ? { maxPayable: remaining, p2pPayRemainingInr: null }
@@ -938,6 +980,7 @@ export class WithdrawalPaymentService {
                 w.method,
                 (inr) => this.exchangeRateService.inrBudgetToUsdt(inr, bizRates),
                 this.listedQuotaHeldInr(w),
+                quotaBusinessId ? remainingByBiz.get(quotaBusinessId) : undefined,
               );
 
         let maxPayable = businessMax;
@@ -971,12 +1014,19 @@ export class WithdrawalPaymentService {
           viewerRole: payer.role,
           bonusAmount: isInvestor ? credit.bonusAmount : 0,
         });
-        const partialRules = await this.resolvePartialPayRules({
-          isInvestor,
-          wdBusinessId,
-          method: w.method,
-          currency: w.currency,
-        });
+        const isUsdt =
+          w.method === PaymentMethod.USDT ||
+          (w.currency || '').toUpperCase() === Currency.USDT;
+        const partialRules = isUsdt
+          ? await this.resolvePartialPayRules({
+              isInvestor,
+              wdBusinessId,
+              method: w.method,
+              currency: w.currency,
+            })
+          : wdBusinessId && partialByBiz.has(wdBusinessId)
+            ? partialByBiz.get(wdBusinessId)!
+            : defaultPartial;
         return {
           ...view,
           maxPayable,
