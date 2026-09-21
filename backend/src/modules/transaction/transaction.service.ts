@@ -67,6 +67,18 @@ export class TransactionService {
         ? LedgerDirection.CREDIT
         : LedgerDirection.DEBIT);
 
+    // Same payment must not write the same ledger line twice (race defense).
+    if (params.referenceType && params.referenceId && params.type) {
+      const existing = await this.findSettlementEntry({
+        userId: params.userId,
+        referenceType: params.referenceType,
+        referenceId: String(params.referenceId),
+        type: params.type,
+        direction,
+      });
+      if (existing) return existing;
+    }
+
     return this.ledgerModel.create({
       ...params,
       direction,
@@ -75,6 +87,24 @@ export class TransactionService {
       counterpartyUserId: params.counterpartyUserId,
       businessId: params.businessId,
     });
+  }
+
+  async findSettlementEntry(opts: {
+    userId: string;
+    referenceType: string;
+    referenceId: string;
+    type: LedgerType;
+    direction: LedgerDirection;
+  }) {
+    return this.ledgerModel
+      .findOne({
+        userId: opts.userId,
+        referenceType: opts.referenceType,
+        referenceId: opts.referenceId,
+        type: opts.type,
+        direction: opts.direction,
+      })
+      .exec();
   }
 
   async findByUser(userId: string, opts: TransactionListOpts = {}) {

@@ -31,6 +31,7 @@ import { User, UserDocument } from '../users/schemas/user.schema';
 import { UsersService } from '../users/users.service';
 import { UserRole } from '../../common/enums/role.enum';
 import { TransactionStatus } from '../../common/enums/transaction-status.enum';
+import { paymentApproveClaimFilter } from './utils/payment-approve-claim.util';
 import type { AuthenticatedUser } from '../../common/interfaces/jwt-payload.interface';
 import { CommissionTarget } from '../../common/enums/commission-target.enum';
 import {
@@ -2256,9 +2257,22 @@ export class WithdrawalPaymentService {
     notes?: string,
     actor?: Pick<AuthenticatedUser, 'role' | 'assignedBusinessIds'>,
   ) {
-    const payment = await this.paymentModel.findById(paymentId).exec();
-    if (!payment) throw new NotFoundException('Payment not found');
-    if (payment.status !== TransactionStatus.PENDING) {
+    // Claim first — confirm + admin approve must not both credit the payer.
+    const payment = await this.paymentModel
+      .findOneAndUpdate(
+        paymentApproveClaimFilter(paymentId),
+        {
+          $set: {
+            status: TransactionStatus.PROCESSING,
+            processedBy,
+          },
+        },
+        { new: true },
+      )
+      .exec();
+    if (!payment) {
+      const existing = await this.paymentModel.findById(paymentId).exec();
+      if (!existing) throw new NotFoundException('Payment not found');
       throw new BadRequestException('Payment is not pending');
     }
 
@@ -2383,6 +2397,7 @@ export class WithdrawalPaymentService {
 
     // Regular users (not investors / business): mirror deposit onto partner site when configured.
     // Partner outages must not block admin approval of the P2P proof.
+    // Runs after claim (PROCESSING) so a concurrent approve cannot pass the PENDING gate.
     if (!isInvestor && !isBusinessPayer && payer && principalCredit > 0) {
       try {
         await this.creditPayerPartnerDeposit(
@@ -2395,12 +2410,24 @@ export class WithdrawalPaymentService {
       }
     }
 
-    // 1) Full pay amount credited in INR for investors (USDT converted)
-    let updatedPayerWallet = await this.walletService.credit(
-      payerWallet._id.toString(),
-      principalCredit,
-      creditField,
-    );
+    // Skip wallet credit if this payment already settled (defense if claim was bypassed).
+    const priorCredit = await this.transactionService.findSettlementEntry({
+      userId: payment.payerUserId.toString(),
+      referenceType: 'withdrawal_payment',
+      referenceId: payment._id.toString(),
+      type: ledgerType,
+      direction: LedgerDirection.CREDIT,
+    });
+    let updatedPayerWallet = payerWallet;
+    if (!priorCredit) {
+      updatedPayerWallet = await this.walletService.credit(
+        payerWallet._id.toString(),
+        principalCredit,
+        creditField,
+      );
+    } else {
+      updatedPayerWallet = payerWallet;
+    }
 
     const rateNote =
       breakdown.exchangeRate != null
