@@ -122,6 +122,7 @@ export class CommissionService {
     const limit = business?.p2pPayLimit || 0;
     const earned = business?.p2pPayEarned || 0;
     const used = business?.p2pPayUsed || 0;
+    const hold = await this.businessService.sumOpenBusinessOriginHold(businessId);
     return {
       businessTake,
       businessTakeDeposit,
@@ -134,6 +135,7 @@ export class CommissionService {
         p2pPayLimit: limit,
         p2pPayEarned: earned,
         p2pPayUsed: used,
+        hold,
       }),
     };
   }
@@ -230,10 +232,12 @@ export class CommissionService {
     results.p2pPayLimit = business?.p2pPayLimit || 0;
     results.p2pPayEarned = business?.p2pPayEarned || 0;
     results.p2pPayUsed = business?.p2pPayUsed || 0;
+    const hold = await this.businessService.sumOpenBusinessOriginHold(businessId);
     results.p2pPayRemaining = p2pPayQuotaRemaining({
       p2pPayLimit: results.p2pPayLimit,
       p2pPayEarned: results.p2pPayEarned,
       p2pPayUsed: results.p2pPayUsed,
+      hold,
     });
 
     await this.redis.delPattern('commission:*');
