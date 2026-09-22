@@ -753,6 +753,7 @@ export class BusinessService {
       .exec();
     if (!business) throw new NotFoundException('Business not found');
     await this.redis.del(`business:${businessId}`);
+    await this.bustP2pRemaining(businessId);
     const remainingAfter = p2pPayQuotaRemaining({
       p2pPayLimit: business.p2pPayLimit,
       p2pPayEarned: business.p2pPayEarned,
@@ -921,6 +922,12 @@ export class BusinessService {
       p2pPayUsed: updated.p2pPayUsed,
       hold: holdAfter,
     });
+    // Hold→used migration does not change remaining (already reduced at open + fee).
+    // Skip the no-op ledger row so UI shows: hold → fee → remaining 29600.
+    const remUnchanged = Math.abs(remainingBefore - remainingAfter) < 0.01;
+    if (holdRelease > 0 && remUnchanged) {
+      return;
+    }
     await this.recordQuotaLedger({
       business: updated,
       action: 'deduct',
@@ -929,6 +936,142 @@ export class BusinessService {
       remainingAfter,
       ref: { referenceType: 'p2p_pay_limit_deduct', referenceId: businessId, ...ref },
     });
+  }
+
+  /**
+   * After creating a business-origin WD: ledger the open hold so remaining
+   * visibly drops (e.g. ₹50,000 → ₹30,000 for a ₹20,000 WD).
+   */
+  async recordBusinessOriginHold(
+    businessId: string,
+    amount: number,
+    ref?: P2pPayQuotaRef,
+  ) {
+    const rounded = Math.round(amount * 100) / 100;
+    if (rounded <= 0) return;
+    const business = await this.businessModel.findById(businessId).exec();
+    if (!business) throw new NotFoundException('Business not found');
+    const hold = await this.sumOpenBusinessOriginHold(businessId);
+    const remainingAfter = p2pPayQuotaRemaining({
+      p2pPayLimit: business.p2pPayLimit,
+      p2pPayEarned: business.p2pPayEarned,
+      p2pPayUsed: business.p2pPayUsed,
+      hold,
+    });
+    const remainingBefore = p2pPayQuotaRemaining({
+      p2pPayLimit: business.p2pPayLimit,
+      p2pPayEarned: business.p2pPayEarned,
+      p2pPayUsed: business.p2pPayUsed,
+      hold: Math.max(0, hold - rounded),
+    });
+    await this.bustP2pRemaining(businessId);
+    await this.recordQuotaLedger({
+      business,
+      action: 'deduct',
+      amount: rounded,
+      remainingBefore,
+      remainingAfter,
+      ref: {
+        referenceType: 'business_withdrawal_hold',
+        referenceId: businessId,
+        reason: 'business_wd_hold',
+        ...ref,
+      },
+    });
+  }
+
+  /** After cancelling a business-origin WD: restore remaining (hold released). */
+  async recordBusinessOriginHoldRelease(
+    businessId: string,
+    amount: number,
+    ref?: P2pPayQuotaRef,
+  ) {
+    const rounded = Math.round(amount * 100) / 100;
+    if (rounded <= 0) return;
+    const business = await this.businessModel.findById(businessId).exec();
+    if (!business) throw new NotFoundException('Business not found');
+    const hold = await this.sumOpenBusinessOriginHold(businessId);
+    const remainingAfter = p2pPayQuotaRemaining({
+      p2pPayLimit: business.p2pPayLimit,
+      p2pPayEarned: business.p2pPayEarned,
+      p2pPayUsed: business.p2pPayUsed,
+      hold,
+    });
+    const remainingBefore = p2pPayQuotaRemaining({
+      p2pPayLimit: business.p2pPayLimit,
+      p2pPayEarned: business.p2pPayEarned,
+      p2pPayUsed: business.p2pPayUsed,
+      hold: hold + rounded,
+    });
+    await this.bustP2pRemaining(businessId);
+    await this.recordQuotaLedger({
+      business,
+      action: 'release',
+      amount: rounded,
+      remainingBefore,
+      remainingAfter,
+      ref: {
+        referenceType: 'business_withdrawal_hold_release',
+        referenceId: businessId,
+        reason: 'business_wd_hold_release',
+        ...ref,
+      },
+    });
+  }
+
+  /**
+   * Super-admin business reset: zero seed/earned/used and write a reset ledger
+   * so remaining matches 0 (no stale used carrying into the next limit add).
+   */
+  async resetP2pPayQuota(
+    businessId: string,
+    ref?: P2pPayQuotaRef & { adminEmail?: string },
+  ) {
+    if (!Types.ObjectId.isValid(businessId)) {
+      throw new BadRequestException('Invalid business id');
+    }
+    const before = await this.businessModel.findById(businessId).exec();
+    if (!before) throw new NotFoundException('Business not found');
+    const hold = await this.sumOpenBusinessOriginHold(businessId);
+    const remainingBefore = p2pPayQuotaRemaining({
+      p2pPayLimit: before.p2pPayLimit,
+      p2pPayEarned: before.p2pPayEarned,
+      p2pPayUsed: before.p2pPayUsed,
+      hold,
+    });
+    const seedBefore = before.p2pPayLimit || 0;
+    const hadQuota =
+      seedBefore > 0 ||
+      (before.p2pPayEarned || 0) > 0 ||
+      (before.p2pPayUsed || 0) > 0 ||
+      remainingBefore > 0;
+    const updated = await this.businessModel
+      .findByIdAndUpdate(
+        businessId,
+        { $set: { p2pPayLimit: 0, p2pPayEarned: 0, p2pPayUsed: 0 } },
+        { new: true },
+      )
+      .exec();
+    if (!updated) throw new NotFoundException('Business not found');
+    await this.redis.del(`business:${businessId}`);
+    await this.bustP2pRemaining(businessId);
+    if (!hadQuota) return this.sanitize(updated);
+    await this.recordQuotaLedger({
+      business: updated,
+      action: 'set',
+      amount: Math.max(remainingBefore, seedBefore, 0.01),
+      remainingBefore,
+      remainingAfter: 0,
+      seedBefore,
+      seedAfter: 0,
+      ref: {
+        referenceType: 'p2p_pay_limit_reset',
+        referenceId: businessId,
+        reason: 'business_reset',
+        ...ref,
+      },
+    });
+    return this.sanitize(updated);
   }
 
   /**

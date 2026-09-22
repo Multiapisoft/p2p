@@ -7,7 +7,10 @@ export type P2pPayQuotaLedgerReason =
   | 'list_reserve'
   | 'list_release'
   | 'wd_fee'
-  | 'deposit_fee';
+  | 'deposit_fee'
+  | 'business_wd_hold'
+  | 'business_wd_hold_release'
+  | 'business_reset';
 
 /** List reserve / unlist are in-process — do not write business ledger until pay completes. */
 export function shouldSkipInProcessQuotaLedger(
@@ -56,9 +59,15 @@ export function p2pPayQuotaLedgerDescription(params: {
 }): string {
   const rem = `Remaining ₹${params.remainingBefore} → ₹${params.remainingAfter}`;
   if (params.action === 'set') {
+    if (params.reason === 'business_reset') {
+      return `P2P pay limit reset ₹${params.seedBefore ?? 0} → ₹${params.seedAfter ?? 0}. ${rem}`;
+    }
     return `P2P pay limit set ₹${params.seedBefore ?? 0} → ₹${params.seedAfter ?? 0}. ${rem}`;
   }
   if (params.action === 'release' || params.reason === 'list_release') {
+    if (params.reason === 'business_wd_hold_release') {
+      return `P2P pay limit hold released ₹${params.amount} (business withdrawal cancelled). ${rem}`;
+    }
     return `P2P list reserve released ₹${params.amount} (withdrawal paid). ${rem}`;
   }
   if (params.action === 'add') {
@@ -72,6 +81,9 @@ export function p2pPayQuotaLedgerDescription(params: {
   }
   if (params.reason === 'list_reserve') {
     return `P2P list reserve ₹${params.amount} (withdrawal listed). ${rem}`;
+  }
+  if (params.reason === 'business_wd_hold') {
+    return `P2P pay limit held ₹${params.amount} (business withdrawal open). ${rem}`;
   }
   if (params.reason === 'wd_fee') {
     return `P2P pay limit deducted ₹${params.amount} (withdrawal fee to admin). ${rem}`;

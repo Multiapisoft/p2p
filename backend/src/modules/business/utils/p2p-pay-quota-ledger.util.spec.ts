@@ -126,17 +126,31 @@ describe('p2pPayQuotaLedgerDescription', () => {
     );
   });
 
-  it('notes deposit fee reason', () => {
+  it('describes business WD hold', () => {
     expect(
       p2pPayQuotaLedgerDescription({
         action: 'deduct',
-        amount: 50,
-        remainingBefore: 1500,
-        remainingAfter: 1450,
-        reason: 'deposit_fee',
+        amount: 20_000,
+        remainingBefore: 50_000,
+        remainingAfter: 30_000,
+        reason: 'business_wd_hold',
       }),
     ).toBe(
-      'P2P pay limit deducted ₹50 (deposit fee to admin). Remaining ₹1500 → ₹1450',
+      'P2P pay limit held ₹20000 (business withdrawal open). Remaining ₹50000 → ₹30000',
     );
+  });
+
+  it('describes business reset', () => {
+    expect(
+      p2pPayQuotaLedgerDescription({
+        action: 'set',
+        amount: 29600,
+        seedBefore: 50_000,
+        seedAfter: 0,
+        remainingBefore: 29_600,
+        remainingAfter: 0,
+        reason: 'business_reset',
+      }),
+    ).toBe('P2P pay limit reset ₹50000 → ₹0. Remaining ₹29600 → ₹0');
   });
 });

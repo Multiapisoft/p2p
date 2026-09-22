@@ -316,6 +316,17 @@ export class WalletController {
       reason: `reset ${dto.entityType} ${entityLabel}`,
     });
 
+    // Business reset must also clear pay-limit seed/earned/used so the next
+    // limit add starts from Remaining ₹0 (no stale used carrying forward).
+    if (dto.entityType === 'business') {
+      await this.businessService.resetP2pPayQuota(entityId, {
+        adminEmail: user.email,
+        referenceType: 'p2p_pay_limit_reset',
+        referenceId: entityId,
+        reason: 'business_reset',
+      });
+    }
+
     await this.auditService.log({
       actorId: user.userId,
       actorEmail: user.email,
@@ -327,6 +338,7 @@ export class WalletController {
         userCount: uniqueIds.length,
         cancelledWithdrawals: cancelledWd.modifiedCount,
         cancelledDeposits: cancelledDep.modifiedCount,
+        p2pPayQuotaReset: dto.entityType === 'business',
       },
     });
 

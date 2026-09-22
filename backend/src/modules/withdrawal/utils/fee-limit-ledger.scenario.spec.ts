@@ -1,6 +1,9 @@
 import {
   applyAdminFeeAndInvestorBonus,
   applyBusinessOriginComplete,
+  applyBusinessOriginHold,
+  applyBusinessPayLimitAdd,
+  applyBusinessPayLimitReset,
   applyUserDepositQuota,
   quotaRemaining,
   settleWdThenFee,
@@ -73,19 +76,14 @@ describe('fee + limit + ledger — complete scenarios', () => {
       expect(quota.hold).toBe(0);
       expect(quotaRemaining(quota)).toBe(89_800);
 
-      expect(ledger).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            type: 'p2p_limit',
-            amount: 200,
-            remark: expect.stringContaining('withdrawal fee'),
-          }),
-          expect.objectContaining({
-            type: 'p2p_limit',
-            amount: 10_000,
-          }),
-        ]),
-      );
+      // Visible limit rows: fee only (gross was already held at create)
+      expect(ledger).toEqual([
+        expect.objectContaining({
+          type: 'p2p_limit',
+          amount: 200,
+          remark: expect.stringContaining('withdrawal fee'),
+        }),
+      ]);
 
       // Ledger copy matches util descriptions
       expect(
@@ -101,10 +99,30 @@ describe('fee + limit + ledger — complete scenarios', () => {
         p2pPayQuotaLedgerDescription({
           action: 'deduct',
           amount: 10_000,
-          remainingBefore: 89_800,
-          remainingAfter: 89_800,
+          remainingBefore: 100_000,
+          remainingAfter: 90_000,
+          reason: 'business_wd_hold',
         }),
-      ).toContain('P2P pay limit deducted ₹10000');
+      ).toContain('business withdrawal open');
+    });
+
+    it('₹50k limit − (₹20k WD + ₹400 commission) = ₹29,600 remaining', () => {
+      let q: QuotaSnap = { limit: 50_000, earned: 0, used: 0, hold: 0 };
+      const held = applyBusinessOriginHold({ quota: q, amount: 20_000 });
+      q = held.quota;
+      expect(quotaRemaining(q)).toBe(30_000);
+      expect(held.ledger[0].amount).toBe(20_000);
+
+      const done = applyBusinessOriginComplete({
+        quota: q,
+        grossAmount: 20_000,
+        wdFee: 400,
+      });
+      expect(done.quota.used).toBe(20_400);
+      expect(done.quota.hold).toBe(0);
+      expect(quotaRemaining(done.quota)).toBe(29_600);
+      expect(done.ledger).toHaveLength(1);
+      expect(done.ledger[0].amount).toBe(400);
     });
 
     it('₹30k WD: full ₹30,000 settle + ₹600 fee (not ₹28,800)', () => {
@@ -390,6 +408,42 @@ describe('fee + limit + ledger — complete scenarios', () => {
         investorBonus: 0,
       });
       expect(admin.adminBalance).toBe(300);
+    });
+  });
+
+  describe('6) Business reset + pay-limit add — remaining matches ledger', () => {
+    it('reset zeros stale used then add ₹50k starts at Remaining ₹50,000', () => {
+      // Stale state after WD+fee without proper reset (used still 20400)
+      let q: QuotaSnap = { limit: 50_000, earned: 0, used: 20_400, hold: 0 };
+      expect(quotaRemaining(q)).toBe(29_600);
+
+      const reset = applyBusinessPayLimitReset({ quota: q });
+      q = reset.quota;
+      expect(q).toEqual({ limit: 0, earned: 0, used: 0, hold: 0 });
+      expect(quotaRemaining(q)).toBe(0);
+      expect(reset.ledger[0].remark).toContain('pay limit reset');
+
+      const added = applyBusinessPayLimitAdd({ quota: q, amount: 50_000 });
+      q = added.quota;
+      expect(quotaRemaining(q)).toBe(50_000);
+      expect(added.ledger[0]).toMatchObject({
+        type: 'p2p_limit',
+        direction: 'credit',
+        amount: 50_000,
+      });
+    });
+
+    it('add without reset incorrectly carries used (documents the bug we fixed)', () => {
+      const stale: QuotaSnap = { limit: 0, earned: 0, used: 20_400, hold: 0 };
+      // Bug: only bump limit without clearing used
+      const buggy = applyBusinessPayLimitAdd({ quota: stale, amount: 50_000 });
+      expect(quotaRemaining(buggy.quota)).toBe(29_600); // not 50k
+      // After reset first:
+      const fixed = applyBusinessPayLimitAdd({
+        quota: applyBusinessPayLimitReset({ quota: stale }).quota,
+        amount: 50_000,
+      });
+      expect(quotaRemaining(fixed.quota)).toBe(50_000);
     });
   });
 });

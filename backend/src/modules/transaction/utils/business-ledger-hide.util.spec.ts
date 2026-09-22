@@ -29,11 +29,11 @@ describe('business ledger hide (fee once on pay-limit)', () => {
     expect(refClause.referenceType.$nin).not.toContain('withdrawal_payment_deposit_fee');
   });
 
-  it('expects full WD + fee limit + gross limit on ledger', () => {
+  it('expects full WD + hold limit + fee limit on ledger', () => {
     expect(expectedBusinessWdLedgerVisible({ gross: 10_000, fee: 200 })).toEqual([
       { type: 'withdrawal', amount: 10_000, kind: 'full_settle' },
+      { type: 'p2p_limit', amount: 10_000, kind: 'hold' },
       { type: 'p2p_limit', amount: 200, kind: 'wd_fee' },
-      { type: 'p2p_limit', amount: 10_000, kind: 'gross_consume' },
     ]);
   });
 });

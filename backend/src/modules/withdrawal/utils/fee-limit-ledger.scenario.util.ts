@@ -81,7 +81,7 @@ export function applyBusinessOriginComplete(opts: {
   const gross = roundMoney(opts.grossAmount);
   const fee = roundMoney(opts.wdFee);
   const beforeOpen = { ...opts.quota };
-  // Open WD already in hold
+  // Open WD already in hold (ledger wrote hold at create)
   const remWhileOpen = quotaRemaining(beforeOpen);
 
   // Fee on approve (used += fee) while hold still includes WD
@@ -91,7 +91,7 @@ export function applyBusinessOriginComplete(opts: {
   };
   const remAfterFee = quotaRemaining(q);
 
-  // Complete: hold → used for gross
+  // Complete: hold → used for gross (remaining unchanged — skip no-op ledger)
   q = {
     ...q,
     used: roundMoney(q.used + gross),
@@ -108,18 +108,87 @@ export function applyBusinessOriginComplete(opts: {
       balanceAfter: remAfterFee,
       remark: `P2P pay limit deducted ₹${fee} (withdrawal fee to admin)`,
     },
-    {
-      party: 'business',
-      type: 'p2p_limit',
-      direction: 'debit',
-      amount: gross,
-      balanceAfter: remAfter,
-      remark: `P2P pay limit deducted ₹${gross}`,
-    },
   ];
+  // No gross consume ledger when rem unchanged (hold already reduced remaining)
 
   void remWhileOpen;
+  void remAfter;
   return { quota: q, ledger };
+}
+
+/** Open business WD: remaining drops by principal (hold ledger). */
+export function applyBusinessOriginHold(opts: {
+  quota: QuotaSnap;
+  amount: number;
+}): { quota: QuotaSnap; ledger: LedgerRow[] } {
+  const amount = roundMoney(opts.amount);
+  const remBefore = quotaRemaining(opts.quota);
+  const quota: QuotaSnap = {
+    ...opts.quota,
+    hold: roundMoney(opts.quota.hold + amount),
+  };
+  const remAfter = quotaRemaining(quota);
+  return {
+    quota,
+    ledger: [
+      {
+        party: 'business',
+        type: 'p2p_limit',
+        direction: 'debit',
+        amount,
+        balanceAfter: remAfter,
+        remark: `P2P pay limit held ₹${amount} (business withdrawal open). Remaining ₹${remBefore} → ₹${remAfter}`,
+      },
+    ],
+  };
+}
+
+/** Reset pay quota to 0 so next add starts clean. */
+export function applyBusinessPayLimitReset(opts: {
+  quota: QuotaSnap;
+}): { quota: QuotaSnap; ledger: LedgerRow[] } {
+  const remBefore = quotaRemaining(opts.quota);
+  const quota: QuotaSnap = { limit: 0, earned: 0, used: 0, hold: 0 };
+  return {
+    quota,
+    ledger: [
+      {
+        party: 'business',
+        type: 'p2p_limit',
+        direction: remBefore > 0 ? 'debit' : 'credit',
+        amount: Math.max(remBefore, opts.quota.limit, 0.01),
+        balanceAfter: 0,
+        remark: `P2P pay limit reset ₹${opts.quota.limit} → ₹0. Remaining ₹${remBefore} → ₹0`,
+      },
+    ],
+  };
+}
+
+/** Admin adds seed pay limit. */
+export function applyBusinessPayLimitAdd(opts: {
+  quota: QuotaSnap;
+  amount: number;
+}): { quota: QuotaSnap; ledger: LedgerRow[] } {
+  const amount = roundMoney(opts.amount);
+  const remBefore = quotaRemaining(opts.quota);
+  const quota: QuotaSnap = {
+    ...opts.quota,
+    limit: roundMoney(opts.quota.limit + amount),
+  };
+  const remAfter = quotaRemaining(quota);
+  return {
+    quota,
+    ledger: [
+      {
+        party: 'business',
+        type: 'p2p_limit',
+        direction: 'credit',
+        amount,
+        balanceAfter: remAfter,
+        remark: `P2P pay limit added ₹${amount}. Remaining ₹${remBefore} → ₹${remAfter}`,
+      },
+    ],
+  };
 }
 
 export function applyUserDepositQuota(opts: {

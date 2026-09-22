@@ -348,7 +348,21 @@ export class WithdrawalService {
     const needInr = isUsdtMethod
       ? this.exchangeRateService.usdtToInr(dto.amount, businessRates)
       : dto.amount;
-    await this.businessService.assertP2pPayAmountAllowed(businessId, needInr);
+    // Remaining must cover principal + WD commission (both burn pay limit).
+    const feeTake = await this.commissionService.calculate(
+      dto.amount,
+      CommissionTarget.BUSINESS,
+      businessId,
+      dto.method,
+      'withdrawal',
+    );
+    const feeInr = isUsdtMethod
+      ? this.exchangeRateService.usdtToInr(feeTake.amount, businessRates)
+      : feeTake.amount;
+    await this.businessService.assertP2pPayAmountAllowed(
+      businessId,
+      needInr + feeInr,
+    );
     const currency = isUsdtMethod ? Currency.USDT : Currency.INR;
     const lockAmount = dto.amount;
     const usdtExchangeRate = isUsdtMethod
@@ -413,6 +427,16 @@ export class WithdrawalService {
         businessId,
         fromParty: business.name,
         toParty: 'P2P',
+      });
+
+      // Pay-limit remaining visibly drops for the open WD (hold).
+      const holdInr = isUsdtMethod
+        ? this.exchangeRateService.usdtToInr(dto.amount, businessRates)
+        : dto.amount;
+      await this.businessService.recordBusinessOriginHold(businessId, holdInr, {
+        referenceType: 'business_withdrawal_hold',
+        referenceId: withdrawal._id.toString(),
+        reason: 'business_wd_hold',
       });
 
       this.p2pRealtime.emitListChanged('updated', {
@@ -695,8 +719,26 @@ export class WithdrawalService {
     if (withdrawal.businessId) {
       const bizId = withdrawal.businessId.toString();
 
-      // Direct mark-paid: drop unused list reserve, then keep WD fee as used.
-      if (withdrawal.origin !== 'business') {
+      if (withdrawal.origin === 'business') {
+        // Business WD: burn fee + migrate open hold → used (do not earn quota).
+        if (businessCommission > 0) {
+          const feeInr =
+            withdrawal.currency === Currency.USDT
+              ? this.exchangeRateService.usdtToInr(businessCommission)
+              : businessCommission;
+          await this.businessService.consumeP2pPay(bizId, feeInr, {
+            referenceType: 'withdrawal_payment_fee',
+            referenceId: withdrawal._id.toString(),
+            reason: 'wd_fee',
+          });
+        }
+        await this.businessService.consumeP2pPay(bizId, quotaInr, {
+          referenceType: 'withdrawal',
+          referenceId: withdrawal._id.toString(),
+          holdRelease: quotaInr,
+        });
+      } else {
+        // Direct mark-paid: drop unused list reserve, then keep WD fee as used.
         if (wasListed && openInrForList > 0) {
           await this.businessService.releaseP2pPay(bizId, openInrForList, {
             referenceType: 'withdrawal',
@@ -711,43 +753,40 @@ export class WithdrawalService {
             reason: 'wd_fee',
           });
         }
+
+        const withdrawer = await this.userModel.findById(withdrawal.userId).exec();
+        const business = await this.businessModel.findById(withdrawal.businessId).exec();
+
+        await this.businessService.creditP2pPayQuota(bizId, quotaInr, {
+          referenceType: 'withdrawal',
+          referenceId: withdrawal._id.toString(),
+        });
+        await this.businessService.incrementStats(bizId, 'totalDeposits', quotaInr);
+
+        if (business) {
+          await this.businessFloatService.creditFloatOnWithdrawalApprove(
+            bizId,
+            business.ownerId.toString(),
+            withdrawal.amount,
+            withdrawal.currency,
+            withdrawal._id.toString(),
+          );
+        }
+
+        await this.platformCommissionService.creditDepositGivenTo({
+          amount: quotaInr,
+          currency: Currency.INR,
+          toUserId: withdrawal.userId.toString(),
+          toName: withdrawer?.name || 'User',
+          toRole: withdrawer?.role,
+          fromName: business ? business.name : processedBy,
+          fromRole: business ? UserRole.BUSINESS : UserRole.ADMIN,
+          referenceType: 'withdrawal',
+          referenceId: withdrawal._id.toString(),
+          referenceLabel: withdrawal.referenceId,
+          businessId: bizId,
+        });
       }
-
-      const withdrawer = await this.userModel.findById(withdrawal.userId).exec();
-      const business = await this.businessModel.findById(withdrawal.businessId).exec();
-
-      await this.businessService.creditP2pPayQuota(bizId, quotaInr, {
-        referenceType:
-          withdrawal.origin === 'business' ? 'business_withdrawal' : 'withdrawal',
-        referenceId: withdrawal._id.toString(),
-      });
-      await this.businessService.incrementStats(bizId, 'totalDeposits', quotaInr);
-
-      if (withdrawal.origin !== 'business' && business) {
-        await this.businessFloatService.creditFloatOnWithdrawalApprove(
-          bizId,
-          business.ownerId.toString(),
-          withdrawal.amount,
-          withdrawal.currency,
-          withdrawal._id.toString(),
-        );
-      }
-
-      const markedByBusiness = withdrawal.origin !== 'business' && !!business;
-      await this.platformCommissionService.creditDepositGivenTo({
-        amount: quotaInr,
-        currency: Currency.INR,
-        toUserId: withdrawal.userId.toString(),
-        toName: withdrawer?.name || 'User',
-        toRole: withdrawer?.role,
-        fromName: markedByBusiness && business ? business.name : processedBy,
-        fromRole: markedByBusiness ? UserRole.BUSINESS : UserRole.ADMIN,
-        referenceType:
-          withdrawal.origin === 'business' ? 'business_withdrawal' : 'withdrawal',
-        referenceId: withdrawal._id.toString(),
-        referenceLabel: withdrawal.referenceId,
-        businessId: bizId,
-      });
     } else {
       const withdrawer = await this.userModel.findById(withdrawal.userId).exec();
       await this.platformCommissionService.creditDepositGivenTo({
@@ -864,6 +903,22 @@ export class WithdrawalService {
       withdrawal.p2pListRejectReason = dto.reason;
     }
     await withdrawal.save();
+
+    if (withdrawal.origin === 'business' && withdrawal.businessId) {
+      const holdInr =
+        withdrawal.currency === Currency.USDT && withdrawal.exchangeRate
+          ? this.exchangeRateService.usdtToInr(withdrawal.amount)
+          : withdrawal.amount;
+      await this.businessService.recordBusinessOriginHoldRelease(
+        withdrawal.businessId.toString(),
+        holdInr,
+        {
+          referenceType: 'business_withdrawal_hold_release',
+          referenceId: withdrawal._id.toString(),
+          reason: 'business_wd_hold_release',
+        },
+      );
+    }
 
     this.p2pRealtime.emitListChanged('unlisted', {
       withdrawalId: withdrawal._id.toString(),
@@ -1713,6 +1768,21 @@ export class WithdrawalService {
     await this.releasePartnerMirror(withdrawal);
     withdrawal.status = TransactionStatus.CANCELLED;
     await withdrawal.save();
+    if (withdrawal.origin === 'business' && withdrawal.businessId) {
+      const holdInr =
+        withdrawal.currency === Currency.USDT && withdrawal.exchangeRate
+          ? this.exchangeRateService.usdtToInr(withdrawal.amount)
+          : withdrawal.amount;
+      await this.businessService.recordBusinessOriginHoldRelease(
+        withdrawal.businessId.toString(),
+        holdInr,
+        {
+          referenceType: 'business_withdrawal_hold_release',
+          referenceId: withdrawal._id.toString(),
+          reason: 'business_wd_hold_release',
+        },
+      );
+    }
     this.p2pRealtime.emitListChanged('unlisted', {
       withdrawalId: withdrawal._id.toString(),
     });

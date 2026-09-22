@@ -36,7 +36,7 @@ export function expectedBusinessWdLedgerVisible(opts: {
 }): { type: string; amount: number; kind: string }[] {
   return [
     { type: 'withdrawal', amount: opts.gross, kind: 'full_settle' },
+    { type: 'p2p_limit', amount: opts.gross, kind: 'hold' },
     { type: 'p2p_limit', amount: opts.fee, kind: 'wd_fee' },
-    { type: 'p2p_limit', amount: opts.gross, kind: 'gross_consume' },
   ];
 }
