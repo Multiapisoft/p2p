@@ -14,7 +14,7 @@ import {
   type ListQueryOpts,
 } from '../../common/dto/list-query.dto';
 import { stripFeeCutFromDescription } from '../wallet/utils/platform-commission-ledger.util';
-import { IN_PROCESS_P2P_QUOTA_LEDGER_REFS } from '../business/utils/p2p-pay-quota-ledger.util';
+import { businessLedgerDuplicateHideClauses } from './utils/business-ledger-hide.util';
 
 export interface CreateLedgerParams {
   userId: string;
@@ -188,20 +188,11 @@ export class TransactionService {
     }
 
     if (opts.hideP2pFeeDuplicates) {
-      // Fees are written to the business wallet (commission) and often also to
-      // pay-limit. Show the wallet fee once; hide the paired pay-limit fee row
-      // so ₹200 (2%) does not appear twice. Business-origin WDs only write the
-      // wallet fee — hiding commission used to make the fee invisible.
-      and.push({
-        referenceType: {
-          $nin: [
-            ...IN_PROCESS_P2P_QUOTA_LEDGER_REFS,
-            'withdrawal_payment_fee',
-            'withdrawal_payment_deposit_fee',
-          ],
-        },
-      });
-      and.push({ type: { $ne: LedgerType.LOCK } });
+      // Show fee once on pay-limit (withdrawal_payment_fee / deposit_fee).
+      // Hide the paired wallet commission OUT so ₹200 is not listed twice.
+      for (const clause of businessLedgerDuplicateHideClauses()) {
+        and.push(clause);
+      }
     }
 
     const filter = and.length ? { $and: and } : {};
