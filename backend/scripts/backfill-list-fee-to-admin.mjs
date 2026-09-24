@@ -41,11 +41,14 @@ if (!withdrawals.length) {
   process.exit(0);
 }
 
-const admin = await db.collection('users').findOne({ role: 'admin' });
+const admin =
+  (await db.collection('users').findOne({ role: 'admin' })) ||
+  (await db.collection('users').findOne({ email: /admin/i }));
 if (!admin) {
   console.error('No admin user');
   process.exit(1);
 }
+console.log('Admin', String(admin._id), admin.email || admin.name);
 
 for (const w of withdrawals) {
   const fee = Math.round((w.p2pListFeeBurned || 0) * 100) / 100;
@@ -73,23 +76,83 @@ for (const w of withdrawals) {
     continue;
   }
 
-  let bizWallet = await db.collection('wallets').findOne({
-    userId: business.ownerId,
-    businessId: w.businessId,
-    currency: 'INR',
-  });
+  const ownerId = business.ownerId;
+  const allOwnerWallets = await db
+    .collection('wallets')
+    .find({
+      $or: [{ userId: ownerId }, { userId: String(ownerId) }],
+    })
+    .toArray();
+  console.log(
+    `${w.referenceId} owner wallets:`,
+    allOwnerWallets.map((x) => ({
+      cur: x.currency,
+      bal: x.balance,
+      uid: String(x.userId),
+      biz: x.businessId ? String(x.businessId) : null,
+    })),
+  );
+
+  let bizWallet =
+    allOwnerWallets.find((x) => String(x.currency || '').toUpperCase() === 'INR') ||
+    allOwnerWallets[0] ||
+    null;
   if (!bizWallet) {
-    bizWallet = await db.collection('wallets').findOne({
-      userId: business.ownerId,
+    const created = await db.collection('wallets').insertOne({
+      userId: ownerId,
+      businessId: w.businessId,
       currency: 'INR',
+      balance: 0,
+      lockedBalance: 0,
+      totalDeposited: 0,
+      totalWithdrawn: 0,
+      totalInvested: 0,
+      totalRedeemed: 0,
+      createdAt: new Date(),
+      updatedAt: new Date(),
     });
+    bizWallet = await db.collection('wallets').findOne({ _id: created.insertedId });
+    console.log(`${w.referenceId}: created business wallet`);
   }
-  let adminWallet = await db.collection('wallets').findOne({
-    userId: admin._id,
-    currency: 'INR',
-  });
+
+  const allAdminWallets = await db
+    .collection('wallets')
+    .find({
+      $or: [{ userId: admin._id }, { userId: String(admin._id) }],
+    })
+    .toArray();
+  console.log(
+    'admin wallets:',
+    allAdminWallets.map((x) => ({
+      cur: x.currency,
+      bal: x.balance,
+      uid: String(x.userId),
+    })),
+  );
+
+  let adminWallet =
+    allAdminWallets.find((x) => String(x.currency || '').toUpperCase() === 'INR') ||
+    allAdminWallets[0] ||
+    null;
+  if (!adminWallet) {
+    const created = await db.collection('wallets').insertOne({
+      userId: admin._id,
+      currency: 'INR',
+      balance: 0,
+      lockedBalance: 0,
+      totalDeposited: 0,
+      totalWithdrawn: 0,
+      totalInvested: 0,
+      totalRedeemed: 0,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    adminWallet = await db.collection('wallets').findOne({ _id: created.insertedId });
+    console.log('created admin INR wallet');
+  }
+
   if (!bizWallet || !adminWallet) {
-    console.error(`Skip ${w.referenceId}: wallet missing`);
+    console.error(`Skip ${w.referenceId}: wallet missing after create`);
     continue;
   }
 
