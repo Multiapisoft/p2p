@@ -68,10 +68,59 @@ for (const wd of wds) {
   const listAmt = listFeeCredit?.amount || 0;
 
   const ownerId = biz.ownerId;
-  let bizWallet = await db.collection('wallets').findOne({ userId: ownerId, currency: 'INR' });
-  let adminWallet = await db.collection('wallets').findOne({ userId: admin._id, currency: 'INR' });
+  const ownerWallets = await db
+    .collection('wallets')
+    .find({ $or: [{ userId: ownerId }, { userId: String(ownerId) }] })
+    .toArray();
+  let bizWallet =
+    ownerWallets.find((x) => String(x.currency || '').toUpperCase() === 'INR') ||
+    ownerWallets[0];
+  if (!bizWallet) {
+    const ins = await db.collection('wallets').insertOne({
+      userId: ownerId,
+      businessId: wd.businessId,
+      currency: 'INR',
+      balance: 0,
+      lockedBalance: 0,
+      totalDeposited: 0,
+      totalWithdrawn: 0,
+      totalInvested: 0,
+      totalRedeemed: 0,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    bizWallet = await db.collection('wallets').findOne({ _id: ins.insertedId });
+  }
+
+  const adminWallets = await db
+    .collection('wallets')
+    .find({ $or: [{ userId: admin._id }, { userId: String(admin._id) }] })
+    .toArray();
+  let adminWallet =
+    adminWallets.find((x) => String(x.currency || '').toUpperCase() === 'INR') ||
+    adminWallets[0];
+  if (!adminWallet) {
+    const ins = await db.collection('wallets').insertOne({
+      userId: admin._id,
+      currency: 'INR',
+      balance: 0,
+      lockedBalance: 0,
+      totalDeposited: 0,
+      totalWithdrawn: 0,
+      totalInvested: 0,
+      totalRedeemed: 0,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    adminWallet = await db.collection('wallets').findOne({ _id: ins.insertedId });
+  }
+
   if (!bizWallet || !adminWallet) {
-    console.log(wd.referenceId, 'wallet missing');
+    console.log(wd.referenceId, 'wallet missing', {
+      owner: String(ownerId),
+      ownerW: ownerWallets.length,
+      adminW: adminWallets.length,
+    });
     continue;
   }
 

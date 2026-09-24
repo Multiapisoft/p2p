@@ -14,6 +14,7 @@ services:
       - "9091"
     networks:
       - p2p
+      - shared-db
     healthcheck:
       test:
         [
@@ -47,6 +48,9 @@ services:
 networks:
   p2p:
     driver: bridge
+  shared-db:
+    external: true
+    name: shared-db
 
 volumes:
   caddy_data:
