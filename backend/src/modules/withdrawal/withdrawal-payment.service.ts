@@ -2589,20 +2589,19 @@ export class WithdrawalPaymentService {
     };
     if (withdrawalFee > 0 && wdBizId) {
       const listFeeLeft = Math.round((withdrawal.p2pListFeeBurned || 0) * 100) / 100;
-      const walletPrepaid = !!withdrawal.p2pListFeeWalletCollected;
-      // Legacy Approve burned limit only — still collect wallet here once.
-      if (!walletPrepaid) {
+      // Always credit admin wallet on payment so ledger shows fee IN + bonus OUT.
+      // Legacy list-prepaid wallet (p2pListFeeWalletCollected) skips only when that
+      // full WD fee was already transferred at Approve.
+      if (!withdrawal.p2pListFeeWalletCollected) {
         await this.platformCommissionService.creditCollectedFees({
           ...feeCommon,
           platformAmount: 0,
           businessAmount: withdrawalFee,
           businessId: wdBizId,
         });
-        if (listFeeLeft > 0) {
-          withdrawal.p2pListFeeWalletCollected = true;
-        }
       }
       if (listFeeLeft > 0) {
+        // Pay-limit fee already burned on Approve — consume remaining prepaid only.
         const take = Math.min(listFeeLeft, withdrawalFee);
         withdrawal.p2pListFeeBurned = Math.round((listFeeLeft - take) * 100) / 100;
         await withdrawal.save();
