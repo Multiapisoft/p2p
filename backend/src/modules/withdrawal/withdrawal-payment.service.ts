@@ -2589,19 +2589,19 @@ export class WithdrawalPaymentService {
     };
     if (withdrawalFee > 0 && wdBizId) {
       const listFeeLeft = Math.round((withdrawal.p2pListFeeBurned || 0) * 100) / 100;
-      // Always credit admin wallet on payment so ledger shows fee IN + bonus OUT.
-      // Legacy list-prepaid wallet (p2pListFeeWalletCollected) skips only when that
-      // full WD fee was already transferred at Approve.
+      // Admin always gets fee IN. Business shows one OUT:
+      // - if limit fee already burned on Approve → visible wallet row (wd_fee_settle)
+      // - else → pay-limit fee row (wallet OUT hidden via withdrawal_payment)
       if (!withdrawal.p2pListFeeWalletCollected) {
         await this.platformCommissionService.creditCollectedFees({
           ...feeCommon,
+          referenceType: listFeeLeft > 0 ? 'wd_fee_settle' : 'withdrawal_payment',
           platformAmount: 0,
           businessAmount: withdrawalFee,
           businessId: wdBizId,
         });
       }
       if (listFeeLeft > 0) {
-        // Pay-limit fee already burned on Approve — consume remaining prepaid only.
         const take = Math.min(listFeeLeft, withdrawalFee);
         withdrawal.p2pListFeeBurned = Math.round((listFeeLeft - take) * 100) / 100;
         await withdrawal.save();

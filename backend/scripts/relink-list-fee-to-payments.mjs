@@ -40,7 +40,7 @@ for (const wd of wds) {
   const plan = [];
   for (const p of pays) {
     const existing = await db.collection('ledger_entries').findOne({
-      referenceType: 'withdrawal_payment',
+      referenceType: { $in: ['withdrawal_payment', 'wd_fee_settle'] },
       referenceId: String(p._id),
       type: 'commission',
       direction: 'credit',
@@ -48,9 +48,7 @@ for (const wd of wds) {
       flow: 'platform_fee',
     });
     if (existing) continue;
-    // Prefer stored estimate WD-only: for investor pays estComm is WD fee; for users
-    // estComm = WD + deposit — use amount * pct for WD owner fee only.
-    const wdFee = Math.round(((p.amount || 0) * pct) / 100 * 100) / 100;
+    const wdFee = Math.round((((p.amount || 0) * pct) / 100) * 100) / 100;
     if (wdFee <= 0) continue;
     plan.push({ p, wdFee });
     need += wdFee;
@@ -149,7 +147,7 @@ for (const wd of wds) {
         currency: 'INR',
         balanceBefore: bizBefore,
         balanceAfter: bizAfter,
-        referenceType: 'withdrawal_payment',
+        referenceType: 'wd_fee_settle',
         referenceId: String(p._id),
         description: `Business fee ₹${wdFee} paid to Super Admin (admin) (${label})`,
         businessId: wd.businessId,
@@ -166,7 +164,7 @@ for (const wd of wds) {
         currency: 'INR',
         balanceBefore: adminBefore,
         balanceAfter: adminAfter,
-        referenceType: 'withdrawal_payment',
+        referenceType: 'wd_fee_settle',
         referenceId: String(p._id),
         description: `Business fee ₹${wdFee} received from ${biz.name} (business) (${label})`,
         businessId: wd.businessId,
