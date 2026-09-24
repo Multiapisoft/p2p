@@ -128,6 +128,13 @@ export class Withdrawal {
   p2pListFeeBurned?: number;
 
   /**
+   * True after Approve also transferred that fee business wallet → admin.
+   * Legacy rows may have p2pListFeeBurned without this — payment settle still collects.
+   */
+  @Prop({ default: false })
+  p2pListFeeWalletCollected?: boolean;
+
+  /**
    * Who opened this request. Business-origin WDs count against the P2P pay
    * limit and appear on user/investor pay lists as soon as they are created.
    */

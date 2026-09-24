@@ -2588,15 +2588,21 @@ export class WithdrawalPaymentService {
       referenceLabel: payment.referenceId || withdrawal.referenceId,
     };
     if (withdrawalFee > 0 && wdBizId) {
-      await this.platformCommissionService.creditCollectedFees({
-        ...feeCommon,
-        platformAmount: 0,
-        businessAmount: withdrawalFee,
-        businessId: wdBizId,
-      });
       const listFeeLeft = Math.round((withdrawal.p2pListFeeBurned || 0) * 100) / 100;
+      const walletPrepaid = !!withdrawal.p2pListFeeWalletCollected;
+      // Legacy Approve burned limit only — still collect wallet here once.
+      if (!walletPrepaid) {
+        await this.platformCommissionService.creditCollectedFees({
+          ...feeCommon,
+          platformAmount: 0,
+          businessAmount: withdrawalFee,
+          businessId: wdBizId,
+        });
+        if (listFeeLeft > 0) {
+          withdrawal.p2pListFeeWalletCollected = true;
+        }
+      }
       if (listFeeLeft > 0) {
-        // Fee already burned on Approve — just track remaining prepaid for unlist refund.
         const take = Math.min(listFeeLeft, withdrawalFee);
         withdrawal.p2pListFeeBurned = Math.round((listFeeLeft - take) * 100) / 100;
         await withdrawal.save();

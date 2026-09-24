@@ -317,6 +317,85 @@ export class PlatformCommissionService {
   }
 
   /**
+   * Reverse a business WD fee collected early (Approve/list): debit admin, credit business.
+   * Used when a listed withdrawal is unlisted / rejected before settle.
+   */
+  async refundCollectedBusinessFee(params: {
+    amount: number;
+    currency?: Currency;
+    businessId: string;
+    referenceType: string;
+    referenceId: string;
+    referenceLabel: string;
+  }) {
+    const amount = Math.round((params.amount || 0) * 100) / 100;
+    if (amount <= 0) return;
+    const currency = params.currency || Currency.INR;
+    const business = await this.businessModel.findById(params.businessId).exec();
+    if (!business) {
+      throw new NotFoundException('Business not found for fee refund');
+    }
+    const ownerId = business.ownerId.toString();
+    const admin = await this.findPlatformAdmin();
+    const from = partyLabel(admin.name, UserRole.ADMIN);
+    const to = partyLabel(business.name, UserRole.BUSINESS);
+
+    const adminWallet = await this.walletService.getOrCreate(admin._id.toString(), currency);
+    const adminBefore = adminWallet.balance;
+    const adminUpdated = await this.walletService.debit(
+      adminWallet._id.toString(),
+      amount,
+      false,
+      undefined,
+      { allowOverdraft: true },
+    );
+    await this.transactionService.record({
+      userId: admin._id.toString(),
+      walletId: adminWallet._id.toString(),
+      type: LedgerType.COMMISSION,
+      direction: LedgerDirection.DEBIT,
+      flow: LedgerFlow.PLATFORM_FEE,
+      amount,
+      currency,
+      balanceBefore: adminBefore,
+      balanceAfter: adminUpdated.balance,
+      referenceType: params.referenceType,
+      referenceId: params.referenceId,
+      description: `Business fee ${currency === Currency.INR ? `₹${amount}` : `${amount} ${currency}`} refunded to ${to} (${params.referenceLabel})`,
+      businessId: params.businessId,
+      counterpartyUserId: ownerId,
+      fromParty: from,
+      toParty: to,
+    });
+
+    const bizWallet = await this.walletService.getOrCreate(ownerId, currency, params.businessId);
+    const bizBefore = bizWallet.balance;
+    const bizUpdated = await this.walletService.credit(
+      bizWallet._id.toString(),
+      amount,
+      false,
+    );
+    await this.transactionService.record({
+      userId: ownerId,
+      walletId: bizWallet._id.toString(),
+      type: LedgerType.COMMISSION,
+      direction: LedgerDirection.CREDIT,
+      flow: LedgerFlow.PLATFORM_FEE,
+      amount,
+      currency,
+      balanceBefore: bizBefore,
+      balanceAfter: bizUpdated.balance,
+      referenceType: params.referenceType,
+      referenceId: params.referenceId,
+      description: `Business fee ${currency === Currency.INR ? `₹${amount}` : `${amount} ${currency}`} refunded from ${from} (${params.referenceLabel})`,
+      businessId: params.businessId,
+      counterpartyUserId: admin._id.toString(),
+      fromParty: from,
+      toParty: to,
+    });
+  }
+
+  /**
    * Direct mark-paid: record deposit given to the withdrawer on the admin
    * commission wallet (amount credited).
    */

@@ -701,19 +701,25 @@ export class WithdrawalService {
 
     if (platformCommission > 0 || businessCommission > 0) {
       const withdrawer = await this.userModel.findById(withdrawal.userId).exec();
-      await this.platformCommissionService.creditCollectedFees({
-        platformAmount: platformCommission,
-        businessAmount: businessCommission,
-        currency: withdrawal.currency,
-        fromUserId: withdrawal.userId.toString(),
-        fromName: withdrawer?.name || 'Withdrawer',
-        fromRole: withdrawer?.role,
-        referenceType:
-          withdrawal.origin === 'business' ? 'business_withdrawal' : 'withdrawal',
-        referenceId: withdrawal._id.toString(),
-        referenceLabel: withdrawal.referenceId,
-        businessId: withdrawal.businessId?.toString(),
-      });
+      // WD fee already collected on Approve (list) — do not charge business again.
+      const walletPrepaid = !!withdrawal.p2pListFeeWalletCollected;
+      const businessFeeDue =
+        withdrawal.origin !== 'business' && walletPrepaid ? 0 : businessCommission;
+      if (platformCommission > 0 || businessFeeDue > 0) {
+        await this.platformCommissionService.creditCollectedFees({
+          platformAmount: platformCommission,
+          businessAmount: businessFeeDue,
+          currency: withdrawal.currency,
+          fromUserId: withdrawal.userId.toString(),
+          fromName: withdrawer?.name || 'Withdrawer',
+          fromRole: withdrawer?.role,
+          referenceType:
+            withdrawal.origin === 'business' ? 'business_withdrawal' : 'withdrawal',
+          referenceId: withdrawal._id.toString(),
+          referenceLabel: withdrawal.referenceId,
+          businessId: withdrawal.businessId?.toString(),
+        });
+      }
     }
 
     const quotaInr =
@@ -756,8 +762,9 @@ export class WithdrawalService {
           });
         }
         const listFeePrepaid = Math.round((withdrawal.p2pListFeeBurned || 0) * 100) / 100;
-        if (listFeePrepaid > 0) {
+        if (listFeePrepaid > 0 || withdrawal.p2pListFeeWalletCollected) {
           withdrawal.p2pListFeeBurned = 0;
+          withdrawal.p2pListFeeWalletCollected = false;
           await withdrawal.save();
         } else if (businessCommission > 0) {
           // Legacy listed WDs (fee not prepaid on Approve) or never listed.
@@ -1024,8 +1031,9 @@ export class WithdrawalService {
   }
 
   /**
-   * On Approve / auto-list-via-assign: reserve open principal + burn full WD fee.
-   * Fee is ledgered immediately; payment settle must not burn again.
+   * On Approve / auto-list-via-assign: reserve open principal + burn full WD fee
+   * on pay-limit AND transfer that fee business wallet → admin (same moment).
+   * Payment settle must not burn/collect the WD fee again.
    */
   private async reserveListQuotaAndBurnFee(
     withdrawal: WithdrawalDocument,
@@ -1053,7 +1061,24 @@ export class WithdrawalService {
         referenceId: withdrawal._id.toString(),
         reason: 'wd_fee',
       });
+      const business = await this.businessModel.findById(businessId).exec();
+      await this.platformCommissionService.creditCollectedFees({
+        platformAmount: 0,
+        businessAmount: feeInr,
+        currency: Currency.INR,
+        fromUserId: business?.ownerId?.toString() || withdrawal.userId.toString(),
+        fromName: business?.name || 'Business',
+        fromRole: UserRole.BUSINESS,
+        referenceType: 'withdrawal_list_fee',
+        referenceId: withdrawal._id.toString(),
+        referenceLabel: withdrawal.referenceId,
+        businessId,
+      });
       withdrawal.p2pListFeeBurned = feeInr;
+      withdrawal.p2pListFeeWalletCollected = true;
+      withdrawal.commissionAmount = Math.round(
+        ((withdrawal.commissionAmount || 0) + feeInr) * 100,
+      ) / 100;
     }
   }
 
@@ -1101,7 +1126,7 @@ export class WithdrawalService {
           reason: 'list_release',
         });
       }
-      // Refund WD fee prepaid on Approve for the unpaid remainder.
+      // Refund WD fee prepaid on Approve for the unpaid remainder (limit + admin wallet).
       const feeLeft = Math.round((withdrawal.p2pListFeeBurned || 0) * 100) / 100;
       if (feeLeft > 0) {
         await this.businessService.releaseP2pPay(bizId, feeLeft, {
@@ -1109,7 +1134,18 @@ export class WithdrawalService {
           referenceId: withdrawal._id.toString(),
           reason: 'list_release',
         });
+        if (withdrawal.p2pListFeeWalletCollected) {
+          await this.platformCommissionService.refundCollectedBusinessFee({
+            amount: feeLeft,
+            currency: Currency.INR,
+            businessId: bizId,
+            referenceType: 'withdrawal_list_fee_refund',
+            referenceId: withdrawal._id.toString(),
+            referenceLabel: withdrawal.referenceId,
+          });
+        }
         withdrawal.p2pListFeeBurned = 0;
+        withdrawal.p2pListFeeWalletCollected = false;
       }
     }
     if (withdrawal.p2pListStatus === 'listed') {

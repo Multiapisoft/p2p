@@ -6,6 +6,7 @@ export const HIDDEN_WALLET_FEE_OUT_REFS = [
   'withdrawal_payment',
   'business_withdrawal',
   'withdrawal',
+  'withdrawal_list_fee',
 ] as const;
 
 /**

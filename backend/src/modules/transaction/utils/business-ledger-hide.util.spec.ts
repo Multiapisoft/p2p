@@ -17,7 +17,12 @@ describe('business ledger hide (fee once on pay-limit)', () => {
               direction: LedgerDirection.DEBIT,
               flow: LedgerFlow.PLATFORM_FEE,
               referenceType: {
-                $in: ['withdrawal_payment', 'business_withdrawal', 'withdrawal'],
+                $in: [
+                  'withdrawal_payment',
+                  'business_withdrawal',
+                  'withdrawal',
+                  'withdrawal_list_fee',
+                ],
               },
             }),
           ],
