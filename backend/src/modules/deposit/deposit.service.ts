@@ -752,40 +752,107 @@ export class DepositService {
   }
 
   async getBusinessDepositSummary(businessId: string) {
-    const result = await this.depositModel.aggregate([
-      {
-        $match: {
-          businessId: new Types.ObjectId(businessId),
-          status: TransactionStatus.COMPLETED,
+    const bid = new Types.ObjectId(businessId);
+    const bizMatch = { $or: [{ businessId: bid }, { businessId }] };
+    const payerBizMatch = {
+      $or: [{ payerBusinessId: bid }, { payerBusinessId: businessId }],
+    };
+
+    type SummaryRow = {
+      userId: Types.ObjectId | string;
+      userName: string;
+      userEmail: string;
+      totalDeposited: number;
+      depositCount: number;
+    };
+
+    const [classic, p2p] = await Promise.all([
+      this.depositModel.aggregate<SummaryRow>([
+        {
+          $match: {
+            $and: [bizMatch, { status: TransactionStatus.COMPLETED }],
+          },
         },
-      },
-      {
-        $group: {
-          _id: '$userId',
-          totalDeposited: { $sum: '$amount' },
-          depositCount: { $sum: 1 },
+        {
+          $group: {
+            _id: '$userId',
+            totalDeposited: { $sum: '$amount' },
+            depositCount: { $sum: 1 },
+          },
         },
-      },
-      {
-        $lookup: {
-          from: 'users',
-          localField: '_id',
-          foreignField: '_id',
-          as: 'user',
+        {
+          $lookup: {
+            from: 'users',
+            localField: '_id',
+            foreignField: '_id',
+            as: 'user',
+          },
         },
-      },
-      { $unwind: '$user' },
-      {
-        $project: {
-          userId: '$_id',
-          userName: '$user.name',
-          userEmail: '$user.email',
-          totalDeposited: 1,
-          depositCount: 1,
+        { $unwind: '$user' },
+        {
+          $project: {
+            userId: '$_id',
+            userName: '$user.name',
+            userEmail: '$user.email',
+            totalDeposited: 1,
+            depositCount: 1,
+          },
         },
-      },
+      ]),
+      // Platform Payment deposits by this business's users (payer side).
+      this.paymentModel.aggregate<SummaryRow>([
+        {
+          $match: {
+            $and: [payerBizMatch, { status: TransactionStatus.COMPLETED }],
+          },
+        },
+        {
+          $group: {
+            _id: '$payerUserId',
+            totalDeposited: { $sum: '$amount' },
+            depositCount: { $sum: 1 },
+          },
+        },
+        {
+          $lookup: {
+            from: 'users',
+            localField: '_id',
+            foreignField: '_id',
+            as: 'user',
+          },
+        },
+        { $unwind: '$user' },
+        {
+          $project: {
+            userId: '$_id',
+            userName: '$user.name',
+            userEmail: '$user.email',
+            totalDeposited: 1,
+            depositCount: 1,
+          },
+        },
+      ]),
     ]);
-    return result;
+
+    const merged = new Map<string, SummaryRow>();
+    for (const row of [...classic, ...p2p]) {
+      const key = String(row.userId);
+      const prev = merged.get(key);
+      if (!prev) {
+        merged.set(key, {
+          userId: row.userId,
+          userName: row.userName,
+          userEmail: row.userEmail,
+          totalDeposited: Math.round((row.totalDeposited || 0) * 100) / 100,
+          depositCount: row.depositCount || 0,
+        });
+        continue;
+      }
+      prev.totalDeposited =
+        Math.round((prev.totalDeposited + (row.totalDeposited || 0)) * 100) / 100;
+      prev.depositCount += row.depositCount || 0;
+    }
+    return [...merged.values()].sort((a, b) => b.totalDeposited - a.totalDeposited);
   }
 
   async getBusinessOverview(businessId: string) {
@@ -809,6 +876,7 @@ export class DepositService {
       paymentStatusRows,
       inboundPayCompleted,
       outboundPayCompleted,
+      outboundDepositStatusRows,
     ] = await Promise.all([
       this.userModel.countDocuments({ referredByBusiness: bid }).exec(),
       this.userModel
@@ -932,11 +1000,47 @@ export class DepositService {
           },
         ])
         .exec(),
+      this.paymentModel
+        .aggregate<StatusAggRow>([
+          {
+            $match: {
+              $or: [{ payerBusinessId: bid }, { payerBusinessId: businessId }],
+            },
+          },
+          {
+            $group: {
+              _id: '$status',
+              count: { $sum: 1 },
+              amount: { $sum: '$amount' },
+            },
+          },
+        ])
+        .exec(),
     ]);
 
-    const deposits = foldStatusCounts(depositStatusRows);
+    const depositsClassic = foldStatusCounts(depositStatusRows);
     const withdrawals = foldStatusCounts(withdrawalStatusRows);
     const payments = foldStatusCounts(paymentStatusRows);
+    const outboundDepositPays = foldStatusCounts(outboundDepositStatusRows);
+    // User Platform Payments count as deposits for this business (payer side).
+    const deposits = {
+      totalCount: depositsClassic.totalCount + outboundDepositPays.totalCount,
+      counts: {
+        pending: depositsClassic.counts.pending + outboundDepositPays.counts.pending,
+        processing:
+          depositsClassic.counts.processing + outboundDepositPays.counts.processing,
+        completed:
+          depositsClassic.counts.completed + outboundDepositPays.counts.completed,
+        failed: depositsClassic.counts.failed + outboundDepositPays.counts.failed,
+        cancelled:
+          depositsClassic.counts.cancelled + outboundDepositPays.counts.cancelled,
+        rejected:
+          depositsClassic.counts.rejected + outboundDepositPays.counts.rejected,
+      },
+      completedAmount:
+        depositsClassic.completedAmount + outboundDepositPays.completedAmount,
+      pendingAmount: depositsClassic.pendingAmount + outboundDepositPays.pendingAmount,
+    };
     const inbound = inboundPayCompleted[0];
     const outbound = outboundPayCompleted[0];
 

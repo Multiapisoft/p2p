@@ -224,7 +224,10 @@ export function DepositsPage() {
           </Card>
         ) : (
           <Card title="Deposit Summary by User">
-            <EmptyState message="No completed deposits from users yet." icon="south_west" />
+            <EmptyState
+              message="No completed deposits from users yet. Platform Payment activity is listed below."
+              icon="south_west"
+            />
           </Card>
         )
       ) : null}

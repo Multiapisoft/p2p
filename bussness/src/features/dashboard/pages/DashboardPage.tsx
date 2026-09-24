@@ -72,7 +72,39 @@ export function DashboardPage() {
 
   const { data: recentDeposits } = useQuery({
     queryKey: ['business-deposits-recent'],
-    queryFn: () => depositsApi.getBusinessDeposits({ page: 1, limit: 5, sort: 'newest' }),
+    queryFn: async () => {
+      const [classic, pays] = await Promise.all([
+        depositsApi.getBusinessDeposits({ page: 1, limit: 5, sort: 'newest' }),
+        platformPaymentsApi.list({ page: 1, limit: 10, status: 'completed', sort: 'newest' }),
+      ]);
+      const classicItems = classic.items ?? [];
+      if (classicItems.length > 0) return classic;
+      // Platform Payment deposits by this business's users (no classic CDM rows).
+      const payItems = (pays.items ?? [])
+        .filter((p) => {
+          const payer = p.payerUserId;
+          return payer && typeof payer === 'object';
+        })
+        .slice(0, 5)
+        .map((p) => {
+          const payer =
+            typeof p.payerUserId === 'object' && p.payerUserId ? p.payerUserId : null;
+          return {
+            _id: p._id,
+            amount: p.amount,
+            currency: p.currency,
+            status: p.status,
+            createdAt: p.createdAt || p.completedAt || new Date().toISOString(),
+            userId: payer
+              ? {
+                  name: payer.name,
+                  email: payer.email,
+                }
+              : undefined,
+          };
+        });
+      return { items: payItems, total: payItems.length, page: 1, limit: 5, totalPages: 1 };
+    },
     enabled: !!business,
   });
 
