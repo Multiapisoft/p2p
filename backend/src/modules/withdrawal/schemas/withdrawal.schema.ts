@@ -121,6 +121,13 @@ export class Withdrawal {
   p2pListRejectReason?: string;
 
   /**
+   * WD fee (INR) burned from pay-limit when business/admin clicks Approve (list).
+   * Remaining prepaid fee is refunded on unlist; payment settle must not burn again.
+   */
+  @Prop({ default: 0 })
+  p2pListFeeBurned?: number;
+
+  /**
    * Who opened this request. Business-origin WDs count against the P2P pay
    * limit and appear on user/investor pay lists as soon as they are created.
    */

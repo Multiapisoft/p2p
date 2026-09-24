@@ -2594,11 +2594,19 @@ export class WithdrawalPaymentService {
         businessAmount: withdrawalFee,
         businessId: wdBizId,
       });
-      await this.businessService.consumeP2pPay(wdBizId, withdrawalFee, {
-        referenceType: 'withdrawal_payment_fee',
-        referenceId: payment._id.toString(),
-        reason: 'wd_fee',
-      });
+      const listFeeLeft = Math.round((withdrawal.p2pListFeeBurned || 0) * 100) / 100;
+      if (listFeeLeft > 0) {
+        // Fee already burned on Approve — just track remaining prepaid for unlist refund.
+        const take = Math.min(listFeeLeft, withdrawalFee);
+        withdrawal.p2pListFeeBurned = Math.round((listFeeLeft - take) * 100) / 100;
+        await withdrawal.save();
+      } else {
+        await this.businessService.consumeP2pPay(wdBizId, withdrawalFee, {
+          referenceType: 'withdrawal_payment_fee',
+          referenceId: payment._id.toString(),
+          reason: 'wd_fee',
+        });
+      }
     }
     // Deposit fee → payer's business (same as classic deposit approve).
     if (depositFee > 0 && payerBizId && !isInvestor) {

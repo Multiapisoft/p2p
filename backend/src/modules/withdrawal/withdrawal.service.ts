@@ -747,7 +747,7 @@ export class WithdrawalService {
           holdRelease: quotaInr,
         });
       } else {
-        // Direct mark-paid: drop unused list reserve, then keep WD fee as used.
+        // Direct mark-paid: drop unused list reserve; fee already burned on Approve when listed.
         if (wasListed && openInrForList > 0) {
           await this.businessService.releaseP2pPay(bizId, openInrForList, {
             referenceType: 'withdrawal',
@@ -755,7 +755,12 @@ export class WithdrawalService {
             reason: 'list_release',
           });
         }
-        if (businessCommission > 0) {
+        const listFeePrepaid = Math.round((withdrawal.p2pListFeeBurned || 0) * 100) / 100;
+        if (listFeePrepaid > 0) {
+          withdrawal.p2pListFeeBurned = 0;
+          await withdrawal.save();
+        } else if (businessCommission > 0) {
+          // Legacy listed WDs (fee not prepaid on Approve) or never listed.
           await this.businessService.consumeP2pPay(bizId, businessCommission, {
             referenceType: 'withdrawal_payment_fee',
             referenceId: withdrawal._id.toString(),
@@ -996,25 +1001,12 @@ export class WithdrawalService {
       );
     }
 
-    // User/investor WDs: remaining pay limit must cover open + fees (admin cannot override).
+    // User/investor WDs: on Approve, burn open principal + full WD fee from pay limit.
     if (withdrawal.businessId && withdrawal.origin !== 'business') {
-      const openInr = this.openAmountInrForList(withdrawal);
-      if (openInr > 0) {
-        await this.assertListApprovalFeeHeadroom(
-          withdrawal.businessId.toString(),
-          withdrawal,
-          openInr,
-        );
-        await this.businessService.reserveP2pPay(
-          withdrawal.businessId.toString(),
-          openInr,
-          {
-            referenceType: 'withdrawal_list',
-            referenceId: withdrawal._id.toString(),
-            reason: 'list_reserve',
-          },
-        );
-      }
+      await this.reserveListQuotaAndBurnFee(
+        withdrawal,
+        withdrawal.businessId.toString(),
+      );
     }
 
     // Approve = verified for payout. Status stays pending; request becomes visible
@@ -1029,6 +1021,40 @@ export class WithdrawalService {
       withdrawalId: withdrawal._id.toString(),
     });
     return withdrawal;
+  }
+
+  /**
+   * On Approve / auto-list-via-assign: reserve open principal + burn full WD fee.
+   * Fee is ledgered immediately; payment settle must not burn again.
+   */
+  private async reserveListQuotaAndBurnFee(
+    withdrawal: WithdrawalDocument,
+    businessId: string,
+  ) {
+    const openInr = this.openAmountInrForList(withdrawal);
+    if (openInr <= 0) return;
+    await this.assertListApprovalFeeHeadroom(businessId, withdrawal, openInr);
+    const feeTake = await this.commissionService.calculate(
+      openInr,
+      CommissionTarget.BUSINESS,
+      businessId,
+      withdrawal.method,
+      'withdrawal',
+    );
+    const feeInr = Math.round((feeTake.amount || 0) * 100) / 100;
+    await this.businessService.reserveP2pPay(businessId, openInr, {
+      referenceType: 'withdrawal_list',
+      referenceId: withdrawal._id.toString(),
+      reason: 'list_reserve',
+    });
+    if (feeInr > 0) {
+      await this.businessService.consumeP2pPay(businessId, feeInr, {
+        referenceType: 'withdrawal_payment_fee',
+        referenceId: withdrawal._id.toString(),
+        reason: 'wd_fee',
+      });
+      withdrawal.p2pListFeeBurned = feeInr;
+    }
   }
 
   /** Open list amount in INR (amount − paid − reserved). */
@@ -1066,13 +1092,24 @@ export class WithdrawalService {
       opts?.wasListed ?? withdrawal.p2pListStatus === 'listed';
     if (!listed) return;
     if (withdrawal.businessId && withdrawal.origin !== 'business') {
+      const bizId = withdrawal.businessId.toString();
       const openInr = this.unpaidListReserveInr(withdrawal);
       if (openInr > 0) {
-        await this.businessService.releaseP2pPay(withdrawal.businessId.toString(), openInr, {
+        await this.businessService.releaseP2pPay(bizId, openInr, {
           referenceType,
           referenceId: withdrawal._id.toString(),
           reason: 'list_release',
         });
+      }
+      // Refund WD fee prepaid on Approve for the unpaid remainder.
+      const feeLeft = Math.round((withdrawal.p2pListFeeBurned || 0) * 100) / 100;
+      if (feeLeft > 0) {
+        await this.businessService.releaseP2pPay(bizId, feeLeft, {
+          referenceType,
+          referenceId: withdrawal._id.toString(),
+          reason: 'list_release',
+        });
+        withdrawal.p2pListFeeBurned = 0;
       }
     }
     if (withdrawal.p2pListStatus === 'listed') {
@@ -1099,12 +1136,16 @@ export class WithdrawalService {
         p2pListStatus: 'listed',
         status: { $in: [TransactionStatus.PENDING, TransactionStatus.PROCESSING] },
       })
-      .select('amount paidAmount reservedAmount method currency sourceAmount exchangeRate')
+      .select(
+        'amount paidAmount reservedAmount method currency sourceAmount exchangeRate p2pListFeeBurned',
+      )
       .lean()
       .exec();
 
     const feeParts = await Promise.all(
       listed.map(async (w) => {
+        // Fee already in p2pPayUsed from Approve — do not require headroom again.
+        if ((w.p2pListFeeBurned || 0) > 0) return 0;
         const unpaidInr = this.unpaidAmountInrForFee(w as WithdrawalDocument);
         if (unpaidInr <= 0) return 0;
         const fee = await this.commissionService.calculate(
@@ -1359,19 +1400,10 @@ export class WithdrawalService {
       }
 
       if (withdrawal.businessId && withdrawal.origin !== 'business') {
-        const openInr = this.openAmountInrForList(withdrawal);
-        if (openInr > 0) {
-          await this.assertListApprovalFeeHeadroom(
-            withdrawal.businessId.toString(),
-            withdrawal,
-            openInr,
-          );
-          await this.businessService.reserveP2pPay(withdrawal.businessId.toString(), openInr, {
-            referenceType: 'withdrawal_list',
-            referenceId: withdrawal._id.toString(),
-            reason: 'list_reserve',
-          });
-        }
+        await this.reserveListQuotaAndBurnFee(
+          withdrawal,
+          withdrawal.businessId.toString(),
+        );
       }
 
       withdrawal.p2pListStatus = 'listed';

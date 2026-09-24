@@ -81,11 +81,11 @@ describe('p2pPayQuotaLedgerDescription', () => {
     ).toBe('P2P list reserve ₹5000 (withdrawal listed). Remaining ₹10000 → ₹5000');
   });
 
-  it('skips ledger write for in-process list reserve and release', () => {
-    expect(shouldSkipInProcessQuotaLedger('list_reserve')).toBe(true);
+  it('writes list_reserve on Approve; skips only list_release churn', () => {
+    expect(shouldSkipInProcessQuotaLedger('list_reserve')).toBe(false);
     expect(shouldSkipInProcessQuotaLedger('list_release')).toBe(true);
     expect(shouldSkipInProcessQuotaLedger('wd_fee')).toBe(false);
-    expect(isInProcessP2pQuotaLedgerRef('withdrawal_list')).toBe(true);
+    expect(isInProcessP2pQuotaLedgerRef('withdrawal_list')).toBe(false);
     expect(isInProcessP2pQuotaLedgerRef('withdrawal_payment')).toBe(false);
   });
 

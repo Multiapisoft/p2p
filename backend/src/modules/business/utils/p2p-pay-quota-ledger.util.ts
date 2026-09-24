@@ -12,16 +12,18 @@ export type P2pPayQuotaLedgerReason =
   | 'business_wd_hold_release'
   | 'business_reset';
 
-/** List reserve / unlist are in-process — do not write business ledger until pay completes. */
+/**
+ * Skip only list_release churn (pay settle returns reserve silently).
+ * list_reserve + wd_fee write on Approve so business sees limit + fee immediately.
+ */
 export function shouldSkipInProcessQuotaLedger(
   reason?: P2pPayQuotaLedgerReason | string | null,
 ): boolean {
-  return reason === 'list_reserve' || reason === 'list_release';
+  return reason === 'list_release';
 }
 
-/** Ledger referenceTypes created while a WD is listed but not yet paid/completed. */
+/** Ledger referenceTypes that are noise on the business portal (unlist / reject / cancel). */
 export const IN_PROCESS_P2P_QUOTA_LEDGER_REFS = [
-  'withdrawal_list',
   'withdrawal_unlist',
   'withdrawal_reject',
   'withdrawal_cancel',
