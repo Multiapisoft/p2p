@@ -428,16 +428,26 @@ export function WithdrawalsPage() {
       ? 'Amount (INR)'
       : 'Amount (INR to receive)'
     : `Amount (${displayCurrency})`;
+  const minWithdrawal = Math.max(300, Number(platformSettings?.minTransactionAmount) || 300);
   const maxInr =
     balance?.approxInrAvailable ??
     (walletIsUsdt ? Math.floor((balance?.availableBalance ?? 0) * usdtInrRate * 100) / 100 : undefined);
-  // Do not cap the form by business pay-limit — users may request freely;
-  // admin/business list-for-P2P enforces remaining on the backend.
-  const amountMax = amountIsInrEntry
+  // Business-linked users often have 0 local wallet (partner / P2P advance).
+  // Do not set HTML max from that — min=1 + max=0 breaks the browser.
+  // Pay-limit is enforced on list/approve, not on this form.
+  const walletCap = amountIsInrEntry
     ? walletIsUsdt
       ? maxInr
       : balance?.availableBalance
     : balance?.availableBalance;
+  const amountMin = amountIsInrEntry ? minWithdrawal : 1;
+  const amountMax =
+    !isBusinessLinked &&
+    typeof walletCap === 'number' &&
+    Number.isFinite(walletCap) &&
+    walletCap >= amountMin
+      ? walletCap
+      : undefined;
   const enteredInr = Number(amount) > 0 ? Number(amount) : 0;
   const usdtFromInr = enteredInr > 0 ? inrToUsdt(enteredInr) : 0;
   const usdtToSpend = amountIsInrPayout && enteredInr > 0 ? usdtFromInr : 0;
@@ -445,7 +455,6 @@ export function WithdrawalsPage() {
   const items = data?.items ?? [];
   const total = data?.total ?? 0;
   const totalPages = data?.totalPages ?? 1;
-  const minWithdrawal = Math.max(300, Number(platformSettings?.minTransactionAmount) || 300);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -468,7 +477,9 @@ export function WithdrawalsPage() {
       setFormError('Amount is too small for USDT conversion at the current rate');
       return;
     }
-    if (balance) {
+    // Local wallet check only for non-business users. Business-linked may use
+    // partner balance / P2P advance — backend validates funding on create.
+    if (balance && !isBusinessLinked) {
       if (amountIsInrPayout || (isUsdtMethod && walletIsUsdt)) {
         const needUsdt = inrToUsdt(numAmount);
         if (needUsdt > balance.availableBalance) {
@@ -750,7 +761,7 @@ export function WithdrawalsPage() {
             <Input
               label={amountFieldLabel}
               type="number"
-              min={amountIsInrEntry ? minWithdrawal : 1}
+              min={amountMin}
               max={amountMax}
               step={amountIsInrEntry ? '1' : 'any'}
               value={amount}
