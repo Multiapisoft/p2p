@@ -2589,13 +2589,15 @@ export class WithdrawalPaymentService {
     };
     if (withdrawalFee > 0 && wdBizId) {
       const listFeeLeft = Math.round((withdrawal.p2pListFeeBurned || 0) * 100) / 100;
-      // Admin always gets fee IN. Business shows one OUT:
-      // - if limit fee already burned on Approve → visible wallet row (wd_fee_settle)
-      // - else → pay-limit fee row (wallet OUT hidden via withdrawal_payment)
+      // Admin always gets fee IN on payment (wallet). Business shows fee once:
+      // - Approve already burned pay-limit → only wallet IN for admin (OUT hidden)
+      // - else burn pay-limit now + wallet OUT (hidden as duplicate of limit fee row)
       if (!withdrawal.p2pListFeeWalletCollected) {
         await this.platformCommissionService.creditCollectedFees({
           ...feeCommon,
-          referenceType: listFeeLeft > 0 ? 'wd_fee_settle' : 'withdrawal_payment',
+          // Always withdrawal_payment so business hide filter drops wallet OUT;
+          // admin ledger still shows the matching fee IN (+ investor bonus OUT).
+          referenceType: 'withdrawal_payment',
           platformAmount: 0,
           businessAmount: withdrawalFee,
           businessId: wdBizId,

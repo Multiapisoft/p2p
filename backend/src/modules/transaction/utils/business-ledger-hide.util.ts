@@ -1,12 +1,18 @@
 import { LedgerDirection, LedgerFlow, LedgerType } from '../../../common/enums/currency.enum';
 import { IN_PROCESS_P2P_QUOTA_LEDGER_REFS } from '../../business/utils/p2p-pay-quota-ledger.util';
 
-/** Wallet COMMISSION OUT refs that pair with a pay-limit fee row — hide these. */
+/**
+ * Wallet COMMISSION OUT refs that pair with a pay-limit fee row — hide these.
+ * Business shows fee once on pay-limit (withdrawal_payment_fee / deposit_fee).
+ * Admin wallet IN still uses these refs (admin ledger is unfiltered).
+ */
 export const HIDDEN_WALLET_FEE_OUT_REFS = [
   'withdrawal_payment',
   'business_withdrawal',
   'withdrawal',
   'withdrawal_list_fee',
+  // Per-payment wallet settle when list already burned pay-limit fee
+  'wd_fee_settle',
 ] as const;
 
 /**
@@ -14,6 +20,8 @@ export const HIDDEN_WALLET_FEE_OUT_REFS = [
  * - Hide lock / in-process list quota noise
  * - Hide wallet fee OUT (business → admin) for P2P pays + direct mark-paid —
  *   the paired pay-limit fee row (withdrawal_payment_fee / deposit_fee) is the one we show
+ * - Hide backfill/relink refund noise (real cancel refunds use same ref — also hide
+ *   because cancel already posts pay-limit release rows)
  * - Keep: full withdrawal, pay-limit fee, deposits, etc.
  */
 export function businessLedgerDuplicateHideClauses(): Record<string, unknown>[] {
@@ -21,7 +29,10 @@ export function businessLedgerDuplicateHideClauses(): Record<string, unknown>[] 
     { type: { $ne: LedgerType.LOCK } },
     {
       referenceType: {
-        $nin: [...IN_PROCESS_P2P_QUOTA_LEDGER_REFS],
+        $nin: [
+          ...IN_PROCESS_P2P_QUOTA_LEDGER_REFS,
+          'withdrawal_list_fee_refund',
+        ],
       },
     },
     {
