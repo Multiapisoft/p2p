@@ -345,17 +345,25 @@ export class WithdrawalService {
     const needInr = isUsdtMethod
       ? this.exchangeRateService.usdtToInr(dto.amount, businessRates)
       : dto.amount;
-    // Remaining must cover principal + WD commission (both burn pay limit).
-    const feeTake = await this.commissionService.calculate(
+    // Remaining must cover principal + full WD commission (business + platform both burn pay limit).
+    const businessFeeTake = await this.commissionService.calculate(
       dto.amount,
       CommissionTarget.BUSINESS,
       businessId,
       dto.method,
       'withdrawal',
     );
+    const platformFeeTake = await this.commissionService.calculate(
+      dto.amount,
+      CommissionTarget.PLATFORM,
+      businessId,
+      dto.method,
+      'withdrawal',
+    );
+    const feeRaw = businessFeeTake.amount + platformFeeTake.amount;
     const feeInr = isUsdtMethod
-      ? this.exchangeRateService.usdtToInr(feeTake.amount, businessRates)
-      : feeTake.amount;
+      ? this.exchangeRateService.usdtToInr(feeRaw, businessRates)
+      : feeRaw;
     await this.businessService.assertP2pPayAmountAllowed(
       businessId,
       needInr + feeInr,
@@ -717,16 +725,20 @@ export class WithdrawalService {
       const bizId = withdrawal.businessId.toString();
 
       if (withdrawal.origin === 'business') {
-        // Business WD: burn fee + migrate open hold → used (do not earn quota).
-        if (businessCommission > 0) {
+        // Business WD: burn full fee (business + platform) + migrate hold → used.
+        // holdRelease reinstates the completed WD in remainingBefore so the fee
+        // ledger row shows Remaining after hold (e.g. ₹30k → ₹29.6k), not full seed.
+        const feeSource = businessCommission + platformCommission;
+        if (feeSource > 0) {
           const feeInr =
             withdrawal.currency === Currency.USDT
-              ? this.exchangeRateService.usdtToInr(businessCommission)
-              : businessCommission;
+              ? this.exchangeRateService.usdtToInr(feeSource)
+              : feeSource;
           await this.businessService.consumeP2pPay(bizId, feeInr, {
             referenceType: 'withdrawal_payment_fee',
             referenceId: withdrawal._id.toString(),
             reason: 'wd_fee',
+            holdRelease: quotaInr,
           });
         }
         await this.businessService.consumeP2pPay(bizId, quotaInr, {

@@ -916,16 +916,20 @@ export class BusinessService {
     await this.bustP2pRemaining(businessId);
     if (!updated) return;
     const holdAfter = await this.sumOpenBusinessOriginHold(businessId);
+    // Fee burn while principal is still logically held: keep hold in remainingAfter
+    // so the fee row shows e.g. ₹30,000 → ₹29,600 (not ₹50,000 → ₹29,600).
+    const holdForAfter =
+      ref?.reason === 'wd_fee' && holdRelease > 0 ? holdBefore : holdAfter;
     const remainingAfter = p2pPayQuotaRemaining({
       p2pPayLimit: updated.p2pPayLimit,
       p2pPayEarned: updated.p2pPayEarned,
       p2pPayUsed: updated.p2pPayUsed,
-      hold: holdAfter,
+      hold: holdForAfter,
     });
     // Hold→used migration does not change remaining (already reduced at open + fee).
     // Skip the no-op ledger row so UI shows: hold → fee → remaining 29600.
     const remUnchanged = Math.abs(remainingBefore - remainingAfter) < 0.01;
-    if (holdRelease > 0 && remUnchanged) {
+    if (holdRelease > 0 && remUnchanged && ref?.reason !== 'wd_fee') {
       return;
     }
     await this.recordQuotaLedger({

@@ -5,7 +5,7 @@ import {
 import { LedgerDirection, LedgerFlow, LedgerType } from '../../../common/enums/currency.enum';
 
 describe('business ledger hide (fee once on pay-limit)', () => {
-  it('hides wallet fee OUT, keeps limit fee refs visible', () => {
+  it('hides wallet fee OUT for payment + direct mark-paid, keeps limit fee refs visible', () => {
     const clauses = businessLedgerDuplicateHideClauses();
     expect(clauses).toEqual(
       expect.arrayContaining([
@@ -16,7 +16,9 @@ describe('business ledger hide (fee once on pay-limit)', () => {
               type: LedgerType.COMMISSION,
               direction: LedgerDirection.DEBIT,
               flow: LedgerFlow.PLATFORM_FEE,
-              referenceType: 'withdrawal_payment',
+              referenceType: {
+                $in: ['withdrawal_payment', 'business_withdrawal', 'withdrawal'],
+              },
             }),
           ],
         }),

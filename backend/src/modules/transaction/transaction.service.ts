@@ -68,6 +68,7 @@ export class TransactionService {
         : LedgerDirection.DEBIT);
 
     // Same payment must not write the same ledger line twice (race defense).
+    // Include amount so platform + business fee legs (same ref, different ₹) both persist.
     if (params.referenceType && params.referenceId && params.type) {
       const existing = await this.findSettlementEntry({
         userId: params.userId,
@@ -75,6 +76,7 @@ export class TransactionService {
         referenceId: String(params.referenceId),
         type: params.type,
         direction,
+        amount: params.amount,
       });
       if (existing) return existing;
     }
@@ -95,16 +97,19 @@ export class TransactionService {
     referenceId: string;
     type: LedgerType;
     direction: LedgerDirection;
+    amount?: number;
   }) {
-    return this.ledgerModel
-      .findOne({
-        userId: opts.userId,
-        referenceType: opts.referenceType,
-        referenceId: opts.referenceId,
-        type: opts.type,
-        direction: opts.direction,
-      })
-      .exec();
+    const filter: Record<string, unknown> = {
+      userId: opts.userId,
+      referenceType: opts.referenceType,
+      referenceId: opts.referenceId,
+      type: opts.type,
+      direction: opts.direction,
+    };
+    if (opts.amount != null) {
+      filter.amount = opts.amount;
+    }
+    return this.ledgerModel.findOne(filter).exec();
   }
 
   async findByUser(userId: string, opts: TransactionListOpts = {}) {
