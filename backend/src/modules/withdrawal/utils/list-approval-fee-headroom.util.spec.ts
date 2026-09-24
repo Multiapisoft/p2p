@@ -107,13 +107,13 @@ describe('list approval fee headroom — complex approve scenarios', () => {
     expect(r.allowed).toBe(true);
   });
 
-  it('business queues over-limit lists; admin may still list', () => {
+  it('admin and business both blocked when over remaining pay limit', () => {
     expect(
       overLimitListDecision({ needed: 11_000, remaining: 10_000, isAdmin: false }),
-    ).toBe('queue_admin');
+    ).toBe('block');
     expect(
       overLimitListDecision({ needed: 11_000, remaining: 10_000, isAdmin: true }),
-    ).toBe('list');
+    ).toBe('block');
     expect(
       overLimitListDecision({ needed: 9_000, remaining: 10_000, isAdmin: false }),
     ).toBe('list');

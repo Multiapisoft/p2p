@@ -31,12 +31,12 @@ export function listApprovalHeadroomError(opts: {
   );
 }
 
-/** Business over-quota list waits for admin; admin may list anyway. */
+/** Admin and business both cannot list when over remaining pay limit. */
 export function overLimitListDecision(opts: {
   needed: number;
   remaining: number;
-  isAdmin: boolean;
-}): 'list' | 'queue_admin' {
+  isAdmin?: boolean;
+}): 'list' | 'block' {
   if (opts.needed <= opts.remaining) return 'list';
-  return opts.isAdmin ? 'list' : 'queue_admin';
+  return 'block';
 }

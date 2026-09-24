@@ -205,7 +205,7 @@ export function WithdrawalsPage() {
   const allowMobileNumberUpi = !!(
     profile?.referredBusiness?.allowMobileNumberUpi ?? platformSettings?.allowMobileNumberUpi
   );
-  /** Business-code users are capped by remaining pay limit (deposits increase it). */
+  /** Business-code users request freely; pay limit is enforced on list/approve. */
   const isBusinessLinked = Boolean(profile?.referredByBusiness);
   const enabledMethods = useMemo(
     () =>
@@ -428,19 +428,16 @@ export function WithdrawalsPage() {
       ? 'Amount (INR)'
       : 'Amount (INR to receive)'
     : `Amount (${displayCurrency})`;
-  const payRemaining = balance?.p2pPayRemainingInr;
-  const businessLimitExhausted =
-    isBusinessLinked && typeof payRemaining === 'number' && payRemaining < 1;
   const maxInr =
     balance?.approxInrAvailable ??
     (walletIsUsdt ? Math.floor((balance?.availableBalance ?? 0) * usdtInrRate * 100) / 100 : undefined);
-  const amountMax = isBusinessLinked
-    ? payRemaining
-    : amountIsInrEntry
-      ? walletIsUsdt
-        ? maxInr
-        : balance?.availableBalance
-      : balance?.availableBalance;
+  // Do not cap the form by business pay-limit — users may request freely;
+  // admin/business list-for-P2P enforces remaining on the backend.
+  const amountMax = amountIsInrEntry
+    ? walletIsUsdt
+      ? maxInr
+      : balance?.availableBalance
+    : balance?.availableBalance;
   const enteredInr = Number(amount) > 0 ? Number(amount) : 0;
   const usdtFromInr = enteredInr > 0 ? inrToUsdt(enteredInr) : 0;
   const usdtToSpend = amountIsInrPayout && enteredInr > 0 ? usdtFromInr : 0;
@@ -471,19 +468,7 @@ export function WithdrawalsPage() {
       setFormError('Amount is too small for USDT conversion at the current rate');
       return;
     }
-    if (isBusinessLinked && typeof payRemaining === 'number') {
-      if (payRemaining < 1) {
-        setFormError(
-          'No business pay limit available. Please contact admin to increase the limit.',
-        );
-        return;
-      }
-      if (numAmount > payRemaining) {
-        setFormError(`Amount exceeds remaining pay limit (₹${payRemaining})`);
-        return;
-      }
-    }
-    if (balance && !isBusinessLinked) {
+    if (balance) {
       if (amountIsInrPayout || (isUsdtMethod && walletIsUsdt)) {
         const needUsdt = inrToUsdt(numAmount);
         if (needUsdt > balance.availableBalance) {
@@ -666,30 +651,6 @@ export function WithdrawalsPage() {
         }}
       />
 
-      {isBusinessLinked && typeof payRemaining === 'number' && (
-        <div className="rounded-xl border border-outline-variant bg-surface-container-lowest px-4 py-3">
-          <div className="flex flex-wrap items-end justify-between gap-3">
-            <div>
-              <p className="text-[10px] font-bold uppercase tracking-wide text-on-surface-variant">
-                Business pay limit remaining
-              </p>
-              <p className="mt-1 text-2xl font-bold text-secondary">
-                {formatCurrency(payRemaining, 'INR')}
-              </p>
-            </div>
-            <p className="text-xs text-on-surface-variant">
-              Withdrawals cannot exceed this remaining limit
-            </p>
-          </div>
-          {businessLimitExhausted ? (
-            <p className="mt-3 rounded-lg border border-amber-300/70 bg-amber-50 px-3 py-2 text-sm text-amber-950">
-              No pay limit available for your business. Please contact admin to increase the
-              limit. Deposits can also increase remaining.
-            </p>
-          ) : null}
-        </div>
-      )}
-
       {showForm && (
         <Card title="Request withdrawal">
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -795,21 +756,8 @@ export function WithdrawalsPage() {
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               required
-              disabled={businessLimitExhausted}
               suffix={amountIsInrEntry ? 'INR' : displayCurrency}
             />
-
-            {isBusinessLinked && !businessLimitExhausted && typeof payRemaining === 'number' && (
-              <p className="text-xs text-on-surface-variant">
-                Max for this request: {formatCurrency(payRemaining, 'INR')} (business remaining)
-              </p>
-            )}
-
-            {businessLimitExhausted && (
-              <p className="rounded-lg border border-amber-300/70 bg-amber-50 px-3 py-2 text-sm text-amber-950">
-                Withdrawals are blocked until admin increases your business pay limit.
-              </p>
-            )}
 
             {method === 'usdt' && enteredInr > 0 && (
               <p className="rounded-xl border border-secondary/30 bg-secondary-container/40 px-4 py-3 text-sm text-on-secondary-container">
@@ -975,7 +923,7 @@ export function WithdrawalsPage() {
               </div>
             )}
 
-            <Button type="submit" className="w-full sm:w-auto" disabled={businessLimitExhausted}>
+            <Button type="submit" className="w-full sm:w-auto">
               Review & continue
             </Button>
           </form>

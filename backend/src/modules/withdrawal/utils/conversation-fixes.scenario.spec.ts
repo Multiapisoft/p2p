@@ -247,7 +247,7 @@ describe('conversation fixes — complex end-to-end cases', () => {
   });
 
   describe('6) Over-limit listing waits for admin', () => {
-    it('business queues when needed > remaining; admin may list anyway', () => {
+    it('admin and business both blocked when needed > remaining', () => {
       const remaining = p2pPayQuotaRemaining({
         p2pPayLimit: 10_000,
         p2pPayEarned: 0,
@@ -263,10 +263,10 @@ describe('conversation fixes — complex end-to-end cases', () => {
 
       expect(
         overLimitListDecision({ needed, remaining, isAdmin: false }),
-      ).toBe('queue_admin');
+      ).toBe('block');
       expect(
         overLimitListDecision({ needed, remaining, isAdmin: true }),
-      ).toBe('list');
+      ).toBe('block');
       expect(
         overLimitListDecision({ needed: 5_000, remaining: 10_000, isAdmin: false }),
       ).toBe('list');
@@ -323,14 +323,14 @@ describe('conversation fixes — complex end-to-end cases', () => {
           remaining: bizRemaining(A),
           isAdmin: false,
         }),
-      ).toBe('queue_admin');
+      ).toBe('block');
       expect(
         overLimitListDecision({
           needed: nextNeeded,
           remaining: bizRemaining(A),
           isAdmin: true,
         }),
-      ).toBe('list');
+      ).toBe('block');
     });
   });
 });

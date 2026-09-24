@@ -57,7 +57,6 @@ import { P2pRealtimeService } from '../realtime/p2p-realtime.service';
 import {
   listApprovalHeadroomError,
   listApprovalHeadroomNeeded,
-  overLimitListDecision,
 } from './utils/list-approval-fee-headroom.util';
 import { roundMoney } from './utils/p2p-settlement-math.util';
 import { shouldHealCancelledListedQuota } from '../business/utils/p2p-pay-quota.util';
@@ -132,10 +131,8 @@ export class WithdrawalService {
     const businessRates = businessId
       ? await this.businessService.getUsdtRates(businessId)
       : null;
-    if (businessId && !isInvestor) {
-      // User panel sends INR for every method, including USDT (converted server-side).
-      await this.businessService.assertP2pPayAmountAllowed(businessId, dto.amount);
-    }
+    // User may request any wallet-funded amount; pay-limit is enforced when
+    // admin/business lists the WD for Platform Payment (not on create).
     let currency = isUsdtMethod ? Currency.USDT : Currency.INR;
     let payoutAmount = dto.amount;
     let lockAmount = dto.amount;
@@ -168,7 +165,7 @@ export class WithdrawalService {
     const isBusinessLinkedUser = Boolean(businessId) && !isInvestor;
 
     // Partner SSO users: spend partner wallet when funded; otherwise P2P request
-    // via FinGuard advance credit + lock — still capped by business remaining.
+    // via FinGuard advance credit + lock. Pay-limit is enforced on list/approve, not create.
     if (isBusinessLinkedUser && businessId) {
       const business = await this.businessService.findDocumentById(businessId);
       if (this.partnerApiService.isConfigured(business)) {
@@ -987,34 +984,15 @@ export class WithdrawalService {
       );
     }
 
-    // User/investor WDs: assert fee headroom, then reserve open amount.
+    // User/investor WDs: remaining pay limit must cover open + fees (admin cannot override).
     if (withdrawal.businessId && withdrawal.origin !== 'business') {
       const openInr = this.openAmountInrForList(withdrawal);
       if (openInr > 0) {
-        const headroom = await this.measureListApprovalFeeHeadroom(
+        await this.assertListApprovalFeeHeadroom(
           withdrawal.businessId.toString(),
           withdrawal,
           openInr,
         );
-        const isAdmin =
-          actor.role === UserRole.ADMIN || actor.role === UserRole.SUB_ADMIN;
-        const decision = overLimitListDecision({
-          needed: headroom.needed,
-          remaining: headroom.remaining,
-          isAdmin,
-        });
-        if (decision === 'queue_admin') {
-          withdrawal.p2pListStatus = 'over_limit';
-          withdrawal.p2pListRejectReason =
-            `Over remaining P2P limit — waiting admin approval. ` +
-            `Need ₹${headroom.needed} (open ₹${headroom.newOpenInr} + fees ₹${headroom.feesTotal}), ` +
-            `remaining ₹${headroom.remaining}.`;
-          await withdrawal.save();
-          this.p2pRealtime.emitListChanged('updated', {
-            withdrawalId: withdrawal._id.toString(),
-          });
-          return withdrawal;
-        }
         await this.businessService.reserveP2pPay(
           withdrawal.businessId.toString(),
           openInr,
@@ -1023,7 +1001,6 @@ export class WithdrawalService {
             referenceId: withdrawal._id.toString(),
             reason: 'list_reserve',
           },
-          headroom.needed > headroom.remaining ? { allowOverLimit: true } : undefined,
         );
       }
     }
