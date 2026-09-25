@@ -12,6 +12,8 @@ export type PayLimitRequest = {
   amount: number;
   status: 'pending' | 'approved' | 'rejected';
   notes?: string;
+  proofImageKey?: string;
+  proofImageUrl?: string;
   seedAtRequest?: number;
   requestedBy?: string | { _id: string; name?: string; email?: string; role?: string };
   reviewedBy?: string | { _id: string; name?: string; email?: string; role?: string };
@@ -43,8 +45,18 @@ export const payLimitRequestsApi = {
     apiGet<Paginated<PayLimitRequest>>('/business/p2p-pay-limit-requests', cleanQuery(query)),
   create: (
     businessId: string,
-    body: { p2pPayLimit: number; mode?: PayLimitMode; notes?: string },
-  ) => apiPost<PayLimitRequest>(`/business/${businessId}/p2p-pay-limit-requests`, body),
+    body: {
+      p2pPayLimit: number;
+      mode?: PayLimitMode;
+      notes?: string;
+      proofImageKey?: string;
+      proofImageUrl?: string;
+      applyNow?: boolean;
+    },
+  ) => apiPost<PayLimitRequest | { request: PayLimitRequest }>(
+    `/business/${businessId}/p2p-pay-limit-requests`,
+    body,
+  ),
   approve: (requestId: string) =>
     apiPatch<{ request: PayLimitRequest }>(
       `/business/p2p-pay-limit-requests/${requestId}/approve`,

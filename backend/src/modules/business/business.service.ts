@@ -825,10 +825,18 @@ export class BusinessService {
       mode,
       amount,
       notes: dto.notes?.trim() || undefined,
+      proofImageKey: dto.proofImageKey?.trim() || undefined,
+      proofImageUrl: dto.proofImageUrl?.trim() || undefined,
       status: P2pPayLimitRequestStatus.PENDING,
       requestedBy: new Types.ObjectId(actor.userId),
       seedAtRequest: business.p2pPayLimit || 0,
     });
+
+    // Admin can add + apply in one step (still tracked with requestedBy).
+    if (dto.applyNow && actor.role === UserRole.ADMIN) {
+      return this.approveP2pPayLimitRequest(doc._id.toString(), actor.userId);
+    }
+
     return this.sanitizeLimitRequest(doc);
   }
 

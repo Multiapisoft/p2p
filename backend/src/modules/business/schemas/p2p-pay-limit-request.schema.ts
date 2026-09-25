@@ -26,6 +26,12 @@ export class P2pPayLimitRequest {
   @Prop({ maxlength: 500 })
   notes?: string;
 
+  @Prop()
+  proofImageKey?: string;
+
+  @Prop()
+  proofImageUrl?: string;
+
   @Prop({ type: Types.ObjectId, ref: 'User', required: true, index: true })
   requestedBy!: Types.ObjectId;
 

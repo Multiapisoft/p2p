@@ -1,8 +1,14 @@
 ﻿'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { payLimitRequestsApi, type PayLimitRequest } from '../api/pay-limit-requests.api';
+import {
+  payLimitRequestsApi,
+  type PayLimitMode,
+  type PayLimitRequest,
+} from '../api/pay-limit-requests.api';
+import { businessesApi } from '@/features/businesses/api/businesses.api';
+import { adminDepositPayApi } from '@/features/deposits/api/admin-deposit-pay.api';
 import { Card } from '@/shared/components/ui/Card';
 import { Button } from '@/shared/components/ui/Button';
 import { Input } from '@/shared/components/ui/Input';
@@ -22,18 +28,16 @@ const STATUS_FILTERS = [
   { value: 'rejected', label: 'Rejected' },
 ];
 
-const PAGE_SIZES = [10, 20, 50];
-
 function bizName(b: PayLimitRequest['businessId']) {
-  if (!b) return 'â€”';
+  if (!b) return '—';
   if (typeof b === 'object') return b.name || b.slug || 'Business';
   return 'Business';
 }
 
 function personName(p: PayLimitRequest['requestedBy']) {
-  if (!p) return 'â€”';
-  if (typeof p === 'object') return p.name || p.email || 'â€”';
-  return 'â€”';
+  if (!p) return '—';
+  if (typeof p === 'object') return p.name || p.email || '—';
+  return '—';
 }
 
 function modeLabel(mode: string) {
@@ -46,12 +50,23 @@ export function PayLimitRequestsPage() {
   const { isAdmin } = usePermissions();
   const qc = useQueryClient();
   const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(20);
+  const [limit] = useState(20);
   const [status, setStatus] = useState('pending');
   const [search, setSearch] = useState('');
   const [rejectTarget, setRejectTarget] = useState<PayLimitRequest | null>(null);
   const [rejectReason, setRejectReason] = useState('');
   const [actionError, setActionError] = useState('');
+  const [createOpen, setCreateOpen] = useState(false);
+
+  const [bizId, setBizId] = useState('');
+  const [mode, setMode] = useState<PayLimitMode>('add');
+  const [amount, setAmount] = useState('');
+  const [notes, setNotes] = useState('');
+  const [proofKey, setProofKey] = useState('');
+  const [proofUrl, setProofUrl] = useState('');
+  const [proofPreview, setProofPreview] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   const listQuery = useMemo(
     () => ({ page, limit, status, search: search.trim() || undefined, sort: 'newest' }),
@@ -63,6 +78,23 @@ export function PayLimitRequestsPage() {
     queryFn: () => payLimitRequestsApi.list(listQuery),
     ...liveQueryOptions,
   });
+
+  const { data: businessesData } = useQuery({
+    queryKey: ['businesses-for-limit-request'],
+    queryFn: () => businessesApi.list({ page: 1, limit: 200, status: 'active', sort: 'newest' }),
+    enabled: createOpen,
+  });
+
+  const resetCreate = () => {
+    setBizId('');
+    setMode('add');
+    setAmount('');
+    setNotes('');
+    setProofKey('');
+    setProofUrl('');
+    setProofPreview(null);
+    setActionError('');
+  };
 
   const approve = useMutation({
     mutationFn: (id: string) => payLimitRequestsApi.approve(id),
@@ -87,16 +119,79 @@ export function PayLimitRequestsPage() {
     onError: (err) => setActionError(getApiErrorMessage(err, 'Reject failed')),
   });
 
+  const create = useMutation({
+    mutationFn: async (applyNow: boolean) => {
+      const num = Number(amount);
+      if (!bizId) throw new Error('Select a business');
+      if (!Number.isFinite(num) || num < 0) throw new Error('Enter a valid amount');
+      if ((mode === 'add' || mode === 'deduct') && num <= 0) {
+        throw new Error('Amount must be greater than 0');
+      }
+      return payLimitRequestsApi.create(bizId, {
+        p2pPayLimit: num,
+        mode,
+        notes: notes.trim() || undefined,
+        proofImageKey: proofKey || undefined,
+        proofImageUrl: proofUrl || undefined,
+        applyNow: applyNow && isAdmin ? true : undefined,
+      });
+    },
+    onSuccess: () => {
+      setCreateOpen(false);
+      resetCreate();
+      qc.invalidateQueries({ queryKey: ['pay-limit-requests'] });
+      qc.invalidateQueries({ queryKey: ['businesses'] });
+    },
+    onError: (err) => setActionError(getApiErrorMessage(err, 'Could not submit request')),
+  });
+
+  const handleProof = async (file: File) => {
+    setActionError('');
+    if (!file.type.startsWith('image/') && !/\.(jpe?g|png|webp)$/i.test(file.name)) {
+      setActionError('Only JPG/PNG/WEBP images allowed');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setActionError('Image must be smaller than 5MB');
+      return;
+    }
+    setUploading(true);
+    try {
+      setProofPreview(URL.createObjectURL(file));
+      const uploaded = await adminDepositPayApi.uploadProof(file, 'p2p-limit-proof');
+      setProofKey(uploaded.key);
+      setProofUrl(uploaded.publicUrl);
+    } catch (err: unknown) {
+      setProofPreview(null);
+      setActionError(err instanceof Error ? err.message : 'Upload failed');
+    } finally {
+      setUploading(false);
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  };
+
   const items = data?.items ?? [];
   const total = data?.total ?? 0;
+  const businesses = businessesData?.items ?? [];
 
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="text-xl font-bold text-on-surface sm:text-2xl">Pay limit requests</h1>
-        <p className="mt-1 text-sm text-on-surface-variant">
-          Sub-admins request a seed change; admin approves before the limit is applied.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-bold text-on-surface sm:text-2xl">Pay limit requests</h1>
+          <p className="mt-1 text-sm text-on-surface-variant">
+            Sub-admin submits request with notes/proof. Admin verifies and approves — then business
+            limit is applied. Full history keeps who created each request.
+          </p>
+        </div>
+        <Button
+          onClick={() => {
+            resetCreate();
+            setCreateOpen(true);
+          }}
+        >
+          {isAdmin ? 'Add / request limit' : 'Request limit'}
+        </Button>
       </div>
 
       <Card className="space-y-3 p-3 sm:p-4">
@@ -139,10 +234,7 @@ export function PayLimitRequestsPage() {
       {isLoading ? (
         <LoadingScreen />
       ) : error ? (
-        <EmptyState
-          message={getApiErrorMessage(error, 'Could not load requests')}
-          icon="error"
-        />
+        <EmptyState message={getApiErrorMessage(error, 'Could not load requests')} icon="error" />
       ) : !items.length ? (
         <EmptyState message="No pay-limit requests" icon="speed" />
       ) : (
@@ -153,8 +245,14 @@ export function PayLimitRequestsPage() {
                 <div>
                   <p className="font-semibold text-on-surface">{bizName(r.businessId)}</p>
                   <p className="text-xs text-on-surface-variant">
-                    By {personName(r.requestedBy)} Â· {formatDate(r.createdAt)}
+                    Created by {personName(r.requestedBy)} · {formatDate(r.createdAt)}
                   </p>
+                  {r.reviewedBy ? (
+                    <p className="text-xs text-on-surface-variant">
+                      Reviewed by {personName(r.reviewedBy)}
+                      {r.reviewedAt ? ` · ${formatDate(r.reviewedAt)}` : ''}
+                    </p>
+                  ) : null}
                 </div>
                 <StatusBadge status={r.status} />
               </div>
@@ -173,20 +271,31 @@ export function PayLimitRequestsPage() {
                 </div>
                 <div>
                   <p className="text-xs text-on-surface-variant">Notes</p>
-                  <p className="font-medium">{r.notes || 'â€”'}</p>
+                  <p className="font-medium">{r.notes || '—'}</p>
                 </div>
               </div>
+              {r.proofImageUrl ? (
+                <a
+                  href={r.proofImageUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-block overflow-hidden rounded-lg border border-outline-variant"
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={r.proofImageUrl}
+                    alt="Proof"
+                    className="max-h-40 max-w-full object-contain"
+                  />
+                </a>
+              ) : null}
               {r.status === 'rejected' && r.rejectReason ? (
                 <p className="text-sm text-error">Reject reason: {r.rejectReason}</p>
               ) : null}
               {r.status === 'pending' && isAdmin ? (
                 <div className="flex flex-wrap gap-2">
-                  <Button
-                    size="sm"
-                    loading={approve.isPending}
-                    onClick={() => approve.mutate(r._id)}
-                  >
-                    Approve
+                  <Button size="sm" loading={approve.isPending} onClick={() => approve.mutate(r._id)}>
+                    Approve & apply limit
                   </Button>
                   <Button
                     size="sm"
@@ -213,10 +322,149 @@ export function PayLimitRequestsPage() {
       )}
 
       <Modal
-        open={!!rejectTarget}
-        onClose={() => setRejectTarget(null)}
-        title="Reject pay-limit request"
+        open={createOpen}
+        onClose={() => {
+          setCreateOpen(false);
+          resetCreate();
+        }}
+        title={isAdmin ? 'Add / request pay limit' : 'Request pay limit'}
       >
+        <form
+          className="space-y-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            create.mutate(false);
+          }}
+        >
+          <div>
+            <label className="mb-1 block text-sm font-semibold" htmlFor="limit-biz">
+              Business
+            </label>
+            <select
+              id="limit-biz"
+              className="w-full rounded-xl border border-outline-variant bg-surface-container-lowest px-3 py-2 text-sm"
+              value={bizId}
+              onChange={(e) => setBizId(e.target.value)}
+              required
+            >
+              <option value="">Select business</option>
+              {businesses.map((b) => (
+                <option key={b._id} value={b._id}>
+                  {b.name} (seed {formatCurrency(b.p2pPayLimit ?? 0)})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <p className="mb-2 text-sm font-semibold">Action</p>
+            <div className="flex flex-wrap gap-2">
+              {(
+                [
+                  { value: 'set', label: 'Set absolute' },
+                  { value: 'add', label: 'Add' },
+                  { value: 'deduct', label: 'Deduct' },
+                ] as const
+              ).map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => setMode(opt.value)}
+                  className={`rounded-full border px-3 py-1.5 text-sm ${
+                    mode === opt.value
+                      ? 'border-secondary bg-secondary-container font-semibold'
+                      : 'border-outline-variant'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <Input
+            label={
+              mode === 'set'
+                ? 'Seed pay limit (₹)'
+                : mode === 'add'
+                  ? 'Amount to add (₹)'
+                  : 'Amount to deduct (₹)'
+            }
+            type="number"
+            min={0}
+            step="1"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            required
+          />
+
+          <Input
+            label="Notes"
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="Why this limit change?"
+          />
+
+          <div className="space-y-2">
+            <p className="text-sm font-semibold">Proof (optional)</p>
+            <input
+              ref={fileRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) void handleProof(f);
+              }}
+            />
+            <Button
+              type="button"
+              variant="secondary"
+              loading={uploading}
+              onClick={() => fileRef.current?.click()}
+            >
+              Upload proof image
+            </Button>
+            {proofPreview || proofUrl ? (
+              <div className="overflow-hidden rounded-xl border border-outline-variant">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={proofPreview || proofUrl}
+                  alt="Proof preview"
+                  className="max-h-48 w-full object-contain"
+                />
+              </div>
+            ) : null}
+          </div>
+
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setCreateOpen(false);
+                resetCreate();
+              }}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" loading={create.isPending && !create.variables}>
+              Submit for approval
+            </Button>
+            {isAdmin ? (
+              <Button
+                type="button"
+                loading={create.isPending && !!create.variables}
+                onClick={() => create.mutate(true)}
+              >
+                Add & apply now
+              </Button>
+            ) : null}
+          </div>
+        </form>
+      </Modal>
+
+      <Modal open={!!rejectTarget} onClose={() => setRejectTarget(null)} title="Reject request">
         <form
           className="space-y-4"
           onSubmit={(e) => {
@@ -225,7 +473,7 @@ export function PayLimitRequestsPage() {
           }}
         >
           <p className="text-sm text-on-surface-variant">
-            {bizName(rejectTarget?.businessId)} â€” {formatCurrency(rejectTarget?.amount ?? 0)} (
+            {bizName(rejectTarget?.businessId)} — {formatCurrency(rejectTarget?.amount ?? 0)} (
             {modeLabel(rejectTarget?.mode || 'set')})
           </p>
           <Input

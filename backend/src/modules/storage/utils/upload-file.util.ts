@@ -3,6 +3,7 @@ export const PROOF_PURPOSES = [
   'deposit-proof',
   'withdrawal-approve-proof',
   'upi-qr',
+  'p2p-limit-proof',
 ] as const;
 export const SUPPORT_PURPOSE = 'support-ticket';
 

@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { businessesApi } from '../api/businesses.api';
-import { payLimitRequestsApi } from '@/features/pay-limit-requests/api/pay-limit-requests.api';
 import { commissionsApi } from '@/features/commissions/api/commissions.api';
 import { usePermissions } from '@/shared/hooks/usePermissions';
 import {
@@ -56,8 +55,6 @@ function toggleMethod(list: string[], value: string, checked: boolean) {
 export function BusinessesPage() {
   const { isAdmin } = usePermissions();
   const [statsTarget, setStatsTarget] = useState<Business | null>(null);
-  const [limitTarget, setLimitTarget] = useState<Business | null>(null);
-  const [limitNotes, setLimitNotes] = useState('');
   const [commissionTarget, setCommissionTarget] = useState<Business | null>(null);
   const [txnFlagsTarget, setTxnFlagsTarget] = useState<Business | null>(null);
   const [txnFlagsError, setTxnFlagsError] = useState('');
@@ -73,11 +70,6 @@ export function BusinessesPage() {
   const [p2pPayLimit, setP2pPayLimit] = useState('0');
   const [usdtBuyInrRate, setUsdtBuyInrRate] = useState('');
   const [usdtSellInrRate, setUsdtSellInrRate] = useState('');
-  const [limitDraft, setLimitDraft] = useState('0');
-  const [limitMode, setLimitMode] = useState<'set' | 'add' | 'deduct'>('set');
-  const [limitError, setLimitError] = useState('');
-  const [highlightDraft, setHighlightDraft] = useState('0');
-  const [highlightError, setHighlightError] = useState('');
   const [commissionError, setCommissionError] = useState('');
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
@@ -111,11 +103,6 @@ export function BusinessesPage() {
     enabled: !!statsTarget,
   });
 
-  const { data: limitStats, isLoading: loadingLimitStats } = useQuery({
-    queryKey: ['business-stats', limitTarget?._id],
-    queryFn: () => businessesApi.getStats(limitTarget!._id),
-    enabled: !!limitTarget,
-  });
 
   const { data: businessCommission, isLoading: loadingCommission } = useQuery({
     queryKey: ['business-commission', commissionTarget?._id],
@@ -154,58 +141,10 @@ export function BusinessesPage() {
     setCommissionError('');
   }, [commissionTarget, businessCommission]);
 
-  useEffect(() => {
-    if (!limitTarget) return;
-    setLimitDraft(limitMode === 'set' ? String(limitTarget.p2pPayLimit ?? 0) : '');
-    setHighlightDraft(String(limitTarget.highlightLimitPerMonth ?? 0));
-    setLimitNotes('');
-    setLimitError('');
-    setHighlightError('');
-  }, [limitTarget, limitMode]);
 
   const approve = useMutation({
     mutationFn: (id: string) => businessesApi.approve(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['businesses'] }),
-  });
-
-  const saveLimit = useMutation({
-    mutationFn: async () => {
-      const num = Number(limitDraft);
-      if (!Number.isFinite(num) || num < 0) {
-        throw new Error('Enter a valid pay-limit amount');
-      }
-      if ((limitMode === 'add' || limitMode === 'deduct') && num <= 0) {
-        throw new Error('Amount must be greater than 0');
-      }
-      const hl = Number(highlightDraft);
-      if (!Number.isFinite(hl) || hl < 0 || !Number.isInteger(hl)) {
-        throw new Error('Highlight limit must be a whole number ≥ 0');
-      }
-      if (isAdmin) {
-        await businessesApi.setP2pPayLimit(limitTarget!._id, num, limitMode);
-      } else {
-        await payLimitRequestsApi.create(limitTarget!._id, {
-          p2pPayLimit: num,
-          mode: limitMode,
-          notes: limitNotes.trim() || undefined,
-        });
-      }
-      return businessesApi.setHighlightLimit(limitTarget!._id, hl);
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['businesses'] });
-      qc.invalidateQueries({ queryKey: ['business-stats'] });
-      qc.invalidateQueries({ queryKey: ['business-commission'] });
-      qc.invalidateQueries({ queryKey: ['pay-limit-requests'] });
-      setLimitTarget(null);
-      setLimitMode('set');
-      setLimitNotes('');
-    },
-    onError: (err) => {
-      const msg = getApiErrorMessage(err, 'Could not save limits');
-      setLimitError(msg);
-      setHighlightError(msg);
-    },
   });
 
   const saveTxnFlags = useMutation({
@@ -436,17 +375,6 @@ export function BusinessesPage() {
                     </Button>
                     <Button
                       size="sm"
-                      variant="secondary"
-                      className="flex-1 sm:flex-none"
-                      onClick={() => {
-                        setLimitMode(isAdmin ? 'set' : 'add');
-                        setLimitTarget(b);
-                      }}
-                    >
-                      {isAdmin ? 'Set Limit' : 'Request Limit'}
-                    </Button>
-                    <Button
-                      size="sm"
                       variant="outline"
                       className="flex-1 sm:flex-none"
                       onClick={() => setCommissionTarget(b)}
@@ -531,188 +459,6 @@ export function BusinessesPage() {
       </Modal>
 
       <Modal
-        open={!!limitTarget}
-        onClose={() => {
-          setLimitTarget(null);
-          setLimitMode('set');
-        }}
-        title={`${isAdmin ? 'Set limits' : 'Request pay limit'} — ${limitTarget?.name ?? ''}`}
-      >
-        {loadingLimitStats ? (
-          <LoadingScreen />
-        ) : (
-          <form
-            className="space-y-4"
-            onSubmit={(e) => {
-              e.preventDefault();
-              setLimitError('');
-              setHighlightError('');
-              saveLimit.mutate();
-            }}
-          >
-            <p className="text-sm text-on-surface-variant">
-              Admin seed; deposits add, withdrawals deduct.
-            </p>
-            <div className="grid grid-cols-2 gap-3 rounded-xl border border-outline-variant bg-surface-container-low/50 p-3 text-sm">
-              <div>
-                <p className="text-xs text-on-surface-variant">From deposits</p>
-                <p className="font-semibold">
-                  {formatCurrency(limitStats?.p2pPayEarned ?? limitTarget?.p2pPayEarned ?? 0)}
-                </p>
-              </div>
-              <div>
-                <p className="text-xs text-on-surface-variant">Used</p>
-                <p className="font-semibold">
-                  {formatCurrency(limitStats?.p2pPayUsed ?? limitTarget?.p2pPayUsed ?? 0)}
-                </p>
-              </div>
-              <div>
-                <p className="text-xs text-on-surface-variant">Current seed</p>
-                <p className="font-semibold">
-                  {formatCurrency(limitStats?.p2pPayLimit ?? limitTarget?.p2pPayLimit ?? 0)}
-                </p>
-              </div>
-              <div>
-                <p className="text-xs text-on-surface-variant">Remaining</p>
-                <p className="text-lg font-bold text-secondary">
-                  {formatCurrency(
-                    (limitStats?.p2pPayRemaining ?? limitTarget?.p2pPayRemaining) ?? 0,
-                  )}
-                </p>
-              </div>
-            </div>
-
-            <div>
-              <p className="mb-2 text-sm font-semibold">Action</p>
-              <div className="flex flex-wrap gap-2">
-                {(
-                  [
-                    { value: 'set', label: 'Set absolute' },
-                    { value: 'add', label: 'Add' },
-                    { value: 'deduct', label: 'Deduct' },
-                  ] as const
-                ).map((opt) => (
-                  <button
-                    key={opt.value}
-                    type="button"
-                    onClick={() => setLimitMode(opt.value)}
-                    className={`rounded-full border px-3 py-1.5 text-sm ${
-                      limitMode === opt.value
-                        ? 'border-secondary bg-secondary-container font-semibold'
-                        : 'border-outline-variant'
-                    }`}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <Input
-              label={
-                limitMode === 'set'
-                  ? 'Seed pay limit (₹)'
-                  : limitMode === 'add'
-                    ? 'Amount to add (₹)'
-                    : 'Amount to deduct (₹)'
-              }
-              type="number"
-              min={0}
-              step="1"
-              value={limitDraft}
-              onChange={(e) => setLimitDraft(e.target.value)}
-              required
-            />
-            {limitMode !== 'set' && limitDraft !== '' && Number.isFinite(Number(limitDraft)) ? (
-              <p className="text-xs text-on-surface-variant">
-                Seed after:{' '}
-                {formatCurrency(
-                  Math.max(
-                    0,
-                    (limitStats?.p2pPayLimit ?? limitTarget?.p2pPayLimit ?? 0) +
-                      (limitMode === 'add' ? Number(limitDraft) : -Number(limitDraft)),
-                  ),
-                )}
-              </p>
-            ) : null}
-
-            {!isAdmin ? (
-              <Input
-                label="Notes (optional)"
-                value={limitNotes}
-                onChange={(e) => setLimitNotes(e.target.value)}
-                placeholder="Why this limit change?"
-              />
-            ) : null}
-
-            {!isAdmin ? (
-              <p className="rounded-lg bg-surface-container-low px-3 py-2 text-xs text-on-surface-variant">
-                This sends a request for admin approval. Limit applies only after admin approves on
-                Limit Requests.
-              </p>
-            ) : null}
-
-            <div className="rounded-xl border border-outline-variant p-3 space-y-3">
-              <div>
-                <p className="text-sm font-semibold">Monthly highlight limit</p>
-                <p className="text-xs text-on-surface-variant">
-                  Monthly pin quota for pay lists. 0 = off.
-                </p>
-              </div>
-              <div className="grid grid-cols-2 gap-3 text-sm">
-                <div>
-                  <p className="text-xs text-on-surface-variant">Used this month</p>
-                  <p className="font-semibold">
-                    {limitStats?.highlightUsedThisMonth ??
-                      limitTarget?.highlightUsedThisMonth ??
-                      0}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs text-on-surface-variant">Remaining</p>
-                  <p className="font-semibold text-secondary">
-                    {limitStats?.highlightRemainingThisMonth ??
-                      limitTarget?.highlightRemainingThisMonth ??
-                      0}
-                  </p>
-                </div>
-              </div>
-              <Input
-                label="Highlights per month"
-                type="number"
-                min={0}
-                step={1}
-                value={highlightDraft}
-                onChange={(e) => setHighlightDraft(e.target.value)}
-                required
-              />
-            </div>
-
-            {limitError || highlightError ? (
-              <p className="rounded-lg bg-error-container px-3 py-2 text-sm text-on-error-container">
-                {limitError || highlightError}
-              </p>
-            ) : null}
-            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => {
-                  setLimitTarget(null);
-                  setLimitMode('set');
-                }}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" loading={saveLimit.isPending}>
-                {isAdmin ? 'Save limits' : 'Submit for approval'}
-              </Button>
-            </div>
-          </form>
-        )}
-      </Modal>
-
-      <Modal
         open={!!commissionTarget}
         onClose={() => setCommissionTarget(null)}
         title={`Commissions — ${commissionTarget?.name ?? ''}`}
@@ -748,7 +494,7 @@ export function BusinessesPage() {
                 <p className="text-sm font-semibold">
                   {formatCurrency(Number(p2pPayLimit) || 0)}{' '}
                   <span className="text-xs font-normal text-on-surface-variant">
-                    (request change via Request Limit)
+                    (change via Limit Requests page)
                   </span>
                 </p>
               )}

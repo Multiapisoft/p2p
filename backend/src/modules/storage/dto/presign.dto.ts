@@ -15,11 +15,13 @@ export class PresignUploadDto {
     'withdrawal-approve-proof',
     'support-ticket',
     'upi-qr',
+    'p2p-limit-proof',
   ])
   purpose?:
     | 'deposit-proof'
     | 'withdrawal-payment-proof'
     | 'withdrawal-approve-proof'
     | 'support-ticket'
-    | 'upi-qr';
+    | 'upi-qr'
+    | 'p2p-limit-proof';
 }

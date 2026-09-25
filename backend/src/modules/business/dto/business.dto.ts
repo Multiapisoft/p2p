@@ -224,6 +224,21 @@ export class CreateP2pPayLimitRequestDto {
   @IsString()
   @MaxLength(500)
   notes?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  proofImageKey?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  proofImageUrl?: string;
+
+  /** Admin only: create and apply immediately (still tracked as approved request). */
+  @IsOptional()
+  @IsBoolean()
+  applyNow?: boolean;
 }
 
 export class P2pPayLimitRequestListQueryDto extends ListQueryDto {}
