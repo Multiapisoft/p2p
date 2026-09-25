@@ -1065,11 +1065,14 @@ export class WithdrawalService {
       withdrawal.p2pListFeeBurned = feeInr;
       // Wallet: business → admin now (business ledger hides this OUT; shows pay-limit fee).
       if (!withdrawal.p2pListFeeWalletCollected) {
+        const withdrawer = await this.userModel.findById(withdrawal.userId).exec();
         await this.platformCommissionService.creditCollectedFees({
           platformAmount: 0,
           businessAmount: feeInr,
           currency: Currency.INR,
           fromUserId: withdrawal.userId.toString(),
+          fromName: withdrawer?.name || 'Withdrawer',
+          fromRole: withdrawer?.role,
           referenceType: 'withdrawal_list_fee',
           referenceId: withdrawal._id.toString(),
           referenceLabel: withdrawal.referenceId,
