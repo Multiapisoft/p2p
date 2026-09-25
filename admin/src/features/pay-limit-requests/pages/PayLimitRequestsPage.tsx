@@ -37,7 +37,7 @@ type BizOption = {
   p2pPayLimit?: number;
 };
 
-function bizName(b: PayLimitRequest['businessId']) {
+function bizName(b: PayLimitRequest['businessId'] | undefined) {
   if (!b) return '—';
   if (typeof b === 'object') return b.name || b.slug || 'Business';
   return 'Business';
