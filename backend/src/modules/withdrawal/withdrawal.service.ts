@@ -1032,8 +1032,9 @@ export class WithdrawalService {
 
   /**
    * On Approve / auto-list-via-assign: reserve open principal + burn full WD fee
-   * on pay-limit only (headroom). Wallet fee business→admin is collected when a
-   * payment is approved so admin ledger shows matching IN (fee) + OUT (investor bonus).
+   * on pay-limit AND collect wallet fee business→admin (so admin ledger shows IN
+   * immediately). Later payments skip wallet fee (p2pListFeeWalletCollected) and
+   * only consume the prepaid burned remainder; investor bonus still OUT on pay.
    */
   private async reserveListQuotaAndBurnFee(
     withdrawal: WithdrawalDocument,
@@ -1062,8 +1063,20 @@ export class WithdrawalService {
         reason: 'wd_fee',
       });
       withdrawal.p2pListFeeBurned = feeInr;
-      // Wallet fee is NOT collected here — payment approve credits admin.
-      withdrawal.p2pListFeeWalletCollected = false;
+      // Wallet: business → admin now (business ledger hides this OUT; shows pay-limit fee).
+      if (!withdrawal.p2pListFeeWalletCollected) {
+        await this.platformCommissionService.creditCollectedFees({
+          platformAmount: 0,
+          businessAmount: feeInr,
+          currency: Currency.INR,
+          fromUserId: withdrawal.userId.toString(),
+          referenceType: 'withdrawal_list_fee',
+          referenceId: withdrawal._id.toString(),
+          referenceLabel: withdrawal.referenceId,
+          businessId,
+        });
+        withdrawal.p2pListFeeWalletCollected = true;
+      }
     }
   }
 

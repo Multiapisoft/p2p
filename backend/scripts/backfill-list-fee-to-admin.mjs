@@ -1,197 +1,97 @@
 /**
- * One-shot: for listed WDs where pay-limit fee was burned on Approve but
- * admin wallet was never credited, collect business fee → admin now.
- *
- * Usage (on server, from backend/):
- *   docker compose exec -T backend node scripts/backfill-list-fee-to-admin.mjs
+ * Backfill: listed WDs where pay-limit fee was burned on Approve but admin
+ * wallet was never credited (p2pListFeeWalletCollected=false, burned>0).
  */
 import mongoose from 'mongoose';
 
-const uri = process.env.MONGODB_URI;
-if (!uri) {
-  console.error('MONGODB_URI missing');
-  process.exit(1);
-}
-
-await mongoose.connect(uri);
+await mongoose.connect(process.env.MONGODB_URI);
 const db = mongoose.connection.db;
 
-const withdrawals = await db
+const admin = await db.collection('users').findOne({ role: 'admin' });
+if (!admin) throw new Error('no admin');
+
+const wds = await db
   .collection('withdrawals')
   .find({
     p2pListStatus: 'listed',
+    p2pListFeeWalletCollected: { $ne: true },
     p2pListFeeBurned: { $gt: 0 },
-    $or: [
-      { p2pListFeeWalletCollected: { $ne: true } },
-      { p2pListFeeWalletCollected: { $exists: false } },
-    ],
-  })
-  .project({
-    _id: 1,
-    referenceId: 1,
-    businessId: 1,
-    p2pListFeeBurned: 1,
+    origin: { $ne: 'business' },
   })
   .toArray();
 
-console.log(`Found ${withdrawals.length} WD(s) needing admin fee credit`);
+console.log('listed WDs missing admin fee credit', wds.length);
 
-if (!withdrawals.length) {
-  await mongoose.disconnect();
-  process.exit(0);
-}
+for (const wd of wds) {
+  const feeLeft = Math.round((wd.p2pListFeeBurned || 0) * 100) / 100;
+  if (feeLeft <= 0 || !wd.businessId) continue;
 
-const admin =
-  (await db.collection('users').findOne({ role: 'admin' })) ||
-  (await db.collection('users').findOne({ email: /admin/i }));
-if (!admin) {
-  console.error('No admin user');
-  process.exit(1);
-}
-console.log('Admin', String(admin._id), admin.email || admin.name);
-
-for (const w of withdrawals) {
-  const fee = Math.round((w.p2pListFeeBurned || 0) * 100) / 100;
-  if (fee <= 0 || !w.businessId) continue;
-
-  const already = await db.collection('ledger_entries').findOne({
-    userId: admin._id,
-    referenceType: 'withdrawal_list_fee',
-    referenceId: String(w._id),
-    type: 'commission',
-    direction: 'credit',
-  });
-  if (already) {
-    await db.collection('withdrawals').updateOne(
-      { _id: w._id },
-      { $set: { p2pListFeeWalletCollected: true } },
-    );
-    console.log(`Skip ${w.referenceId}: admin ledger already has fee`);
+  const biz = await db.collection('businesses').findOne({ _id: wd.businessId });
+  if (!biz?.ownerId) {
+    console.log(wd.referenceId, 'no business owner');
     continue;
   }
 
-  const business = await db.collection('businesses').findOne({ _id: w.businessId });
-  if (!business?.ownerId) {
-    console.error(`Skip ${w.referenceId}: business/owner missing`);
-    continue;
-  }
-
-  const ownerId = business.ownerId;
-  const allOwnerWallets = await db
+  const ownerWallets = await db
     .collection('wallets')
-    .find({
-      $or: [{ userId: ownerId }, { userId: String(ownerId) }],
-    })
+    .find({ $or: [{ userId: biz.ownerId }, { userId: String(biz.ownerId) }] })
     .toArray();
-  console.log(
-    `${w.referenceId} owner wallets:`,
-    allOwnerWallets.map((x) => ({
-      cur: x.currency,
-      bal: x.balance,
-      uid: String(x.userId),
-      biz: x.businessId ? String(x.businessId) : null,
-    })),
-  );
-
   let bizWallet =
-    allOwnerWallets.find((x) => String(x.currency || '').toUpperCase() === 'INR') ||
-    allOwnerWallets[0] ||
-    null;
-  if (!bizWallet) {
-    const created = await db.collection('wallets').insertOne({
-      userId: ownerId,
-      businessId: w.businessId,
-      currency: 'INR',
-      balance: 0,
-      lockedBalance: 0,
-      totalDeposited: 0,
-      totalWithdrawn: 0,
-      totalInvested: 0,
-      totalRedeemed: 0,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    });
-    bizWallet = await db.collection('wallets').findOne({ _id: created.insertedId });
-    console.log(`${w.referenceId}: created business wallet`);
-  }
-
-  const allAdminWallets = await db
+    ownerWallets.find((x) => String(x.currency || '').toUpperCase() === 'INR') ||
+    ownerWallets[0];
+  const adminWallets = await db
     .collection('wallets')
-    .find({
-      $or: [{ userId: admin._id }, { userId: String(admin._id) }],
-    })
+    .find({ $or: [{ userId: admin._id }, { userId: String(admin._id) }] })
     .toArray();
-  console.log(
-    'admin wallets:',
-    allAdminWallets.map((x) => ({
-      cur: x.currency,
-      bal: x.balance,
-      uid: String(x.userId),
-    })),
-  );
-
   let adminWallet =
-    allAdminWallets.find((x) => String(x.currency || '').toUpperCase() === 'INR') ||
-    allAdminWallets[0] ||
-    null;
-  if (!adminWallet) {
-    const created = await db.collection('wallets').insertOne({
-      userId: admin._id,
-      currency: 'INR',
-      balance: 0,
-      lockedBalance: 0,
-      totalDeposited: 0,
-      totalWithdrawn: 0,
-      totalInvested: 0,
-      totalRedeemed: 0,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    });
-    adminWallet = await db.collection('wallets').findOne({ _id: created.insertedId });
-    console.log('created admin INR wallet');
-  }
+    adminWallets.find((x) => String(x.currency || '').toUpperCase() === 'INR') ||
+    adminWallets[0];
 
   if (!bizWallet || !adminWallet) {
-    console.error(`Skip ${w.referenceId}: wallet missing after create`);
+    console.log(wd.referenceId, 'wallet missing');
     continue;
   }
 
-  const bizBefore = bizWallet.balance || 0;
-  const adminBefore = adminWallet.balance || 0;
-  const bizAfter = Math.round((bizBefore - fee) * 100) / 100;
-  const adminAfter = Math.round((adminBefore + fee) * 100) / 100;
-
-  await db.collection('wallets').updateOne(
-    { _id: bizWallet._id },
-    { $set: { balance: bizAfter } },
-  );
-  await db.collection('wallets').updateOne(
-    { _id: adminWallet._id },
-    { $set: { balance: adminAfter } },
-  );
+  // Skip if list-fee ledger already credited admin for this WD
+  const existing = await db.collection('ledger_entries').findOne({
+    userId: admin._id,
+    referenceType: 'withdrawal_list_fee',
+    referenceId: String(wd._id),
+    direction: 'credit',
+  });
+  if (existing) {
+    await db.collection('withdrawals').updateOne(
+      { _id: wd._id },
+      { $set: { p2pListFeeWalletCollected: true } },
+    );
+    console.log(wd.referenceId, 'flag only (ledger exists)');
+    continue;
+  }
 
   const now = new Date();
-  const bizName = business.name || 'Business';
-  const adminName = admin.name || 'Admin';
+  const bizBefore = bizWallet.balance || 0;
+  const adminBefore = adminWallet.balance || 0;
+  const bizAfter = Math.round((bizBefore - feeLeft) * 100) / 100;
+  const adminAfter = Math.round((adminBefore + feeLeft) * 100) / 100;
+
+  await db.collection('wallets').updateOne({ _id: bizWallet._id }, { $set: { balance: bizAfter } });
+  await db.collection('wallets').updateOne({ _id: adminWallet._id }, { $set: { balance: adminAfter } });
 
   await db.collection('ledger_entries').insertMany([
     {
-      userId: business.ownerId,
+      userId: biz.ownerId,
       walletId: bizWallet._id,
       type: 'commission',
       direction: 'debit',
       flow: 'platform_fee',
-      amount: fee,
+      amount: feeLeft,
       currency: 'INR',
       balanceBefore: bizBefore,
       balanceAfter: bizAfter,
       referenceType: 'withdrawal_list_fee',
-      referenceId: String(w._id),
-      description: `Business fee ₹${fee} paid to ${adminName} (admin) (${w.referenceId})`,
-      businessId: w.businessId,
-      counterpartyUserId: admin._id,
-      fromParty: `${bizName} (business)`,
-      toParty: `${adminName} (admin)`,
+      referenceId: String(wd._id),
+      description: `Business fee ₹${feeLeft} paid to Super Admin (admin) (${wd.referenceId})`,
+      businessId: wd.businessId,
       createdAt: now,
       updatedAt: now,
     },
@@ -201,30 +101,24 @@ for (const w of withdrawals) {
       type: 'commission',
       direction: 'credit',
       flow: 'platform_fee',
-      amount: fee,
+      amount: feeLeft,
       currency: 'INR',
       balanceBefore: adminBefore,
       balanceAfter: adminAfter,
       referenceType: 'withdrawal_list_fee',
-      referenceId: String(w._id),
-      description: `Business fee ₹${fee} received from ${bizName} (business) (${w.referenceId})`,
-      businessId: w.businessId,
-      counterpartyUserId: business.ownerId,
-      fromParty: `${bizName} (business)`,
-      toParty: `${adminName} (admin)`,
+      referenceId: String(wd._id),
+      description: `Business fee ₹${feeLeft} received from ${biz.name} (business) (${wd.referenceId})`,
+      businessId: wd.businessId,
       createdAt: now,
       updatedAt: now,
     },
   ]);
 
   await db.collection('withdrawals').updateOne(
-    { _id: w._id },
+    { _id: wd._id },
     { $set: { p2pListFeeWalletCollected: true } },
   );
-
-  console.log(
-    `Credited admin ₹${fee} for ${w.referenceId} (admin ${adminBefore} → ${adminAfter})`,
-  );
+  console.log(wd.referenceId, 'credited admin', feeLeft);
 }
 
 await mongoose.disconnect();
