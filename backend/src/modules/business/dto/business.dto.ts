@@ -8,6 +8,7 @@ import {
   IsIn,
   Min,
   Max,
+  MaxLength,
   IsUrl,
   ValidateNested,
 } from 'class-validator';
@@ -207,6 +208,31 @@ export class SetP2pPayLimitDto {
   @IsOptional()
   @IsIn(['set', 'add', 'deduct'])
   mode?: 'set' | 'add' | 'deduct';
+}
+
+export class CreateP2pPayLimitRequestDto {
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  p2pPayLimit!: number;
+
+  @IsOptional()
+  @IsIn(['set', 'add', 'deduct'])
+  mode?: 'set' | 'add' | 'deduct';
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  notes?: string;
+}
+
+export class P2pPayLimitRequestListQueryDto extends ListQueryDto {}
+
+export class RejectP2pPayLimitRequestDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  reason?: string;
 }
 
 export class SetHighlightLimitDto {

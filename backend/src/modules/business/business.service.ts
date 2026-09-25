@@ -12,8 +12,19 @@ import { Model, Types } from 'mongoose';
 import * as bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
 import { Business, BusinessDocument } from './schemas/business.schema';
+import {
+  P2pPayLimitRequest,
+  P2pPayLimitRequestDocument,
+  P2pPayLimitRequestStatus,
+} from './schemas/p2p-pay-limit-request.schema';
 import { Withdrawal, WithdrawalDocument } from '../withdrawal/schemas/withdrawal.schema';
-import { CreateBusinessDto, UpdateBusinessDto, UpdateBusinessTxnFlagsDto } from './dto/business.dto';
+import {
+  CreateBusinessDto,
+  UpdateBusinessDto,
+  UpdateBusinessTxnFlagsDto,
+  CreateP2pPayLimitRequestDto,
+  RejectP2pPayLimitRequestDto,
+} from './dto/business.dto';
 import { UserStatus, Currency, LedgerType, LedgerDirection } from '../../common/enums/currency.enum';
 import { TransactionStatus } from '../../common/enums/transaction-status.enum';
 import { RedisService } from '../../redis/redis.service';
@@ -27,7 +38,12 @@ import {
   MIN_PARTIAL_INR,
   minPartialAmount,
 } from '../withdrawal/utils/partial-pay.util';
-import { businessDocumentScopeFilter } from '../../common/utils/admin-business-scope.util';
+import {
+  businessDocumentScopeFilter,
+  subAdminBusinessIdsOrEmpty,
+} from '../../common/utils/admin-business-scope.util';
+import type { AuthenticatedUser } from '../../common/interfaces/jwt-payload.interface';
+import { UserRole } from '../../common/enums/role.enum';
 import {
   p2pPayQuotaCap,
   p2pPayQuotaRemaining,
@@ -57,6 +73,8 @@ export type BusinessListOpts = ListQueryOpts;
 export class BusinessService {
   constructor(
     @InjectModel(Business.name) private businessModel: Model<BusinessDocument>,
+    @InjectModel(P2pPayLimitRequest.name)
+    private p2pPayLimitRequestModel: Model<P2pPayLimitRequestDocument>,
     @InjectModel(Withdrawal.name) private withdrawalModel: Model<WithdrawalDocument>,
     private redis: RedisService,
     private usersRepo: UsersRepository,
@@ -773,6 +791,159 @@ export class BusinessService {
       });
     }
     return this.sanitize(business);
+  }
+
+  async createP2pPayLimitRequest(
+    businessId: string,
+    dto: CreateP2pPayLimitRequestDto,
+    actor: AuthenticatedUser,
+  ) {
+    if (!Types.ObjectId.isValid(businessId)) {
+      throw new BadRequestException('Invalid business id');
+    }
+    const mode = dto.mode ?? 'add';
+    const amount = Math.round(Number(dto.p2pPayLimit) * 100) / 100;
+    if (!Number.isFinite(amount) || amount < 0) {
+      throw new BadRequestException('Invalid amount');
+    }
+    if ((mode === 'add' || mode === 'deduct') && amount <= 0) {
+      throw new BadRequestException('Amount must be greater than 0');
+    }
+    const business = await this.businessModel.findById(businessId).exec();
+    if (!business) throw new NotFoundException('Business not found');
+
+    const pending = await this.p2pPayLimitRequestModel.exists({
+      businessId: business._id,
+      status: P2pPayLimitRequestStatus.PENDING,
+    });
+    if (pending) {
+      throw new ConflictException('A pending pay-limit request already exists for this business');
+    }
+
+    const doc = await this.p2pPayLimitRequestModel.create({
+      businessId: business._id,
+      mode,
+      amount,
+      notes: dto.notes?.trim() || undefined,
+      status: P2pPayLimitRequestStatus.PENDING,
+      requestedBy: new Types.ObjectId(actor.userId),
+      seedAtRequest: business.p2pPayLimit || 0,
+    });
+    return this.sanitizeLimitRequest(doc);
+  }
+
+  async listP2pPayLimitRequests(
+    opts: ListQueryOpts & { status?: string } = {},
+    actor?: AuthenticatedUser,
+  ) {
+    const { page, limit, skip, search, sort } = normalizeListOpts(opts);
+    const and: Record<string, unknown>[] = [];
+    const status = opts.status && opts.status !== 'all' ? opts.status : undefined;
+    if (status) and.push({ status });
+
+    if (actor?.role === UserRole.SUB_ADMIN) {
+      const ids = subAdminBusinessIdsOrEmpty(actor) || [];
+      and.push({
+        businessId: { $in: ids.map((id) => new Types.ObjectId(id)) },
+      });
+    }
+
+    if (search) {
+      const businesses = await this.businessModel
+        .find({ name: { $regex: search, $options: 'i' } })
+        .select('_id')
+        .limit(50)
+        .lean()
+        .exec();
+      const bizIds = businesses.map((b) => b._id);
+      and.push({
+        $or: [
+          { notes: { $regex: search, $options: 'i' } },
+          ...(bizIds.length ? [{ businessId: { $in: bizIds } }] : []),
+        ],
+      });
+    }
+
+    const filter = and.length ? { $and: and } : {};
+    const sortSpec = listSortMap(sort, {
+      newest: { createdAt: -1 },
+      oldest: { createdAt: 1 },
+      status: { status: 1, createdAt: -1 },
+    });
+
+    const [rows, total] = await Promise.all([
+      this.p2pPayLimitRequestModel
+        .find(filter)
+        .populate('businessId', 'name slug p2pPayLimit')
+        .populate('requestedBy', 'name email role')
+        .populate('reviewedBy', 'name email role')
+        .sort(sortSpec)
+        .skip(skip)
+        .limit(limit)
+        .exec(),
+      this.p2pPayLimitRequestModel.countDocuments(filter).exec(),
+    ]);
+
+    return {
+      items: rows.map((r) => this.sanitizeLimitRequest(r)),
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit) || 1,
+    };
+  }
+
+  async approveP2pPayLimitRequest(requestId: string, reviewerId: string) {
+    if (!Types.ObjectId.isValid(requestId)) {
+      throw new BadRequestException('Invalid request id');
+    }
+    const req = await this.p2pPayLimitRequestModel.findById(requestId).exec();
+    if (!req) throw new NotFoundException('Pay-limit request not found');
+    if (req.status !== P2pPayLimitRequestStatus.PENDING) {
+      throw new BadRequestException('Request is not pending');
+    }
+
+    const business = await this.setP2pPayLimit(
+      req.businessId.toString(),
+      req.amount,
+      undefined,
+      req.mode,
+    );
+
+    req.status = P2pPayLimitRequestStatus.APPROVED;
+    req.reviewedBy = new Types.ObjectId(reviewerId);
+    req.reviewedAt = new Date();
+    await req.save();
+
+    return {
+      request: this.sanitizeLimitRequest(req),
+      business,
+    };
+  }
+
+  async rejectP2pPayLimitRequest(
+    requestId: string,
+    reviewerId: string,
+    dto?: RejectP2pPayLimitRequestDto,
+  ) {
+    if (!Types.ObjectId.isValid(requestId)) {
+      throw new BadRequestException('Invalid request id');
+    }
+    const req = await this.p2pPayLimitRequestModel.findById(requestId).exec();
+    if (!req) throw new NotFoundException('Pay-limit request not found');
+    if (req.status !== P2pPayLimitRequestStatus.PENDING) {
+      throw new BadRequestException('Request is not pending');
+    }
+    req.status = P2pPayLimitRequestStatus.REJECTED;
+    req.reviewedBy = new Types.ObjectId(reviewerId);
+    req.reviewedAt = new Date();
+    req.rejectReason = dto?.reason?.trim() || undefined;
+    await req.save();
+    return this.sanitizeLimitRequest(req);
+  }
+
+  private sanitizeLimitRequest(doc: P2pPayLimitRequestDocument) {
+    return doc.toObject({ virtuals: true }) as Record<string, unknown>;
   }
 
   /** Open business-origin WD amounts held against the P2P limit (not yet completed). */

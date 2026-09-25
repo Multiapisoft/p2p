@@ -9,7 +9,17 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { BusinessService } from './business.service';
-import { BusinessListQueryDto, CreateBusinessDto, UpdateBusinessDto, UpdateBusinessTxnFlagsDto, SetP2pPayLimitDto, SetHighlightLimitDto } from './dto/business.dto';
+import {
+  BusinessListQueryDto,
+  CreateBusinessDto,
+  UpdateBusinessDto,
+  UpdateBusinessTxnFlagsDto,
+  SetP2pPayLimitDto,
+  SetHighlightLimitDto,
+  CreateP2pPayLimitRequestDto,
+  P2pPayLimitRequestListQueryDto,
+  RejectP2pPayLimitRequestDto,
+} from './dto/business.dto';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { UserRole } from '../../common/enums/role.enum';
 import { Permissions } from '../../common/decorators/permissions.decorator';
@@ -195,14 +205,56 @@ export class BusinessController {
     return this.businessService.findAll(query, user);
   }
 
+  @Get('p2p-pay-limit-requests')
+  @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN)
+  @Permissions(Permission.BUSINESS_MANAGE)
+  listP2pPayLimitRequests(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: P2pPayLimitRequestListQueryDto,
+  ) {
+    return this.businessService.listP2pPayLimitRequests(query, user);
+  }
+
+  @Post(':id/p2p-pay-limit-requests')
+  @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN)
+  @Permissions(Permission.BUSINESS_MANAGE)
+  createP2pPayLimitRequest(
+    @Param('id') id: string,
+    @Body() dto: CreateP2pPayLimitRequestDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    assertActorBusinessAccess(user, id);
+    return this.businessService.createP2pPayLimitRequest(id, dto, user);
+  }
+
+  @Patch('p2p-pay-limit-requests/:requestId/approve')
+  @Roles(UserRole.ADMIN)
+  approveP2pPayLimitRequest(
+    @Param('requestId') requestId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.businessService.approveP2pPayLimitRequest(requestId, user.userId);
+  }
+
+  @Patch('p2p-pay-limit-requests/:requestId/reject')
+  @Roles(UserRole.ADMIN)
+  rejectP2pPayLimitRequest(
+    @Param('requestId') requestId: string,
+    @Body() dto: RejectP2pPayLimitRequestDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.businessService.rejectP2pPayLimitRequest(requestId, user.userId, dto);
+  }
+
   @Post(':id/approve')
   @Roles(UserRole.ADMIN)
   approve(@Param('id') id: string) {
     return this.businessService.approve(id);
   }
 
+  /** Direct apply — admin only. Sub-admins must use pay-limit requests. */
   @Patch(':id/p2p-pay-limit')
-  @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN)
+  @Roles(UserRole.ADMIN)
   @Permissions(Permission.BUSINESS_MANAGE)
   setP2pPayLimit(
     @Param('id') id: string,

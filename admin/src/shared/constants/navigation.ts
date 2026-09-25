@@ -9,6 +9,7 @@ export const NAV_ITEMS = [
   { to: '/my-withdrawals', label: 'My Withdrawals', icon: 'payments', permission: PERMISSIONS.WITHDRAWALS },
   { to: '/users', label: 'Users', icon: 'group', permission: PERMISSIONS.USERS },
   { to: '/businesses', label: 'Business', icon: 'business_center', permission: PERMISSIONS.BUSINESS },
+  { to: '/pay-limit-requests', label: 'Limit Requests', icon: 'speed', permission: PERMISSIONS.BUSINESS },
   { to: '/wallet', label: 'Wallet', icon: 'account_balance_wallet', permission: PERMISSIONS.WALLET },
   { to: '/commissions', label: 'Commissions', icon: 'percent', permission: PERMISSIONS.COMMISSIONS },
   { to: '/my-ledger', label: 'My Ledger', icon: 'menu_book', permission: null },

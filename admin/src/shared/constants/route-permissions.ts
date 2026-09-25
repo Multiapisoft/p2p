@@ -9,6 +9,7 @@ export const ROUTE_PERMISSIONS: { prefix: string; permission: string | null }[] 
   { prefix: '/my-withdrawals', permission: PERMISSIONS.WITHDRAWALS },
   { prefix: '/users', permission: PERMISSIONS.USERS },
   { prefix: '/businesses', permission: PERMISSIONS.BUSINESS },
+  { prefix: '/pay-limit-requests', permission: PERMISSIONS.BUSINESS },
   { prefix: '/wallet', permission: PERMISSIONS.WALLET },
   { prefix: '/commissions', permission: PERMISSIONS.COMMISSIONS },
   { prefix: '/audit', permission: PERMISSIONS.AUDIT },

@@ -3,7 +3,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { businessesApi } from '../api/businesses.api';
+import { payLimitRequestsApi } from '@/features/pay-limit-requests/api/pay-limit-requests.api';
 import { commissionsApi } from '@/features/commissions/api/commissions.api';
+import { usePermissions } from '@/shared/hooks/usePermissions';
 import {
   CommissionRulesEditor,
   emptyRule,
@@ -52,8 +54,10 @@ function toggleMethod(list: string[], value: string, checked: boolean) {
 }
 
 export function BusinessesPage() {
+  const { isAdmin } = usePermissions();
   const [statsTarget, setStatsTarget] = useState<Business | null>(null);
   const [limitTarget, setLimitTarget] = useState<Business | null>(null);
+  const [limitNotes, setLimitNotes] = useState('');
   const [commissionTarget, setCommissionTarget] = useState<Business | null>(null);
   const [txnFlagsTarget, setTxnFlagsTarget] = useState<Business | null>(null);
   const [txnFlagsError, setTxnFlagsError] = useState('');
@@ -154,6 +158,7 @@ export function BusinessesPage() {
     if (!limitTarget) return;
     setLimitDraft(limitMode === 'set' ? String(limitTarget.p2pPayLimit ?? 0) : '');
     setHighlightDraft(String(limitTarget.highlightLimitPerMonth ?? 0));
+    setLimitNotes('');
     setLimitError('');
     setHighlightError('');
   }, [limitTarget, limitMode]);
@@ -176,15 +181,25 @@ export function BusinessesPage() {
       if (!Number.isFinite(hl) || hl < 0 || !Number.isInteger(hl)) {
         throw new Error('Highlight limit must be a whole number ≥ 0');
       }
-      await businessesApi.setP2pPayLimit(limitTarget!._id, num, limitMode);
+      if (isAdmin) {
+        await businessesApi.setP2pPayLimit(limitTarget!._id, num, limitMode);
+      } else {
+        await payLimitRequestsApi.create(limitTarget!._id, {
+          p2pPayLimit: num,
+          mode: limitMode,
+          notes: limitNotes.trim() || undefined,
+        });
+      }
       return businessesApi.setHighlightLimit(limitTarget!._id, hl);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['businesses'] });
       qc.invalidateQueries({ queryKey: ['business-stats'] });
       qc.invalidateQueries({ queryKey: ['business-commission'] });
+      qc.invalidateQueries({ queryKey: ['pay-limit-requests'] });
       setLimitTarget(null);
       setLimitMode('set');
+      setLimitNotes('');
     },
     onError: (err) => {
       const msg = getApiErrorMessage(err, 'Could not save limits');
@@ -229,7 +244,7 @@ export function BusinessesPage() {
         businessTakeDeposit,
         businessTakeWithdrawal,
         investorBonus,
-        p2pPayLimit: Number(p2pPayLimit) || 0,
+        ...(isAdmin ? { p2pPayLimit: Number(p2pPayLimit) || 0 } : {}),
       });
     },
     onSuccess: () => {
@@ -424,11 +439,11 @@ export function BusinessesPage() {
                       variant="secondary"
                       className="flex-1 sm:flex-none"
                       onClick={() => {
-                        setLimitMode('set');
+                        setLimitMode(isAdmin ? 'set' : 'add');
                         setLimitTarget(b);
                       }}
                     >
-                      Set Limit
+                      {isAdmin ? 'Set Limit' : 'Request Limit'}
                     </Button>
                     <Button
                       size="sm"
@@ -521,7 +536,7 @@ export function BusinessesPage() {
           setLimitTarget(null);
           setLimitMode('set');
         }}
-        title={`Set limits — ${limitTarget?.name ?? ''}`}
+        title={`${isAdmin ? 'Set limits' : 'Request pay limit'} — ${limitTarget?.name ?? ''}`}
       >
         {loadingLimitStats ? (
           <LoadingScreen />
@@ -621,6 +636,22 @@ export function BusinessesPage() {
               </p>
             ) : null}
 
+            {!isAdmin ? (
+              <Input
+                label="Notes (optional)"
+                value={limitNotes}
+                onChange={(e) => setLimitNotes(e.target.value)}
+                placeholder="Why this limit change?"
+              />
+            ) : null}
+
+            {!isAdmin ? (
+              <p className="rounded-lg bg-surface-container-low px-3 py-2 text-xs text-on-surface-variant">
+                This sends a request for admin approval. Limit applies only after admin approves on
+                Limit Requests.
+              </p>
+            ) : null}
+
             <div className="rounded-xl border border-outline-variant p-3 space-y-3">
               <div>
                 <p className="text-sm font-semibold">Monthly highlight limit</p>
@@ -674,7 +705,7 @@ export function BusinessesPage() {
                 Cancel
               </Button>
               <Button type="submit" loading={saveLimit.isPending}>
-                Save limits
+                {isAdmin ? 'Save limits' : 'Submit for approval'}
               </Button>
             </div>
           </form>
@@ -704,13 +735,23 @@ export function BusinessesPage() {
                 {formatCurrency(businessCommission?.p2pPayUsed ?? 0)}
                 {` · Remaining: ${formatCurrency(businessCommission?.p2pPayRemaining ?? 0)}`}
               </p>
-              <Input
-                id="p2p-pay-limit"
-                type="number"
-                min={0}
-                value={p2pPayLimit}
-                onChange={(e) => setP2pPayLimit(e.target.value)}
-              />
+              {isAdmin ? (
+                <Input
+                  id="p2p-pay-limit"
+                  type="number"
+                  min={0}
+                  step="1"
+                  value={p2pPayLimit}
+                  onChange={(e) => setP2pPayLimit(e.target.value)}
+                />
+              ) : (
+                <p className="text-sm font-semibold">
+                  {formatCurrency(Number(p2pPayLimit) || 0)}{' '}
+                  <span className="text-xs font-normal text-on-surface-variant">
+                    (request change via Request Limit)
+                  </span>
+                </p>
+              )}
             </div>
 
             <div className="grid gap-3 rounded-xl border border-outline-variant bg-surface-container-low/40 p-3 sm:grid-cols-2">
