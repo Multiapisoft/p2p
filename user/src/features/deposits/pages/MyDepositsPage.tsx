@@ -99,10 +99,10 @@ function MyDepositsPageInner() {
   ).length;
 
   return (
-    <div className="mx-auto max-w-5xl space-y-4 sm:space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
+    <div className="mx-auto max-w-5xl space-y-3 sm:space-y-4">
+      <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <h1 className="font-[family-name:var(--font-headline)] text-xl font-bold tracking-tight sm:text-2xl">
+          <h1 className="font-[family-name:var(--font-headline)] text-lg font-bold tracking-tight sm:text-xl">
             My Deposits
           </h1>
           <p className="mt-0.5 text-sm text-on-surface-variant">
@@ -134,40 +134,40 @@ function MyDepositsPageInner() {
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-2 sm:gap-3">
-        <div className="rounded-xl border border-outline-variant bg-surface-container-lowest p-2.5 sm:rounded-2xl sm:p-4">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-on-surface-variant sm:text-xs">
+      <div className="grid grid-cols-3 gap-2">
+        <div className="rounded-lg border border-outline-variant bg-surface-container-lowest p-2 sm:p-2.5">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-on-surface-variant">
             Total
           </p>
-          <p className="mt-1 text-lg font-bold sm:mt-2 sm:text-2xl">{total}</p>
+          <p className="mt-0.5 text-base font-bold sm:text-lg">{total}</p>
         </div>
-        <div className="rounded-xl border border-outline-variant bg-surface-container-lowest p-2.5 sm:rounded-2xl sm:p-4">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-on-surface-variant sm:text-xs">
+        <div className="rounded-lg border border-outline-variant bg-surface-container-lowest p-2 sm:p-2.5">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-on-surface-variant">
             Completed (page)
           </p>
-          <p className="mt-1 text-lg font-bold text-emerald-700 sm:mt-2 sm:text-2xl">
+          <p className="mt-0.5 text-base font-bold text-emerald-700 sm:text-lg">
             {completedCount}
           </p>
         </div>
-        <div className="rounded-xl border border-outline-variant bg-surface-container-lowest p-2.5 sm:rounded-2xl sm:p-4">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-on-surface-variant sm:text-xs">
+        <div className="rounded-lg border border-outline-variant bg-surface-container-lowest p-2 sm:p-2.5">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-on-surface-variant">
             Open (page)
           </p>
-          <p className="mt-1 text-lg font-bold text-amber-700 sm:mt-2 sm:text-2xl">
+          <p className="mt-0.5 text-base font-bold text-amber-700 sm:text-lg">
             {pendingCount}
           </p>
         </div>
       </div>
 
       <Card>
-        <div className="mb-4 space-y-3">
-          <div className="flex flex-wrap gap-2">
+        <div className="mb-3 space-y-2">
+          <div className="flex flex-wrap gap-1.5">
             {STATUS_FILTERS.map((f) => (
               <button
                 key={f.value}
                 type="button"
                 onClick={() => setStatus(f.value)}
-                className={`rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${
+                className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold transition-colors ${
                   status === f.value
                     ? 'border-secondary bg-secondary-container text-on-secondary-container'
                     : 'border-outline-variant text-on-surface-variant hover:bg-surface-container-high'
@@ -258,7 +258,7 @@ function MyDepositsPageInner() {
 
 function PlatformDepositRow({ payment }: { payment: P2pPayment }) {
   return (
-    <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-outline-variant p-3 sm:p-4">
+    <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-outline-variant px-2.5 py-2">
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
           <p className="font-semibold">{formatCurrency(payment.amount, payment.currency)}</p>

@@ -46,6 +46,7 @@ import {
   adminWithdrawalVisibilityFilter,
   businessWithdrawalVisibilityFilter,
   isInvestorToInvestorPay,
+  remainingTatSeconds,
   tatCutoffDate,
   userCanCancelWithdrawal,
 } from './utils/withdrawal-visibility.util';
@@ -897,35 +898,44 @@ export class WithdrawalService {
     ) {
       throw new BadRequestException('Withdrawal cannot be rejected');
     }
-    if ((withdrawal.paidAmount || 0) > 0) {
-      throw new BadRequestException('Cannot reject withdrawal with approved payments');
-    }
     const pendingPayments = await this.paymentModel.exists({
       withdrawalId: withdrawal._id,
       status: TransactionStatus.PENDING,
     });
     if (pendingPayments) {
-      throw new BadRequestException('Reject pending split payments first');
+      throw new BadRequestException(
+        'Resolve pending/disputed payments first (approve or reject each payment)',
+      );
     }
 
+    const paidAmount = Math.round((withdrawal.paidAmount || 0) * 100) / 100;
     const wasListed = withdrawal.p2pListStatus === 'listed';
+    // Remaining unpaid principal + unused prepaid fee → business limit;
+    // unused fee also deducted from admin wallet.
     await this.releaseListedQuota(withdrawal, 'withdrawal_reject', { wasListed });
 
-    await this.walletService.unlock(
-      withdrawal.walletId.toString(),
-      this.lockAmountFor(withdrawal),
-    );
-    await this.releasePartnerMirror(withdrawal);
+    // Unlock only the unpaid remainder (paid slices already unlocked+debited on confirm).
+    await this.unlockRemainingForReject(withdrawal);
 
-    withdrawal.status = TransactionStatus.REJECTED;
-    withdrawal.failureReason = dto.reason;
-    if (withdrawal.p2pListStatus === 'listed') {
+    if (paidAmount > 0) {
+      // Partial close: keep confirmed pays, cancel remaining open.
+      withdrawal.status = TransactionStatus.COMPLETED;
+      withdrawal.completedAt = new Date();
+      withdrawal.failureReason = `Remaining open rejected: ${dto.reason}`;
       withdrawal.p2pListStatus = 'rejected';
       withdrawal.p2pListRejectReason = dto.reason;
+    } else {
+      await this.releasePartnerMirror(withdrawal);
+      withdrawal.status = TransactionStatus.REJECTED;
+      withdrawal.failureReason = dto.reason;
+      if (withdrawal.p2pListStatus === 'listed' || wasListed) {
+        withdrawal.p2pListStatus = 'rejected';
+        withdrawal.p2pListRejectReason = dto.reason;
+      }
     }
     await withdrawal.save();
 
-    if (withdrawal.origin === 'business' && withdrawal.businessId) {
+    if (paidAmount <= 0 && withdrawal.origin === 'business' && withdrawal.businessId) {
       const holdInr =
         withdrawal.currency === Currency.USDT && withdrawal.exchangeRate
           ? this.exchangeRateService.usdtToInr(withdrawal.amount)
@@ -979,9 +989,10 @@ export class WithdrawalService {
 
     if (actor.role === UserRole.BUSINESS) {
       const business = await this.businessService.findForActor(actor.userId);
-      if (withdrawal.businessId?.toString() !== business._id.toString()) {
-        throw new ForbiddenException('Withdrawal does not belong to your business');
-      }
+      await this.assertWithdrawalBelongsToBusiness(
+        withdrawal,
+        business._id.toString(),
+      );
       if (withdrawal.origin === 'business') {
         throw new ForbiddenException('Admin must verify business withdrawal requests');
       }
@@ -1119,21 +1130,23 @@ export class WithdrawalService {
     if (!listed) return;
     if (withdrawal.businessId && withdrawal.origin !== 'business') {
       const bizId = withdrawal.businessId.toString();
+      // Visible refund refs (not silent list_release churn from payment settle).
+      const refundRefType = `${referenceType}_refund`;
       const openInr = this.unpaidListReserveInr(withdrawal);
       if (openInr > 0) {
         await this.businessService.releaseP2pPay(bizId, openInr, {
-          referenceType,
+          referenceType: refundRefType,
           referenceId: withdrawal._id.toString(),
-          reason: 'list_release',
+          reason: 'reject_refund',
         });
       }
       // Refund WD fee prepaid on Approve for the unpaid remainder (limit + admin wallet).
       const feeLeft = Math.round((withdrawal.p2pListFeeBurned || 0) * 100) / 100;
       if (feeLeft > 0) {
         await this.businessService.releaseP2pPay(bizId, feeLeft, {
-          referenceType,
+          referenceType: refundRefType,
           referenceId: withdrawal._id.toString(),
-          reason: 'list_release',
+          reason: 'reject_refund',
         });
         if (withdrawal.p2pListFeeWalletCollected) {
           await this.platformCommissionService.refundCollectedBusinessFee({
@@ -1318,11 +1331,10 @@ export class WithdrawalService {
     const pendingPays = await this.paymentModel.exists({
       withdrawalId: withdrawal._id,
       status: TransactionStatus.PENDING,
-      $or: [{ disputedAt: { $exists: false } }, { disputedAt: null }],
     });
     if (pendingPays) {
       throw new BadRequestException(
-        'Cannot unlist — active pending payments exist. Reject those first.',
+        'Cannot unlist — pending/disputed payments exist. Resolve those first.',
       );
     }
 
@@ -1503,11 +1515,10 @@ export class WithdrawalService {
       withdrawalId: withdrawal._id,
       payerUserId: withdrawal.assignedTo,
       status: TransactionStatus.PENDING,
-      $or: [{ disputedAt: { $exists: false } }, { disputedAt: null }],
     });
     if (pendingFromAssignee) {
       throw new BadRequestException(
-        'Cannot unassign — assignee has a pending payment. Reject that proof first.',
+        'Cannot unassign — assignee has a pending/disputed payment. Resolve it first.',
       );
     }
 
@@ -1592,6 +1603,29 @@ export class WithdrawalService {
     );
   }
 
+  private async assertWithdrawalBelongsToBusiness(
+    withdrawal: WithdrawalDocument,
+    businessId: string,
+  ) {
+    if (withdrawal.businessId?.toString() === businessId) return;
+    const owner = await this.userModel
+      .findById(withdrawal.userId)
+      .select('referredByBusiness staffBusinessId')
+      .lean()
+      .exec();
+    const linked =
+      owner?.referredByBusiness?.toString() === businessId ||
+      owner?.staffBusinessId?.toString() === businessId;
+    if (!linked) {
+      throw new ForbiddenException('Withdrawal does not belong to this business');
+    }
+    // Heal missing businessId so pay-limit / approve paths work
+    if (!withdrawal.businessId) {
+      withdrawal.businessId = new Types.ObjectId(businessId);
+      await withdrawal.save();
+    }
+  }
+
   async findByReferenceForBusiness(businessId: string, referenceId: string) {
     const withdrawal = await this.withdrawalModel
       .findOne({ referenceId, businessId: new Types.ObjectId(businessId) })
@@ -1607,19 +1641,11 @@ export class WithdrawalService {
       .populate('assignedTo', 'name email role businessUserCode')
       .exec();
     if (!withdrawal) throw new NotFoundException('Withdrawal not found');
-    if (withdrawal.businessId?.toString() !== businessId) {
-      throw new ForbiddenException('Withdrawal does not belong to this business');
-    }
+    await this.assertWithdrawalBelongsToBusiness(withdrawal, businessId);
 
     const tatMs = await this.platformSettingsService.getTatMs();
     const createdAt = (withdrawal as unknown as { createdAt?: Date }).createdAt;
-    if (
-      withdrawal.origin !== 'business' &&
-      createdAt &&
-      Date.now() - new Date(createdAt).getTime() < tatMs
-    ) {
-      throw new NotFoundException('Withdrawal not found');
-    }
+    const tatLeft = remainingTatSeconds(createdAt, Date.now(), tatMs);
 
     const payments = await this.paymentModel
       .find({ withdrawalId: withdrawal._id })
@@ -1629,8 +1655,12 @@ export class WithdrawalService {
     return {
       ...withdrawal.toObject(),
       remainingAmount: Math.max(0, withdrawal.amount - (withdrawal.paidAmount || 0)),
-      readyForListApproval:
-        !!createdAt && Date.now() - new Date(createdAt).getTime() >= tatMs,
+      readyForListApproval: tatLeft <= 0 || withdrawal.origin === 'business',
+      tatSecondsRemaining: tatLeft,
+      userEditExpiresAt:
+        createdAt && withdrawal.origin !== 'business'
+          ? new Date(new Date(createdAt).getTime() + tatMs).toISOString()
+          : undefined,
       payments: payments.map((p) => this.toPaymentBrief(p)),
     };
   }
@@ -1641,9 +1671,24 @@ export class WithdrawalService {
     const tatMs = await this.platformSettingsService.getTatMs();
     const tatCutoff = tatCutoffDate(Date.now(), tatMs);
 
+    // Include WDs tagged to this business, plus referred users (covers missing businessId).
+    const referredUsers = await this.userModel
+      .find({
+        $or: [{ referredByBusiness: bid }, { referredByBusiness: businessId }],
+      })
+      .select('_id')
+      .lean()
+      .exec();
+    const referredIds = referredUsers.map((u) => u._id);
+
     const and: Record<string, unknown>[] = [
-      { $or: [{ businessId: bid }, { businessId }] },
-      // Hide from business during user cancel TAT (#24)
+      {
+        $or: [
+          { businessId: bid },
+          { businessId },
+          ...(referredIds.length ? [{ userId: { $in: referredIds } }] : []),
+        ],
+      },
       businessWithdrawalVisibilityFilter(tatCutoff),
     ];
 
@@ -1738,12 +1783,17 @@ export class WithdrawalService {
       items: items.map((w) => {
         const list = byWithdrawal.get(w._id.toString()) || [];
         const createdAt = (w as unknown as { createdAt?: Date }).createdAt;
+        const tatLeft = remainingTatSeconds(createdAt, Date.now(), tatMs);
         return {
           ...w.toObject(),
           remainingAmount: Math.max(0, w.amount - (w.paidAmount || 0)),
           paymentCount: list.length,
-          readyForListApproval:
-            !!createdAt && Date.now() - new Date(createdAt).getTime() >= tatMs,
+          readyForListApproval: tatLeft <= 0 || w.origin === 'business',
+          tatSecondsRemaining: tatLeft,
+          userEditExpiresAt:
+            createdAt && w.origin !== 'business'
+              ? new Date(new Date(createdAt).getTime() + tatMs).toISOString()
+              : undefined,
           payments: list.map((p) => this.toPaymentBrief(p)),
         };
       }),
@@ -1857,6 +1907,40 @@ export class WithdrawalService {
       return withdrawal.sourceAmount;
     }
     return withdrawal.amount;
+  }
+
+  /**
+   * Unlock only unpaid remainder on reject (paid slices already unlocked+debited).
+   * USDT opens that lock INR use proportional sourceAmount.
+   */
+  private async unlockRemainingForReject(withdrawal: WithdrawalDocument) {
+    const unpaid = Math.max(0, withdrawal.amount - (withdrawal.paidAmount || 0));
+    if (unpaid <= 0) return;
+
+    let unlockWant = unpaid;
+    let unlockCurrency = withdrawal.currency;
+    if (
+      withdrawal.sourceCurrency === Currency.INR &&
+      withdrawal.currency === Currency.USDT
+    ) {
+      unlockCurrency = Currency.INR;
+      if (withdrawal.sourceAmount && withdrawal.amount > 0) {
+        unlockWant =
+          Math.round(withdrawal.sourceAmount * (unpaid / withdrawal.amount) * 100) / 100;
+      } else {
+        unlockWant = this.exchangeRateService.usdtToInr(unpaid);
+      }
+    }
+
+    const wallet = await this.walletService.getOrCreate(
+      withdrawal.userId.toString(),
+      unlockCurrency,
+      withdrawal.businessId?.toString(),
+    );
+    const amt = Math.min(wallet.lockedBalance || 0, unlockWant);
+    if (amt > 0) {
+      await this.walletService.unlock(wallet._id.toString(), amt);
+    }
   }
 
   /** Undo FinGuard mirror / P2P advance when business-linked withdrawal is cancelled/rejected */

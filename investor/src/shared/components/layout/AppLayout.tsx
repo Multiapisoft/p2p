@@ -5,6 +5,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { NAV_ITEMS } from '@/shared/constants/navigation';
 import { useAuthStore } from '@/features/auth/store/auth.store';
 import { NotificationBell } from '@/features/notifications/components/NotificationBell';
+import { HeaderProfile } from '@/shared/components/layout/HeaderProfile';
 import { cn } from '@/shared/lib/utils';
 import { useState, type ReactNode } from 'react';
 
@@ -57,18 +58,6 @@ export function AppLayout({ children }: { children: ReactNode }) {
             );
           })}
         </nav>
-        <div className="shrink-0 border-t border-outline-variant p-4">
-          <p className="truncate text-sm font-medium">{user?.name || user?.email}</p>
-          <p className="truncate text-xs text-on-surface-variant">{user?.email}</p>
-          <p className="text-xs capitalize text-on-surface-variant">Investor</p>
-          <button
-            onClick={handleLogout}
-            className="mt-3 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-error hover:bg-error-container/30"
-          >
-            <span className="material-symbols-outlined text-lg">logout</span>
-            Logout
-          </button>
-        </div>
       </aside>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -83,14 +72,14 @@ export function AppLayout({ children }: { children: ReactNode }) {
             {NAV_ITEMS.find((n) => pathname === n.to || pathname.startsWith(`${n.to}/`))?.label ??
               'Investor'}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2">
             <NotificationBell />
-            <button
-              onClick={handleLogout}
-              className="material-symbols-outlined rounded-lg p-2 text-on-surface-variant hover:bg-surface-container-high md:hidden"
-            >
-              logout
-            </button>
+            <HeaderProfile
+              name={user?.name}
+              email={user?.email}
+              roleLabel="Investor"
+              onLogout={handleLogout}
+            />
           </div>
         </header>
 

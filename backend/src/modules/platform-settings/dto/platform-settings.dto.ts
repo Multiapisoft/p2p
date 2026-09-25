@@ -1,5 +1,21 @@
-import { IsArray, IsBoolean, IsNumber, IsOptional, Min, ArrayMinSize, IsEnum } from 'class-validator';
+import {
+  IsArray,
+  IsBoolean,
+  IsDateString,
+  IsNumber,
+  IsOptional,
+  Min,
+  ArrayMinSize,
+  IsEnum,
+  ValidateIf,
+} from 'class-validator';
+import { Transform } from 'class-transformer';
 import { PaymentMethod } from '../../../common/enums/payment-method.enum';
+
+function emptyToNull({ value }: { value: unknown }) {
+  if (value === '' || value === undefined) return null;
+  return value;
+}
 
 export class UpdatePlatformSettingsDto {
   @IsOptional()
@@ -86,4 +102,36 @@ export class UpdatePlatformSettingsDto {
   @IsNumber()
   @Min(0)
   investorReferralNextJoinerPercent?: number;
+
+  @IsOptional()
+  @Transform(emptyToNull)
+  @ValidateIf((_, v) => v != null)
+  @IsDateString()
+  investorReferralPeriodFromDate?: string | null;
+
+  @IsOptional()
+  @Transform(emptyToNull)
+  @ValidateIf((_, v) => v != null)
+  @IsDateString()
+  investorReferralPeriodToDate?: string | null;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  investorReferralPeriodFirstReferrerPercent?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  investorReferralPeriodFirstJoinerPercent?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  investorReferralPeriodNextReferrerPercent?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  investorReferralPeriodNextJoinerPercent?: number;
 }

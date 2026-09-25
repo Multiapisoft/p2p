@@ -52,10 +52,10 @@ export function DashboardPage() {
     (wd?.open ?? 0);
 
   return (
-    <div className="mx-auto max-w-6xl space-y-4 sm:space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
+    <div className="mx-auto max-w-6xl space-y-3 sm:space-y-4">
+      <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <h1 className="font-[family-name:var(--font-headline)] text-xl font-bold text-on-background sm:text-2xl md:text-3xl">
+          <h1 className="font-[family-name:var(--font-headline)] text-lg font-bold text-on-background sm:text-xl">
             Hello{user?.email ? `, ${user.email.split('@')[0]}` : ''}
           </h1>
         </div>
@@ -70,7 +70,7 @@ export function DashboardPage() {
         </p>
       )}
 
-      <section className="grid grid-cols-2 gap-2 sm:gap-4">
+      <section className="grid grid-cols-2 gap-2 sm:gap-3">
         <StatCard
           label="Available Balance"
           value={formatCurrency(balance?.availableBalance ?? 0, displayCurrency)}
@@ -92,7 +92,7 @@ export function DashboardPage() {
         </p>
       )}
 
-      <section className="grid gap-3 sm:gap-4 lg:grid-cols-3">
+      <section className="grid gap-2 sm:gap-3 lg:grid-cols-3">
         <Card
           title="Needs attention"
           action={
@@ -144,13 +144,13 @@ export function DashboardPage() {
             />
             <MiniStat label="Rejected" value={String(dep?.rejected ?? 0)} tone="bad" />
           </div>
-          <p className="mt-3 text-xs text-on-surface-variant">
+          <p className="mt-2 text-xs text-on-surface-variant">
             Credited to wallet:{' '}
             <span className="font-semibold text-on-surface">
               {formatCurrency(dep?.creditedAmount ?? 0)}
             </span>
           </p>
-          <Link href="/deposits" className="mt-3 inline-block">
+          <Link href="/deposits" className="mt-2 inline-block">
             <Button size="sm" variant="secondary">
               Make a deposit
             </Button>
@@ -178,7 +178,7 @@ export function DashboardPage() {
               tone="warn"
             />
           </div>
-          <p className="mt-3 text-xs text-on-surface-variant">
+          <p className="mt-2 text-xs text-on-surface-variant">
             Awaiting your confirm:{' '}
             <span className="font-semibold text-amber-700">
               {wd?.awaitingConfirmCount ?? 0} ·{' '}
@@ -188,7 +188,7 @@ export function DashboardPage() {
               )}
             </span>
           </p>
-          <Link href="/withdrawals" className="mt-3 inline-block">
+          <Link href="/withdrawals" className="mt-2 inline-block">
             <Button size="sm" variant="secondary">
               Manage withdrawals
             </Button>
@@ -196,7 +196,7 @@ export function DashboardPage() {
         </Card>
       </section>
 
-      <section className="grid gap-3 sm:gap-4 lg:grid-cols-2">
+      <section className="grid gap-2 sm:gap-3 lg:grid-cols-2">
         <Card
           title="Recent deposits"
           action={
@@ -210,7 +210,7 @@ export function DashboardPage() {
           ) : (
             <ul className="divide-y divide-outline-variant/50">
               {summary.recentDeposits.map((d) => (
-                <li key={d._id} className="flex items-center justify-between gap-2 py-2.5">
+                <li key={d._id} className="flex items-center justify-between gap-2 py-2">
                   <div className="min-w-0">
                     <p className="truncate text-sm font-semibold">
                       {formatCurrency(d.amount, d.currency)}
@@ -244,7 +244,7 @@ export function DashboardPage() {
               {summary.recentWithdrawals.map((w) => {
                 const remaining = Math.max(0, w.amount - (w.paidAmount || 0));
                 return (
-                  <li key={w._id} className="flex items-center justify-between gap-2 py-2.5">
+                  <li key={w._id} className="flex items-center justify-between gap-2 py-2">
                     <div className="min-w-0">
                       <p className="truncate text-sm font-semibold">
                         {formatCurrency(w.amount, w.currency)}
@@ -268,7 +268,7 @@ export function DashboardPage() {
       </section>
 
       <Card title="Quick actions">
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           {[
             { href: '/deposits', icon: 'south_west', label: 'Deposit' },
             { href: '/my-deposits', icon: 'history', label: 'My Deposits' },
@@ -278,12 +278,12 @@ export function DashboardPage() {
             <Link
               key={item.href}
               href={item.href}
-              className="flex flex-col items-center gap-1.5 rounded-xl border border-outline-variant p-3 transition-colors hover:bg-surface-container-low active:scale-95 sm:gap-2 sm:p-4"
+              className="flex min-h-10 flex-col items-center justify-center gap-1 rounded-lg border border-outline-variant p-2 transition-colors hover:bg-surface-container-low active:scale-95 sm:p-2.5"
             >
-              <span className="material-symbols-outlined text-xl text-secondary sm:text-2xl">
+              <span className="material-symbols-outlined text-lg text-secondary">
                 {item.icon}
               </span>
-              <span className="text-xs font-semibold sm:text-sm">{item.label}</span>
+              <span className="text-[11px] font-semibold sm:text-xs">{item.label}</span>
             </Link>
           ))}
         </div>
@@ -333,7 +333,7 @@ function AttentionLink({
   return (
     <Link
       href={href}
-      className="flex items-center justify-between gap-2 rounded-xl border border-outline-variant px-3 py-2.5 transition hover:bg-surface-container-low"
+      className="flex items-center justify-between gap-2 rounded-lg border border-outline-variant px-2.5 py-2 transition hover:bg-surface-container-low"
     >
       <div className="flex min-w-0 items-center gap-2">
         <span className="material-symbols-outlined text-secondary">{icon}</span>
@@ -346,7 +346,7 @@ function AttentionLink({
           )}
         </div>
       </div>
-      <span className={`text-lg font-bold ${count ? 'text-amber-700' : ''}`}>{count}</span>
+      <span className={`text-base font-bold tabular-nums ${count ? 'text-amber-700' : ''}`}>{count}</span>
     </Link>
   );
 }

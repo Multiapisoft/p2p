@@ -6,13 +6,7 @@ import { navItemsForUser, isNavActive } from '@/shared/constants/navigation';
 import { cn } from '@/shared/lib/utils';
 import { useAuthStore } from '@/features/auth/store/auth.store';
 
-interface SidebarProps {
-  userName?: string;
-  userEmail?: string;
-  onLogout: () => void;
-}
-
-export function Sidebar({ userName, userEmail, onLogout }: SidebarProps) {
+export function Sidebar() {
   const pathname = usePathname();
   const user = useAuthStore((s) => s.user);
   const items = navItemsForUser(user);
@@ -63,22 +57,6 @@ export function Sidebar({ userName, userEmail, onLogout }: SidebarProps) {
           );
         })}
       </nav>
-
-      <div className="shrink-0 border-t border-outline-variant p-4">
-        <p className="truncate text-sm font-medium text-on-surface">{userName || userEmail}</p>
-        {userName && userEmail ? (
-          <p className="truncate text-xs text-on-surface-variant">{userEmail}</p>
-        ) : null}
-        <p className="text-xs text-on-surface-variant">Business account</p>
-        <button
-          type="button"
-          onClick={onLogout}
-          className="mt-3 flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium text-error transition-colors hover:bg-error-container/30"
-        >
-          <span className="material-symbols-outlined text-lg">logout</span>
-          Logout
-        </button>
-      </div>
     </aside>
   );
 }

@@ -228,10 +228,11 @@ describe('conversation fixes — complex end-to-end cases', () => {
     });
   });
 
-  describe('5) Approve writes limit + fee; release stays silent', () => {
-    it('keeps list_reserve + fee on ledger; skips only list_release', () => {
+  describe('5) Approve writes limit + fee; release stays silent; reject refunds visible', () => {
+    it('keeps list_reserve + fee on ledger; skips only list_release; reject_refund writes', () => {
       expect(shouldSkipInProcessQuotaLedger('list_reserve')).toBe(false);
       expect(shouldSkipInProcessQuotaLedger('list_release')).toBe(true);
+      expect(shouldSkipInProcessQuotaLedger('reject_refund')).toBe(false);
       expect(shouldSkipInProcessQuotaLedger('wd_fee')).toBe(false);
       expect(shouldSkipInProcessQuotaLedger('deposit_fee')).toBe(false);
       expect(shouldSkipInProcessQuotaLedger('user_deposit')).toBe(false);
@@ -241,6 +242,8 @@ describe('conversation fixes — complex end-to-end cases', () => {
       expect(isInProcessP2pQuotaLedgerRef('withdrawal_unlist')).toBe(true);
       expect(isInProcessP2pQuotaLedgerRef('withdrawal_reject')).toBe(true);
       expect(isInProcessP2pQuotaLedgerRef('withdrawal_cancel')).toBe(true);
+      expect(isInProcessP2pQuotaLedgerRef('withdrawal_reject_refund')).toBe(false);
+      expect(isInProcessP2pQuotaLedgerRef('withdrawal_list_fee_refund')).toBe(false);
       expect(isInProcessP2pQuotaLedgerRef('withdrawal_payment')).toBe(false);
       expect(isInProcessP2pQuotaLedgerRef('deposit')).toBe(false);
     });

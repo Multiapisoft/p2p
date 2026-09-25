@@ -1,11 +1,13 @@
 import {
   IsArray,
   IsEnum,
+  IsIn,
   IsNumber,
   IsOptional,
   IsString,
   ArrayMaxSize,
   MaxLength,
+  Min,
   MinLength,
   ValidateIf,
   ValidateNested,
@@ -93,4 +95,23 @@ export class UpdateTicketStatusDto {
   @IsOptional()
   @IsString()
   assignedTo?: string;
+
+  /**
+   * Required when resolving/closing a withdrawal_dispute ticket with a pending disputed payment.
+   * received → verify/approve payment; not_received → cancel deposit + unlock WD reserved slot.
+   */
+  @IsOptional()
+  @IsString()
+  @IsIn(['received', 'not_received'])
+  disputeOutcome?: 'received' | 'not_received';
+
+  /**
+   * When disputeOutcome=received: amount actually received (≤ disputed payment amount).
+   * Partial receive verifies only this amount; remainder unlocks on the WD.
+   */
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0.01)
+  receivedAmount?: number;
 }

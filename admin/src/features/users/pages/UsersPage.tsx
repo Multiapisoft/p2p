@@ -3,6 +3,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { usersApi } from '../api/users.api';
+import {
+  authImpersonateApi,
+  openImpersonateSession,
+} from '@/features/auth/api/impersonate.api';
+import { getApiErrorMessage } from '@/shared/lib/api-error';
 import { Card } from '@/shared/components/ui/Card';
 import { Button } from '@/shared/components/ui/Button';
 import { Modal } from '@/shared/components/ui/Modal';
@@ -13,6 +18,8 @@ import { LoadingScreen, EmptyState } from '@/shared/components/ui/Icon';
 import { formatDate } from '@/shared/lib/utils';
 import { fetchAllPages } from '@/shared/lib/csv';
 import { CsvDownloadButton } from '@/shared/components/CsvDownloadButton';
+import { usePermissions } from '@/shared/hooks/usePermissions';
+import { PERMISSIONS } from '@/shared/constants/permissions';
 import type { User } from '@/shared/types/api.types';
 
 const ROLES = [
@@ -39,6 +46,7 @@ const SORT_OPTIONS = [
 const PAGE_SIZES = [5, 10, 20];
 
 export function UsersPage() {
+  const { has } = usePermissions();
   const [role, setRole] = useState('all');
   const [status, setStatus] = useState('all');
   const [sort, setSort] = useState('newest');
@@ -47,6 +55,7 @@ export function UsersPage() {
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
   const [detailUser, setDetailUser] = useState<User | null>(null);
+  const [loginError, setLoginError] = useState('');
   const qc = useQueryClient();
 
   useEffect(() => {
@@ -82,6 +91,23 @@ export function UsersPage() {
     },
   });
 
+  const loginAs = useMutation({
+    mutationFn: (userId: string) => authImpersonateApi.asUser(userId),
+    onSuccess: (data) => {
+      setLoginError('');
+      openImpersonateSession(data);
+    },
+    onError: (err) => setLoginError(getApiErrorMessage(err, 'Login as failed')),
+  });
+
+  const canLoginAs = (u: User) => {
+    if (u.status !== 'active') return false;
+    if (u.role === 'user') return has(PERMISSIONS.LOGIN_AS_USER);
+    if (u.role === 'investor') return has(PERMISSIONS.LOGIN_AS_INVESTOR);
+    if (u.role === 'business') return has(PERMISSIONS.LOGIN_AS_BUSINESS);
+    return false;
+  };
+
   const items = data?.items ?? [];
   const total = data?.total ?? 0;
   const totalPages = data?.totalPages ?? 1;
@@ -92,6 +118,9 @@ export function UsersPage() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="font-[family-name:var(--font-headline)] text-xl font-bold sm:text-2xl">Users</h1>
+          {loginError ? (
+            <p className="mt-1 text-sm text-error">{loginError}</p>
+          ) : null}
         </div>
         <CsvDownloadButton<User>
           title="Users"
@@ -241,7 +270,18 @@ export function UsersPage() {
                     ) : null}
                   </button>
                   {u.role !== 'admin' && (
-                    <div className="mt-2">
+                    <div className="mt-2 flex flex-col gap-2">
+                      {canLoginAs(u) ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="w-full"
+                          loading={loginAs.isPending}
+                          onClick={() => loginAs.mutate(u._id)}
+                        >
+                          Login as
+                        </Button>
+                      ) : null}
                       <Button
                         size="sm"
                         variant={u.status === 'active' ? 'danger' : 'secondary'}
@@ -312,20 +352,32 @@ export function UsersPage() {
                         {formatDate(u.createdAt)}
                       </td>
                       <td className="px-3 py-2.5 text-right sm:px-4 sm:py-3">
-                        {u.role !== 'admin' && (
-                          <Button
-                            size="sm"
-                            variant={u.status === 'active' ? 'danger' : 'secondary'}
-                            onClick={() =>
-                              toggleStatus.mutate({
-                                id: u._id,
-                                status: u.status === 'active' ? 'suspended' : 'active',
-                              })
-                            }
-                          >
-                            {u.status === 'active' ? 'Suspend' : 'Activate'}
-                          </Button>
-                        )}
+                        <div className="flex flex-wrap justify-end gap-2">
+                          {canLoginAs(u) ? (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              loading={loginAs.isPending}
+                              onClick={() => loginAs.mutate(u._id)}
+                            >
+                              Login as
+                            </Button>
+                          ) : null}
+                          {u.role !== 'admin' && (
+                            <Button
+                              size="sm"
+                              variant={u.status === 'active' ? 'danger' : 'secondary'}
+                              onClick={() =>
+                                toggleStatus.mutate({
+                                  id: u._id,
+                                  status: u.status === 'active' ? 'suspended' : 'active',
+                                })
+                              }
+                            >
+                              {u.status === 'active' ? 'Suspend' : 'Activate'}
+                            </Button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}

@@ -13,7 +13,7 @@ export class ListQueryDto {
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  @Max(100)
+  @Max(500)
   limit?: number = 10;
 
   @IsOptional()
@@ -40,7 +40,7 @@ export type ListQueryOpts = {
 export function normalizeListOpts(opts: ListQueryOpts = {}, defaultLimit = 10) {
   const page = opts.page && opts.page > 0 ? opts.page : 1;
   const limit =
-    opts.limit && opts.limit > 0 ? Math.min(Number(opts.limit), 100) : defaultLimit;
+    opts.limit && opts.limit > 0 ? Math.min(Number(opts.limit), 500) : defaultLimit;
   return {
     page,
     limit,

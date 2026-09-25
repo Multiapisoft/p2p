@@ -18,6 +18,7 @@ import {
   SetHighlightLimitDto,
   CreateP2pPayLimitRequestDto,
   P2pPayLimitRequestListQueryDto,
+  ApproveP2pPayLimitRequestDto,
   RejectP2pPayLimitRequestDto,
 } from './dto/business.dto';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -231,9 +232,10 @@ export class BusinessController {
   @Roles(UserRole.ADMIN)
   approveP2pPayLimitRequest(
     @Param('requestId') requestId: string,
+    @Body() dto: ApproveP2pPayLimitRequestDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.businessService.approveP2pPayLimitRequest(requestId, user.userId);
+    return this.businessService.approveP2pPayLimitRequest(requestId, user.userId, dto);
   }
 
   @Patch('p2p-pay-limit-requests/:requestId/reject')

@@ -4,6 +4,10 @@ import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 're
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { usersApi } from '@/features/users/api/users.api';
 import { integrationApi } from '@/features/integration/api/integration.api';
+import {
+  authImpersonateApi,
+  openImpersonateSession,
+} from '@/features/auth/api/impersonate.api';
 import { getApiErrorMessage } from '@/shared/api/client';
 import { Card } from '@/shared/components/ui/Card';
 import { Button } from '@/shared/components/ui/Button';
@@ -124,6 +128,11 @@ export function UsersPage() {
       setCodeSuccess('');
       setCodeError(getApiErrorMessage(err, 'Could not save code'));
     },
+  });
+
+  const loginAsUser = useMutation({
+    mutationFn: (userId: string) => authImpersonateApi.asUser(userId),
+    onSuccess: (data) => openImpersonateSession(data),
   });
 
   const items = data?.items ?? [];
@@ -341,6 +350,16 @@ export function UsersPage() {
                           >
                             Reset password
                           </button>
+                          {u.status === 'active' && u.role === 'user' ? (
+                            <button
+                              type="button"
+                              disabled={loginAsUser.isPending}
+                              onClick={() => loginAsUser.mutate(u._id)}
+                              className="text-sm font-semibold text-secondary hover:underline disabled:opacity-50"
+                            >
+                              Login as
+                            </button>
+                          ) : null}
                         </div>
                       </td>
                     </tr>

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { withdrawalsApi } from '@/features/withdrawals/api/withdrawals.api';
@@ -24,6 +24,13 @@ import { supportApi } from '@/features/support/api/support.api';
 import { businessDepositPayApi } from '@/features/deposits/api/business-deposit-pay.api';
 import type { Withdrawal } from '@/shared/types/api.types';
 import { liveQueryOptions } from '@/shared/constants/live-query';
+
+function formatSecondsMmSs(total: number) {
+  const s = Math.max(0, Math.floor(total));
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return `${m}m ${String(r).padStart(2, '0')}s`;
+}
 
 const STATUS_FILTERS = [
   { value: 'all', label: 'All' },
@@ -95,6 +102,125 @@ function destinationLine(w: Withdrawal) {
     .join(' · ');
 }
 
+type MenuAction = {
+  key: string;
+  label: string;
+  onClick: () => void;
+  danger?: boolean;
+  disabled?: boolean;
+  hint?: string;
+};
+
+function RowActionsMenu({
+  open,
+  onOpenChange,
+  actions,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  actions: MenuAction[];
+}) {
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ top: number; right: number } | null>(null);
+
+  useLayoutEffect(() => {
+    if (!open) {
+      setPos(null);
+      return;
+    }
+    const update = () => {
+      const el = rootRef.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      const menuH = Math.min(actions.length * 40 + 8, 320);
+      const spaceBelow = window.innerHeight - r.bottom;
+      const openUp = spaceBelow < menuH && r.top > menuH;
+      setPos({
+        top: openUp ? Math.max(8, r.top - menuH - 4) : r.bottom + 4,
+        right: Math.max(8, window.innerWidth - r.right),
+      });
+    };
+    update();
+    window.addEventListener('resize', update);
+    window.addEventListener('scroll', update, true);
+    return () => {
+      window.removeEventListener('resize', update);
+      window.removeEventListener('scroll', update, true);
+    };
+  }, [open, actions.length]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (!rootRef.current?.contains(e.target as Node)) onOpenChange(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onOpenChange(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDoc);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open, onOpenChange]);
+
+  if (!actions.length) return null;
+
+  return (
+    <div className="relative shrink-0" ref={rootRef}>
+      <button
+        type="button"
+        aria-label="Actions"
+        aria-expanded={open}
+        aria-haspopup="menu"
+        onClick={(e) => {
+          e.stopPropagation();
+          onOpenChange(!open);
+        }}
+        className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-outline-variant bg-surface-container-lowest text-on-surface hover:bg-surface-container-high"
+      >
+        <span className="material-symbols-outlined text-[20px]">more_vert</span>
+      </button>
+      {open && pos ? (
+        <div
+          role="menu"
+          style={{ top: pos.top, right: pos.right }}
+          className="fixed z-[100] max-h-80 min-w-[12rem] overflow-y-auto rounded-lg border border-outline-variant bg-surface py-1 shadow-lg"
+        >
+          {actions.map((a) => (
+            <button
+              key={a.key}
+              type="button"
+              role="menuitem"
+              disabled={a.disabled}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (a.disabled) return;
+                onOpenChange(false);
+                a.onClick();
+              }}
+              className={cn(
+                'flex w-full flex-col items-start px-3 py-2 text-left text-sm font-medium transition-colors',
+                a.disabled
+                  ? 'cursor-not-allowed text-on-surface-variant/60'
+                  : a.danger
+                    ? 'text-error hover:bg-error-container/30'
+                    : 'text-on-surface hover:bg-surface-container-high',
+              )}
+            >
+              <span>{a.label}</span>
+              {a.hint ? (
+                <span className="text-[10px] font-normal text-on-surface-variant">{a.hint}</span>
+              ) : null}
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function WithdrawalsPage({
   origin = 'user',
   showCreateForm = false,
@@ -128,7 +254,14 @@ export function WithdrawalsPage({
   const [rejectReason, setRejectReason] = useState('');
   const [assignTarget, setAssignTarget] = useState<Withdrawal | null>(null);
   const [actionError, setActionError] = useState('');
+  const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
+  const [now, setNow] = useState(() => Date.now());
   const qc = useQueryClient();
+
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -299,6 +432,30 @@ export function WithdrawalsPage({
     if (s === 'over_limit') return 'Waiting admin (over limit)';
     if (s === 'rejected') return 'Approval rejected';
     return 'Awaiting approval';
+  }
+
+  function tatLeftSeconds(w: Withdrawal) {
+    if (w.origin === 'business') return 0;
+    if (w.userEditExpiresAt) {
+      return Math.max(0, Math.ceil((new Date(w.userEditExpiresAt).getTime() - now) / 1000));
+    }
+    return Math.max(0, w.tatSecondsRemaining ?? 0);
+  }
+
+  function canApproveList(w: Withdrawal) {
+    if (w.status !== 'pending' && w.status !== 'processing') return false;
+    if ((w.paidAmount || 0) > 0) return false;
+    if (w.origin === 'business') return false;
+    if ((w.p2pListStatus || 'awaiting') === 'listed') return false;
+    if (w.p2pListStatus === 'over_limit') return false;
+    return tatLeftSeconds(w) <= 0;
+  }
+
+  function waitingTat(w: Withdrawal) {
+    if (w.origin === 'business') return false;
+    if ((w.p2pListStatus || 'awaiting') === 'listed') return false;
+    if (w.status !== 'pending' && w.status !== 'processing') return false;
+    return tatLeftSeconds(w) > 0;
   }
 
   function methodIcon(method: string) {
@@ -475,64 +632,157 @@ export function WithdrawalsPage({
           />
         ) : (
           <>
-            <div className={`space-y-3 ${isFetching ? 'opacity-70' : ''}`}>
+            <div className={`space-y-1.5 ${isFetching ? 'opacity-70' : ''}`}>
               {items.map((w) => {
                 const user = resolveUser(w.userId);
+                const remaining = Math.max(0, w.amount - (w.paidAmount || 0));
+                const openRemaining = Math.max(
+                  0,
+                  w.amount - (w.paidAmount || 0) - (w.reservedAmount || 0),
+                );
+                const canManage = w.status === 'pending' || w.status === 'processing';
+                const listStatus = w.p2pListStatus || 'awaiting';
+                const dest = destinationLine(w);
+                const assignee = resolveUser(w.assignedTo);
+
+                const actions: MenuAction[] = [
+                  {
+                    key: 'details',
+                    label: 'Details',
+                    onClick: () => setSelectedId(w._id),
+                  },
+                ];
+
+                if (canApproveList(w)) {
+                  actions.push({
+                    key: 'approve',
+                    label: 'Approve',
+                    onClick: () => listForP2p.mutate(w._id),
+                  });
+                } else if (waitingTat(w)) {
+                  actions.push({
+                    key: 'approve-wait',
+                    label: 'Approve',
+                    disabled: true,
+                    hint: `User cancel ${formatSecondsMmSs(tatLeftSeconds(w))}`,
+                    onClick: () => undefined,
+                  });
+                } else if (
+                  w.status === 'pending' &&
+                  (w.paidAmount || 0) <= 0 &&
+                  w.origin !== 'business' &&
+                  w.p2pListStatus === 'over_limit'
+                ) {
+                  actions.push({
+                    key: 'over-limit',
+                    label: 'Waiting admin (over limit)',
+                    disabled: true,
+                    onClick: () => undefined,
+                  });
+                }
+
+                if (canManage && w.origin !== 'business' && remaining > 0) {
+                  actions.push({
+                    key: 'reject',
+                    label: (w.paidAmount || 0) > 0 ? 'Reject remaining' : 'Reject',
+                    danger: true,
+                    onClick: () => {
+                      setActionError('');
+                      setRejectReason('');
+                      setRejectTarget(w);
+                    },
+                  });
+                }
+
+                if (canManage && listStatus !== 'listed' && w.origin !== 'business') {
+                  actions.push({
+                    key: 'mark-paid',
+                    label: 'Mark paid',
+                    onClick: () => {
+                      setActionError('');
+                      setUtr('');
+                      setTxHash('');
+                      setProofKey('');
+                      setProofUrl('');
+                      setApproveTarget(w);
+                    },
+                  });
+                }
+
+                if (canManage && listStatus === 'listed') {
+                  actions.push({
+                    key: 'unlist',
+                    label: 'Unlist',
+                    onClick: () => unlistForP2p.mutate(w._id),
+                  });
+                }
+
+                if (canManage) {
+                  actions.push({
+                    key: 'highlight',
+                    label: w.priority ? 'Clear highlight' : 'Highlight',
+                    onClick: () =>
+                      setPriority.mutate({ id: w._id, priority: !w.priority }),
+                  });
+                }
+
+                if (
+                  canManage &&
+                  openRemaining > 0 &&
+                  (w.origin !== 'business' || listStatus === 'listed')
+                ) {
+                  actions.push({
+                    key: 'assign',
+                    label: assignee.id ? 'Reassign' : 'Assign',
+                    onClick: () => {
+                      setActionError('');
+                      setAssignTarget(w);
+                    },
+                  });
+                }
+
+                if (assignee.id && canManage) {
+                  actions.push({
+                    key: 'unassign',
+                    label: 'Unassign',
+                    onClick: () => unassignPayer.mutate(w._id),
+                  });
+                }
+
                 return (
                   <article
                     key={w._id}
                     className={cn(
-                      'overflow-hidden rounded-2xl border border-outline-variant/80 border-l-4 bg-surface-container-lowest shadow-sm transition hover:border-secondary/35 hover:shadow-md',
+                      'rounded-lg border border-outline-variant/80 border-l-[3px] bg-surface-container-lowest',
                       statusAccent(w.status),
                     )}
                   >
-                    <div className="flex flex-col gap-3 p-3 sm:p-4 lg:flex-row lg:justify-between">
+                    <div className="flex items-start gap-2 px-2 py-1.5 sm:items-center sm:px-2.5">
                       <button
                         type="button"
                         onClick={() => setSelectedId(w._id)}
-                        className="min-w-0 flex-1 space-y-2.5 text-left"
+                        className="min-w-0 flex-1 text-left"
                       >
-                        <div className="flex flex-wrap items-start gap-2.5">
-                          <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                            <span className="material-symbols-outlined text-[22px]">
-                              {methodIcon(w.method)}
-                            </span>
+                        <div className="flex flex-wrap items-center gap-1">
+                          <span className="material-symbols-outlined text-[14px] text-primary">
+                            {methodIcon(w.method)}
                           </span>
-                          <div className="min-w-0 flex-1">
-                            <p className="truncate font-mono text-sm font-bold text-primary">
-                              {w.referenceId}
-                            </p>
-                            <p className="mt-0.5 text-xs text-on-surface-variant">
-                              <span className="font-semibold uppercase">{w.method}</span>
-                              {' · '}
-                              {formatDate(w.createdAt)}
-                              {w.paymentCount ? ` · ${w.paymentCount} payments` : ''}
-                            </p>
-                          </div>
-                        </div>
-                        <div className="rounded-xl border border-outline-variant/70 bg-surface-container-low/40 px-3 py-2.5 text-xs">
-                          <p className="font-medium text-on-surface">{user.name || '—'}</p>
-                          <p className="text-on-surface-variant">
-                            {user.email || '—'}
-                            {user.businessUserCode ? ` · ${user.businessUserCode}` : ''}
-                          </p>
-                          <p className="mt-1 text-on-surface-variant">{destinationLine(w)}</p>
-                        </div>
-                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="text-[13px] font-bold tabular-nums text-error">
+                            {formatCurrency(w.amount, w.currency)}
+                          </span>
                           <StatusBadge status={w.status} />
                           {w.priority ? (
-                            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-900">
+                            <span className="rounded bg-amber-100 px-1 py-px text-[9px] font-bold uppercase text-amber-900">
                               Highlighted
                             </span>
                           ) : null}
-                          {(w.status === 'pending' || w.status === 'processing') &&
-                          Math.max(0, w.amount - (w.paidAmount || 0)) > 0 ? (
+                          {canManage && remaining > 0 ? (
                             <span
                               className={cn(
-                                'rounded-full px-2 py-0.5 text-[10px] font-semibold',
-                                (w.p2pListStatus || 'awaiting') === 'listed'
+                                'rounded px-1 py-px text-[9px] font-semibold',
+                                listStatus === 'listed'
                                   ? 'bg-secondary/15 text-secondary'
-                                  : (w.p2pListStatus || 'awaiting') === 'rejected'
+                                  : listStatus === 'rejected'
                                     ? 'bg-error/10 text-error'
                                     : 'bg-outline-variant/40 text-on-surface-variant',
                               )}
@@ -540,141 +790,64 @@ export function WithdrawalsPage({
                               {p2pLabel(w)}
                             </span>
                           ) : null}
-                          {resolveUser(w.assignedTo).id ? (
-                            <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
-                              Assigned: {resolveUser(w.assignedTo).name}
+                          {(w.paidAmount || 0) > 0 ? (
+                            <span className="text-[10px] text-secondary">
+                              · Paid {formatCurrency(w.paidAmount || 0, w.currency)}
+                              {remaining > 0
+                                ? ` · Left ${formatCurrency(remaining, w.currency)}`
+                                : ''}
                             </span>
+                          ) : null}
+                          {waitingTat(w) ? (
+                            <span className="text-[10px] font-medium text-secondary">
+                              · Cancel {formatSecondsMmSs(tatLeftSeconds(w))}
+                            </span>
+                          ) : null}
+                        </div>
+                        <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-1 gap-y-0 text-[10px] leading-snug text-on-surface-variant">
+                          <span className="truncate font-mono font-medium text-primary">
+                            {w.referenceId}
+                          </span>
+                          <span aria-hidden>·</span>
+                          <span className="uppercase">{w.method}</span>
+                          <span aria-hidden>·</span>
+                          <span>{formatDate(w.createdAt)}</span>
+                        </div>
+                        <div className="mt-1 rounded-md border border-outline-variant/60 bg-surface-container-low/50 px-2 py-1 text-[11px] leading-snug">
+                          <p className="truncate font-semibold text-on-surface">
+                            {user.name || '—'}
+                            {user.email ? (
+                              <span className="font-normal text-on-surface-variant">
+                                {' '}
+                                · {user.email}
+                              </span>
+                            ) : null}
+                            {user.businessUserCode ? (
+                              <span className="font-normal text-on-surface-variant">
+                                {' '}
+                                · {user.businessUserCode}
+                              </span>
+                            ) : null}
+                          </p>
+                          {dest ? (
+                            <p className="truncate text-on-surface-variant">{dest}</p>
+                          ) : null}
+                          {assignee.id ? (
+                            <p className="truncate text-primary">
+                              Assigned → {assignee.name}
+                            </p>
                           ) : null}
                         </div>
                       </button>
 
-                      <div className="flex shrink-0 flex-col gap-3 border-t border-outline-variant/60 pt-3 lg:w-[220px] lg:border-l lg:border-t-0 lg:pl-4 lg:pt-0">
-                        <div className="lg:text-right">
-                          <p className="text-[10px] font-bold uppercase tracking-wide text-on-surface-variant">
-                            Amount
-                          </p>
-                          <p className="text-xl font-bold tabular-nums text-error">
-                            {formatCurrency(w.amount, w.currency)}
-                          </p>
-                          {(w.paidAmount || 0) > 0 ? (
-                            <p className="text-xs font-medium text-secondary">
-                              paid {formatCurrency(w.paidAmount || 0, w.currency)}
-                            </p>
-                          ) : null}
-                        </div>
-                        <div className="flex flex-wrap gap-2 lg:justify-end">
-                          {w.status === 'pending' &&
-                            (w.paidAmount || 0) <= 0 &&
-                            w.origin !== 'business' && (
-                              <>
-                                {(w.p2pListStatus || 'awaiting') !== 'listed' &&
-                                w.p2pListStatus !== 'over_limit' ? (
-                                  <Button
-                                    size="sm"
-                                    onClick={() => listForP2p.mutate(w._id)}
-                                    loading={listForP2p.isPending}
-                                  >
-                                    Approve
-                                  </Button>
-                                ) : w.p2pListStatus === 'over_limit' ? (
-                                  <span className="self-center text-[11px] font-semibold text-amber-800">
-                                    Waiting admin (over limit)
-                                  </span>
-                                ) : null}
-                                <Button
-                                  size="sm"
-                                  variant="danger"
-                                  onClick={() => {
-                                    setActionError('');
-                                    setRejectReason('');
-                                    setRejectTarget(w);
-                                  }}
-                                >
-                                  Reject
-                                </Button>
-                              </>
-                            )}
-                          {(w.status === 'pending' || w.status === 'processing') &&
-                            (w.p2pListStatus || 'awaiting') !== 'listed' &&
-                            w.origin !== 'business' && (
-                              <Button
-                                size="sm"
-                                variant="secondary"
-                                onClick={() => {
-                                  setActionError('');
-                                  setUtr('');
-                                  setTxHash('');
-                                  setProofKey('');
-                                  setProofUrl('');
-                                  setApproveTarget(w);
-                                }}
-                              >
-                                Mark paid
-                              </Button>
-                            )}
-                          {(w.status === 'pending' || w.status === 'processing') &&
-                            w.p2pListStatus === 'listed' && (
-                              <Button
-                                size="sm"
-                                variant="secondary"
-                                onClick={() => unlistForP2p.mutate(w._id)}
-                                loading={unlistForP2p.isPending}
-                              >
-                                Unlist
-                              </Button>
-                            )}
-                          {(w.status === 'pending' || w.status === 'processing') && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() =>
-                                setPriority.mutate({ id: w._id, priority: !w.priority })
-                              }
-                              loading={setPriority.isPending}
-                            >
-                              {w.priority ? 'Clear highlight' : 'Highlight'}
-                            </Button>
-                          )}
-                          {(w.status === 'pending' || w.status === 'processing') &&
-                          Math.max(
-                            0,
-                            w.amount - (w.paidAmount || 0) - (w.reservedAmount || 0),
-                          ) > 0 &&
-                          (w.origin !== 'business' || w.p2pListStatus === 'listed') ? (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => {
-                                setActionError('');
-                                setAssignTarget(w);
-                              }}
-                            >
-                              {resolveUser(w.assignedTo).id ? 'Reassign' : 'Assign'}
-                            </Button>
-                          ) : null}
-                          {resolveUser(w.assignedTo).id &&
-                          (w.status === 'pending' || w.status === 'processing') ? (
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              loading={unassignPayer.isPending}
-                              onClick={() => unassignPayer.mutate(w._id)}
-                            >
-                              Unassign
-                            </Button>
-                          ) : null}
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => setSelectedId(w._id)}
-                          >
-                            Details
-                          </Button>
-                        </div>
-                      </div>
+                      <RowActionsMenu
+                        open={menuOpenId === w._id}
+                        onOpenChange={(open) => setMenuOpenId(open ? w._id : null)}
+                        actions={actions}
+                      />
                     </div>
                     {origin === 'business' && (w.payments?.length || 0) > 0 ? (
-                      <div className="border-t border-outline-variant/60 px-3 py-3 sm:px-4">
+                      <div className="border-t border-outline-variant/60 px-2 py-2 sm:px-2.5">
                         <WithdrawalOwnerPaymentsPanel
                           payments={w.payments!}
                           currency={w.currency}
@@ -778,8 +951,7 @@ export function WithdrawalsPage({
                     detail.status === 'pending' &&
                     (detail.paidAmount || 0) <= 0 && (
                     <div className="mt-4 flex flex-wrap gap-2">
-                      {(detail.p2pListStatus || 'awaiting') !== 'listed' &&
-                      detail.p2pListStatus !== 'over_limit' ? (
+                      {canApproveList(detail) ? (
                         <Button
                           className="flex-1"
                           loading={listForP2p.isPending}
@@ -787,6 +959,11 @@ export function WithdrawalsPage({
                         >
                               Approve
                         </Button>
+                      ) : waitingTat(detail) ? (
+                        <p className="w-full text-sm font-medium text-secondary">
+                          User cancel window {formatSecondsMmSs(tatLeftSeconds(detail))} — Approve
+                          unlocks after that.
+                        </p>
                       ) : detail.p2pListStatus === 'over_limit' ? (
                         <p className="w-full text-sm font-medium text-amber-800">
                           Over remaining limit — waiting admin approval.
@@ -795,6 +972,12 @@ export function WithdrawalsPage({
                             : ''}
                         </p>
                       ) : null}
+                    </div>
+                  )}
+                  {detail.origin !== 'business' &&
+                    (detail.status === 'pending' || detail.status === 'processing') &&
+                    Math.max(0, detail.amount - (detail.paidAmount || 0)) > 0 && (
+                    <div className="mt-3 flex flex-wrap gap-2">
                       <Button
                         className="flex-1"
                         variant="danger"
@@ -804,7 +987,9 @@ export function WithdrawalsPage({
                           setRejectTarget(detail);
                         }}
                       >
-                        Reject
+                        {(detail.paidAmount || 0) > 0
+                          ? 'Reject remaining'
+                          : 'Reject'}
                       </Button>
                     </div>
                   )}
@@ -1093,6 +1278,19 @@ export function WithdrawalsPage({
             rejectMutation.mutate({ id: rejectTarget._id, reason: rejectReason.trim() });
           }}
         >
+          {rejectTarget && (rejectTarget.paidAmount || 0) > 0 ? (
+            <p className="text-sm text-on-surface-variant">
+              Confirmed pays stay. Remaining{' '}
+              <span className="font-semibold text-on-surface">
+                {formatCurrency(
+                  Math.max(0, rejectTarget.amount - (rejectTarget.paidAmount || 0)),
+                  rejectTarget.currency,
+                )}
+              </span>{' '}
+              is cancelled — unused pay-limit and fee are refunded to your business (fee also
+              deducted from admin).
+            </p>
+          ) : null}
           <Input
             label="Reason"
             value={rejectReason}

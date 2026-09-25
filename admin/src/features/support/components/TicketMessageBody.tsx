@@ -95,7 +95,7 @@ export function parseWithdrawalDisputeMessage(message: string): ParsedDisputeTic
     payer,
     proofUrl,
     note: message.includes('Auto-receive paused')
-      ? 'Auto-receive paused until dispute is resolved by admin.'
+      ? 'Auto-receive paused. WD open amount + pay-limit stay locked until admin resolves this dispute.'
       : undefined,
   };
 }

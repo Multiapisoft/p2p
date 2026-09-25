@@ -9,13 +9,14 @@ import {
   Min,
   Max,
   MaxLength,
+  MinLength,
   IsUrl,
   ValidateNested,
 } from 'class-validator';
 import { PaymentMethod } from '../../../common/enums/payment-method.enum';
 import { IntegrationUrlsDto } from './integration-urls.dto';
 import { PartnerApiDto } from './partner-api.dto';
-import { Type } from 'class-transformer';
+import { Type, Transform } from 'class-transformer';
 import { ListQueryDto } from '../../../common/dto/list-query.dto';
 
 export class BusinessListQueryDto extends ListQueryDto {}
@@ -220,10 +221,10 @@ export class CreateP2pPayLimitRequestDto {
   @IsIn(['set', 'add', 'deduct'])
   mode?: 'set' | 'add' | 'deduct';
 
-  @IsOptional()
   @IsString()
+  @MinLength(1, { message: 'Notes are required' })
   @MaxLength(500)
-  notes?: string;
+  notes!: string;
 
   @IsOptional()
   @IsString()
@@ -237,17 +238,34 @@ export class CreateP2pPayLimitRequestDto {
 
   /** Admin only: create and apply immediately (still tracked as approved request). */
   @IsOptional()
+  @Transform(({ value }) => {
+    if (value === true || value === 'true' || value === 1 || value === '1') return true;
+    if (value === false || value === 'false' || value === 0 || value === '0') return false;
+    return value;
+  })
   @IsBoolean()
   applyNow?: boolean;
 }
 
 export class P2pPayLimitRequestListQueryDto extends ListQueryDto {}
 
+export class ApproveP2pPayLimitRequestDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  notes?: string;
+}
+
 export class RejectP2pPayLimitRequestDto {
   @IsOptional()
   @IsString()
   @MaxLength(500)
   reason?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  notes?: string;
 }
 
 export class SetHighlightLimitDto {

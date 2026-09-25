@@ -249,6 +249,10 @@ export interface Withdrawal {
   paymentCount?: number;
   payments?: WithdrawalPaymentBrief[];
   failureReason?: string;
+  /** False while user cancel TAT is still active (Approve blocked). */
+  readyForListApproval?: boolean;
+  tatSecondsRemaining?: number;
+  userEditExpiresAt?: string;
   p2pListStatus?: 'awaiting' | 'listed' | 'rejected' | 'over_limit';
   origin?: 'user' | 'investor' | 'business';
   p2pListedAt?: string;

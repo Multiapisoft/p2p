@@ -6,6 +6,7 @@ export type P2pPayQuotaLedgerReason =
   | 'user_pay_cross_biz'
   | 'list_reserve'
   | 'list_release'
+  | 'reject_refund'
   | 'wd_fee'
   | 'deposit_fee'
   | 'business_wd_hold'
@@ -15,6 +16,7 @@ export type P2pPayQuotaLedgerReason =
 /**
  * Skip only list_release churn (pay settle returns reserve silently).
  * list_reserve + wd_fee write on Approve so business sees limit + fee immediately.
+ * reject_refund writes on reject/unlist so remaining limit + unused fee show as restored.
  */
 export function shouldSkipInProcessQuotaLedger(
   reason?: P2pPayQuotaLedgerReason | string | null,
@@ -22,7 +24,11 @@ export function shouldSkipInProcessQuotaLedger(
   return reason === 'list_release';
 }
 
-/** Ledger referenceTypes that are noise on the business portal (unlist / reject / cancel). */
+/**
+ * Legacy in-process refs (no longer written). Kept for filtering old rows only.
+ * New reject/unlist refunds use `withdrawal_reject_refund` / `withdrawal_unlist_refund`
+ * / `withdrawal_cancel_refund` which stay visible.
+ */
 export const IN_PROCESS_P2P_QUOTA_LEDGER_REFS = [
   'withdrawal_unlist',
   'withdrawal_reject',
@@ -65,6 +71,9 @@ export function p2pPayQuotaLedgerDescription(params: {
       return `P2P pay limit reset ₹${params.seedBefore ?? 0} → ₹${params.seedAfter ?? 0}. ${rem}`;
     }
     return `P2P pay limit set ₹${params.seedBefore ?? 0} → ₹${params.seedAfter ?? 0}. ${rem}`;
+  }
+  if (params.reason === 'reject_refund') {
+    return `P2P pay limit refunded ₹${params.amount} (remaining after reject/unlist). ${rem}`;
   }
   if (params.action === 'release' || params.reason === 'list_release') {
     if (params.reason === 'business_wd_hold_release') {

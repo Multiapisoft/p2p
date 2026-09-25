@@ -77,6 +77,8 @@ export function SupportPage() {
   const [reply, setReply] = useState('');
   const [replyFiles, setReplyFiles] = useState<TicketFile[]>([]);
   const [statusError, setStatusError] = useState('');
+  const [disputeResolveTarget, setDisputeResolveTarget] = useState<string | null>(null);
+  const [receivedAmountInput, setReceivedAmountInput] = useState('');
   const qc = useQueryClient();
 
   useEffect(() => {
@@ -119,16 +121,63 @@ export function SupportPage() {
   });
 
   const updateStatus = useMutation({
-    mutationFn: (next: string) => supportApi.updateStatus(selectedTicketId!, next),
+    mutationFn: ({
+      next,
+      disputeOutcome,
+      receivedAmount,
+    }: {
+      next: string;
+      disputeOutcome?: 'received' | 'not_received';
+      receivedAmount?: number;
+    }) =>
+      supportApi.updateStatus(selectedTicketId!, next, {
+        disputeOutcome,
+        receivedAmount,
+      }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['support-ticket'] });
       qc.invalidateQueries({ queryKey: ['support'] });
       setSelectedTicketId(null);
       setReply('');
       setStatusError('');
+      setDisputeResolveTarget(null);
+      setReceivedAmountInput('');
     },
     onError: (err) => setStatusError(getApiErrorMessage(err, 'Status update failed')),
   });
+
+  const requestStatusChange = (next: string) => {
+    setStatusError('');
+    const resolving = next === 'resolved' || next === 'closed';
+    if (resolving && ticket && isDisputeTicket(ticket) && ticket.relatedPaymentId) {
+      const disputedAmt = ticket.relatedPayment?.amount;
+      setReceivedAmountInput(
+        disputedAmt != null && Number.isFinite(disputedAmt) ? String(disputedAmt) : '',
+      );
+      setDisputeResolveTarget(next);
+      return;
+    }
+    updateStatus.mutate({ next });
+  };
+
+  const submitReceived = () => {
+    const disputed = ticket?.relatedPayment?.amount;
+    const raw = receivedAmountInput.trim();
+    const num = Number(raw);
+    if (!Number.isFinite(num) || num <= 0) {
+      setStatusError('Enter a valid received amount greater than 0');
+      return;
+    }
+    if (disputed != null && num > disputed + 0.001) {
+      setStatusError(`Received amount cannot exceed disputed amount (${disputed})`);
+      return;
+    }
+    updateStatus.mutate({
+      next: disputeResolveTarget!,
+      disputeOutcome: 'received',
+      receivedAmount: num,
+    });
+  };
 
   const items = data?.items ?? [];
   const total = data?.total ?? 0;
@@ -363,10 +412,7 @@ export function SupportPage() {
                   size="sm"
                   variant={ticket.status === s ? 'secondary' : 'outline'}
                   loading={updateStatus.isPending}
-                  onClick={() => {
-                    setStatusError('');
-                    updateStatus.mutate(s);
-                  }}
+                  onClick={() => requestStatusChange(s)}
                 >
                   {s.replace('_', ' ')}
                 </Button>
@@ -430,6 +476,79 @@ export function SupportPage() {
             </form>
           </div>
         ) : null}
+      </Modal>
+
+      <Modal
+        open={!!disputeResolveTarget}
+        onClose={() => {
+          setDisputeResolveTarget(null);
+          setReceivedAmountInput('');
+          setStatusError('');
+        }}
+        title="Dispute resolve — amount received?"
+        className="sm:max-w-md"
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-on-surface-variant">
+            Disputed deposit:{' '}
+            <span className="font-semibold text-on-surface">
+              {ticket?.relatedPayment
+                ? `${ticket.relatedPayment.amount} ${ticket.relatedPayment.currency || 'INR'}`
+                : '—'}
+            </span>
+            . Edit if only part was received — that amount is verified; the rest unlocks on the WD.
+          </p>
+          <Input
+            label="Amount received"
+            type="number"
+            min={0.01}
+            step="0.01"
+            value={receivedAmountInput}
+            onChange={(e) => setReceivedAmountInput(e.target.value)}
+            placeholder={
+              ticket?.relatedPayment?.amount != null
+                ? String(ticket.relatedPayment.amount)
+                : 'Amount'
+            }
+          />
+          <ul className="list-disc space-y-1 pl-5 text-sm text-on-surface-variant">
+            <li>
+              <span className="font-medium text-on-surface">Received</span> — verify entered
+              amount (ledger + approve); remainder unlocks
+            </li>
+            <li>
+              <span className="font-medium text-on-surface">Not received</span> — cancel full
+              deposit and unlock WD open slot
+            </li>
+          </ul>
+          {statusError && (
+            <div className="rounded-lg bg-error-container px-4 py-3 text-sm text-on-error-container">
+              {statusError}
+            </div>
+          )}
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <Button
+              className="flex-1"
+              loading={updateStatus.isPending}
+              onClick={submitReceived}
+            >
+              Received — verify
+            </Button>
+            <Button
+              className="flex-1"
+              variant="outline"
+              loading={updateStatus.isPending}
+              onClick={() =>
+                updateStatus.mutate({
+                  next: disputeResolveTarget!,
+                  disputeOutcome: 'not_received',
+                })
+              }
+            >
+              Not received — cancel
+            </Button>
+          </div>
+        </div>
       </Modal>
     </div>
   );

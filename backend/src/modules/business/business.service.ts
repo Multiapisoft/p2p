@@ -809,22 +809,39 @@ export class BusinessService {
     if ((mode === 'add' || mode === 'deduct') && amount <= 0) {
       throw new BadRequestException('Amount must be greater than 0');
     }
+    const notes = (dto.notes || '').trim();
+    if (!notes) {
+      throw new BadRequestException('Notes are required');
+    }
     const business = await this.businessModel.findById(businessId).exec();
     if (!business) throw new NotFoundException('Business not found');
 
-    const pending = await this.p2pPayLimitRequestModel.exists({
-      businessId: business._id,
-      status: P2pPayLimitRequestStatus.PENDING,
-    });
+    const pending = await this.p2pPayLimitRequestModel
+      .findOne({
+        businessId: business._id,
+        status: P2pPayLimitRequestStatus.PENDING,
+      })
+      .exec();
     if (pending) {
-      throw new ConflictException('A pending pay-limit request already exists for this business');
+      // Admin can supersede a stuck pending request; sub-admin must wait.
+      if (actor.role !== UserRole.ADMIN) {
+        throw new ConflictException(
+          'A pending pay-limit request already exists for this business',
+        );
+      }
+      pending.status = P2pPayLimitRequestStatus.REJECTED;
+      pending.reviewedBy = new Types.ObjectId(actor.userId);
+      pending.reviewedAt = new Date();
+      pending.reviewNotes = 'Superseded by a new admin limit change';
+      pending.rejectReason = 'Superseded by a new admin limit change';
+      await pending.save();
     }
 
     const doc = await this.p2pPayLimitRequestModel.create({
       businessId: business._id,
       mode,
       amount,
-      notes: dto.notes?.trim() || undefined,
+      notes,
       proofImageKey: dto.proofImageKey?.trim() || undefined,
       proofImageUrl: dto.proofImageUrl?.trim() || undefined,
       status: P2pPayLimitRequestStatus.PENDING,
@@ -832,9 +849,16 @@ export class BusinessService {
       seedAtRequest: business.p2pPayLimit || 0,
     });
 
-    // Admin can add + apply in one step (still tracked with requestedBy).
-    if (dto.applyNow && actor.role === UserRole.ADMIN) {
-      return this.approveP2pPayLimitRequest(doc._id.toString(), actor.userId);
+    // Admin create always auto-applies (still tracked with requestedBy).
+    // Sub-admin creates pending request for admin approval.
+    // applyNow is accepted for forward-compat; admin always applies.
+    if (actor.role === UserRole.ADMIN || dto.applyNow) {
+      if (actor.role !== UserRole.ADMIN && dto.applyNow) {
+        throw new ForbiddenException('Only admin can apply pay limit immediately');
+      }
+      return this.approveP2pPayLimitRequest(doc._id.toString(), actor.userId, {
+        notes,
+      });
     }
 
     return this.sanitizeLimitRequest(doc);
@@ -901,7 +925,11 @@ export class BusinessService {
     };
   }
 
-  async approveP2pPayLimitRequest(requestId: string, reviewerId: string) {
+  async approveP2pPayLimitRequest(
+    requestId: string,
+    reviewerId: string,
+    dto?: { notes?: string },
+  ) {
     if (!Types.ObjectId.isValid(requestId)) {
       throw new BadRequestException('Invalid request id');
     }
@@ -921,6 +949,7 @@ export class BusinessService {
     req.status = P2pPayLimitRequestStatus.APPROVED;
     req.reviewedBy = new Types.ObjectId(reviewerId);
     req.reviewedAt = new Date();
+    req.reviewNotes = dto?.notes?.trim() || undefined;
     await req.save();
 
     return {
@@ -942,10 +971,12 @@ export class BusinessService {
     if (req.status !== P2pPayLimitRequestStatus.PENDING) {
       throw new BadRequestException('Request is not pending');
     }
+    const reviewNotes = (dto?.notes || dto?.reason)?.trim() || undefined;
     req.status = P2pPayLimitRequestStatus.REJECTED;
     req.reviewedBy = new Types.ObjectId(reviewerId);
     req.reviewedAt = new Date();
-    req.rejectReason = dto?.reason?.trim() || undefined;
+    req.reviewNotes = reviewNotes;
+    req.rejectReason = reviewNotes;
     await req.save();
     return this.sanitizeLimitRequest(req);
   }

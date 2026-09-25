@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, BadRequestException, Inject, forwardRef } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { v4 as uuidv4 } from 'uuid';
@@ -17,6 +17,7 @@ import {
   businessScopeFilter,
 } from '../../common/utils/admin-business-scope.util';
 import type { AuthenticatedUser } from '../../common/interfaces/jwt-payload.interface';
+import { WithdrawalPaymentService } from '../withdrawal/withdrawal-payment.service';
 
 export type CreateTicketMeta = {
   participantIds?: string[];
@@ -46,6 +47,8 @@ export class SupportService {
     @InjectModel(Business.name) private businessModel: Model<BusinessDocument>,
     @InjectModel(User.name) private userModel: Model<UserDocument>,
     private notificationService: NotificationService,
+    @Inject(forwardRef(() => WithdrawalPaymentService))
+    private paymentService: WithdrawalPaymentService,
   ) {}
 
   async create(userId: string, dto: CreateTicketDto, meta?: CreateTicketMeta) {
@@ -332,7 +335,13 @@ export class SupportService {
     if (!userId && actor) {
       assertActorBusinessAccess(actor, ticket.businessId?.toString() || null);
     }
-    return ticket;
+    const plain = ticket.toObject() as unknown as Record<string, unknown>;
+    if (ticket.relatedPaymentId) {
+      plain.relatedPayment = await this.paymentService.getDisputePaymentSummary(
+        ticket.relatedPaymentId.toString(),
+      );
+    }
+    return plain;
   }
 
   async reply(
@@ -376,11 +385,41 @@ export class SupportService {
   async updateStatus(
     ticketId: string,
     dto: UpdateTicketStatusDto,
-    actor?: Pick<AuthenticatedUser, 'role' | 'assignedBusinessIds'>,
+    actor?: AuthenticatedUser,
   ) {
     const existing = await this.ticketModel.findOne({ ticketId }).exec();
     if (!existing) throw new NotFoundException('Ticket not found');
     assertActorBusinessAccess(actor, existing.businessId?.toString() || null);
+
+    const nextStatus = dto.status?.trim();
+    const resolving =
+      nextStatus === SupportStatus.RESOLVED || nextStatus === SupportStatus.CLOSED;
+    const isDispute =
+      existing.category === 'withdrawal_dispute' ||
+      existing.subject.toLowerCase().includes('dispute') ||
+      existing.message.includes('=== Withdrawal payment dispute ===');
+
+    if (resolving && isDispute && existing.relatedPaymentId) {
+      const needsOutcome = await this.paymentService.isDisputedPending(
+        existing.relatedPaymentId.toString(),
+      );
+      if (needsOutcome) {
+        if (!dto.disputeOutcome) {
+          throw new BadRequestException(
+            'Choose dispute outcome: received (verify deposit) or not_received (cancel deposit)',
+          );
+        }
+        if (!actor?.userId) {
+          throw new BadRequestException('Actor required to resolve dispute');
+        }
+        await this.paymentService.resolveDisputeOutcome(
+          existing.relatedPaymentId.toString(),
+          dto.disputeOutcome,
+          actor,
+          dto.receivedAmount,
+        );
+      }
+    }
 
     const update: Record<string, unknown> = {};
     if (dto.status) update.status = dto.status;

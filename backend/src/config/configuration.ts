@@ -31,6 +31,8 @@ export default () => ({
     apiPrefix: process.env.API_PREFIX || 'api/v1',
     webhookSecret: process.env.WEBHOOK_SECRET || 'webhook-signing-secret',
     userAppUrl: process.env.USER_APP_URL || 'http://localhost:4761',
+    businessAppUrl: process.env.BUSINESS_APP_URL || 'http://localhost:5180',
+    investorAppUrl: process.env.INVESTOR_APP_URL || 'http://localhost:7194',
     corsOrigins: (process.env.CORS_ORIGINS || '')
       .split(',')
       .map((s) => s.trim())

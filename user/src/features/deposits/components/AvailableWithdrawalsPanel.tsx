@@ -83,7 +83,7 @@ function PaymentDetails({
         ? Math.min(w.maxPayable, w.remainingAmount)
         : w.remainingAmount;
   return (
-    <div className="rounded-xl border border-outline-variant bg-surface-container-low/60 p-3 text-sm">
+    <div className="rounded-lg border border-outline-variant bg-surface-container-low/60 p-2 text-sm">
       <p className="mb-2 text-xs font-bold uppercase tracking-wide text-on-surface-variant">
         {METHOD_META[w.method].label} details
       </p>
@@ -468,6 +468,8 @@ export function AvailableWithdrawalsPanel({
   const total = data?.total ?? 0;
   const totalPages = data?.totalPages ?? 1;
   const needsAmount = !matchAmount || !!data?.needsAmount;
+  const sequentialMode = !!data?.sequentialMode || matchAmount != null;
+  const waitingForMatch = !!data?.waitingForMatch;
   const claimLockMinutes = data?.claimLockMinutes ?? 7;
   const paySecondsLeft = claimPayDeadline
     ? Math.max(0, Math.ceil((new Date(claimPayDeadline).getTime() - now) / 1000))
@@ -494,7 +496,7 @@ export function AvailableWithdrawalsPanel({
             <p className="text-[10px] font-semibold uppercase tracking-wide text-on-surface-variant">
               Deposit amount
             </p>
-            <p className="text-lg font-bold text-secondary">
+            <p className="text-base font-bold text-secondary sm:text-lg">
               {matchAmount != null ? formatCurrency(matchAmount) : 'Enter amount first'}
             </p>
           </div>
@@ -504,7 +506,8 @@ export function AvailableWithdrawalsPanel({
         </div>
       </Card>
       <Card title="Available Details for Payment">
-        <div className="mb-3 space-y-2">
+        {!sequentialMode ? (
+        <div className="mb-2 space-y-2">
           <Input
             icon="search"
             placeholder="Search reference, UPI, account…"
@@ -552,7 +555,7 @@ export function AvailableWithdrawalsPanel({
                   setMethod(t.value);
                   setPage(1);
                 }}
-                className={`rounded-full px-2.5 py-1 text-[11px] font-semibold capitalize sm:px-3.5 sm:py-1.5 sm:text-xs ${
+                className={`rounded-full px-2 py-0.5 text-[11px] font-semibold capitalize ${
                   method === t.value
                     ? 'bg-primary text-on-primary'
                     : 'border border-outline-variant bg-surface-container-lowest'
@@ -563,6 +566,13 @@ export function AvailableWithdrawalsPanel({
             ))}
           </div>
         </div>
+        ) : (
+        <div className="mb-2 flex justify-end">
+          <Button type="button" size="sm" variant="outline" onClick={() => refetch()}>
+            Refresh
+          </Button>
+        </div>
+        )}
 
         {isLoading ? (
           <LoadingScreen />
@@ -582,52 +592,70 @@ export function AvailableWithdrawalsPanel({
             icon="payments"
           />
         ) : !items.length ? (
-          <EmptyState message="No matches." icon="payments" />
+          <EmptyState
+            message={
+              waitingForMatch
+                ? 'No exact or higher match for this amount. Try another amount.'
+                : 'No matches.'
+            }
+            icon="payments"
+          />
         ) : (
-          <div className={`space-y-3 ${isFetching ? 'opacity-70' : ''}`}>
+          <div className={`space-y-2 ${isFetching ? 'opacity-70' : ''}`}>
             {items.map((w) => (
-              <div
+              <article
                 key={w._id}
-                className="space-y-3 rounded-lg border border-outline-variant p-3 sm:rounded-xl sm:p-4"
+                className="overflow-hidden rounded-xl border border-outline-variant/80 border-l-[3px] border-l-secondary bg-surface-container-lowest"
               >
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                <div className="flex items-start gap-2 px-2.5 py-2 sm:gap-3 sm:px-3 sm:py-2.5">
                   <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="material-symbols-outlined text-lg text-secondary">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="material-symbols-outlined text-[16px] text-secondary">
                         {METHOD_META[w.method].icon}
                       </span>
-                      <p className="text-base font-bold">{formatCurrency(w.amount, moneyCurrency(w))}</p>
+                      <span className="text-sm font-bold tabular-nums sm:text-[15px]">
+                        {formatCurrency(w.amount, moneyCurrency(w))}
+                      </span>
                       <StatusBadge status={w.status} />
                       {w.priority ? (
-                        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-900">
+                        <span className="rounded-full bg-amber-100 px-1.5 py-px text-[10px] font-bold uppercase tracking-wide text-amber-900">
                           Highlighted
                         </span>
                       ) : null}
-                      <span className="rounded-full bg-surface-container-high px-2 py-0.5 text-[10px] font-semibold uppercase">
+                      <span className="rounded-full bg-surface-container-high px-1.5 py-px text-[10px] font-semibold uppercase">
                         {METHOD_META[w.method].label}
                       </span>
                       {w.origin === 'business' ? (
-                        <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
+                        <span className="rounded-full bg-primary/10 px-1.5 py-px text-[10px] font-semibold text-primary">
                           Business
                         </span>
                       ) : null}
                       {w.assignedToMe ? (
-                        <span className="rounded-full bg-secondary/15 px-2 py-0.5 text-[10px] font-semibold text-secondary">
-                          Assigned to you
+                        <span className="rounded-full bg-secondary/15 px-1.5 py-px text-[10px] font-semibold text-secondary">
+                          Assigned
                         </span>
                       ) : null}
                     </div>
-                    <p className="mt-0.5 break-all font-mono text-[11px] text-on-surface-variant">
-                      {w.referenceId} · {formatDate(w.createdAt)}
-                    </p>
-                    <p className="mt-1 text-xs text-secondary">
+                    <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] text-on-surface-variant">
+                      <span className="truncate font-mono text-[10px] font-medium text-primary sm:text-[11px]">
+                        {w.referenceId}
+                      </span>
+                      <span aria-hidden>·</span>
+                      <span>{formatDate(w.createdAt)}</span>
+                    </div>
+                    <p className="mt-0.5 text-[11px] text-secondary">
                       Open {formatCurrency(w.remainingAmount, moneyCurrency(w))}
                       {(w.reservedAmount || 0) > 0
                         ? ` · Locked ${formatCurrency(w.reservedAmount!, moneyCurrency(w))}`
                         : ''}
                     </p>
+                    {matchAmount != null ? (
+                      <p className="mt-0.5 text-[10px] font-semibold text-on-surface-variant">
+                        Your deposit {formatCurrency(matchAmount)} (locked)
+                      </p>
+                    ) : null}
                     {w.creditIfPayFull && w.remainingAmount > 0 && (
-                      <p className="mt-1 text-[11px] font-semibold text-secondary">
+                      <p className="mt-0.5 text-[10px] font-semibold text-secondary">
                         {w.maxPayable != null &&
                         w.maxPayable > 0 &&
                         w.maxPayable + 0.0001 < w.remainingAmount
@@ -640,19 +668,23 @@ export function AvailableWithdrawalsPanel({
                       </p>
                     )}
                   </div>
-                  <Button
-                    size="sm"
-                    className="w-full sm:w-auto"
-                    disabled={w.remainingAmount <= 0 || claimingId === w._id}
-                    loading={claimingId === w._id}
-                    onClick={() => openPay(w)}
-                  >
-                    Pay now
-                  </Button>
+                  <div className="flex shrink-0 flex-col gap-1">
+                    <Button
+                      size="sm"
+                      className="min-h-10"
+                      disabled={w.remainingAmount <= 0 || claimingId === w._id}
+                      loading={claimingId === w._id}
+                      onClick={() => openPay(w)}
+                    >
+                      Pay now
+                    </Button>
+                  </div>
                 </div>
-              </div>
+              </article>
             ))}
-            <Pagination page={page} totalPages={totalPages} total={total} limit={limit} onPageChange={setPage} />
+            {!sequentialMode ? (
+              <Pagination page={page} totalPages={totalPages} total={total} limit={limit} onPageChange={setPage} />
+            ) : null}
           </div>
         )}
       </Card>
@@ -731,7 +763,7 @@ export function AvailableWithdrawalsPanel({
               value={payAmount}
               onChange={(e) => setPayAmount(e.target.value)}
               required
-              disabled={payExpired || target.allowPartialPay === false}
+              disabled
             />
             {target.allowPartialPay === false ? (
               <p className="text-[11px] font-medium text-amber-800">
@@ -792,7 +824,7 @@ export function AvailableWithdrawalsPanel({
               </p>
             )}
 
-            <Button type="submit" className="w-full" loading={submit.isPending} disabled={payExpired}>
+            <Button type="submit" className="min-h-10 w-full sm:w-auto" loading={submit.isPending} disabled={payExpired}>
               {payExpired ? 'Time expired' : 'Submit payment'}
             </Button>
           </form>
@@ -834,7 +866,7 @@ export function MyP2pPaymentsPanel() {
           {items.map((p) => (
             <div
               key={p._id}
-              className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-outline-variant p-3"
+              className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-outline-variant px-2.5 py-2"
             >
               <div className="min-w-0">
                 <p className="font-semibold">{formatCurrency(p.amount, p.currency)}</p>

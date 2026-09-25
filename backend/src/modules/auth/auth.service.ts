@@ -1,9 +1,17 @@
-import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { ConfigService } from '@nestjs/config';
 import { createHash, randomInt, timingSafeEqual } from 'crypto';
 import * as bcrypt from 'bcryptjs';
 import { UsersService } from '../users/users.service';
 import { BusinessService } from '../business/business.service';
+import { AuditService } from '../audit/audit.service';
 import {
   LoginDto,
   RegisterDto,
@@ -16,17 +24,32 @@ import {
 import { UserRole } from '../../common/enums/role.enum';
 import { UserStatus } from '../../common/enums/currency.enum';
 import { PaymentMethod } from '../../common/enums/payment-method.enum';
+import { Permission } from '../../common/enums/permission.enum';
 import { JwtPayload } from '../../common/interfaces/jwt-payload.interface';
+import type { AuthenticatedUser } from '../../common/interfaces/jwt-payload.interface';
 import { UsersRepository } from '../users/users.repository';
 import {
   buildOtpauthUrl,
   generateTotpSecret,
   verifyTotp,
 } from './utils/totp.util';
+import { subAdminBusinessIdsOrEmpty } from '../../common/utils/admin-business-scope.util';
+
+const LOGIN_AS_PERM: Partial<Record<UserRole, Permission>> = {
+  [UserRole.USER]: Permission.LOGIN_AS_USER,
+  [UserRole.INVESTOR]: Permission.LOGIN_AS_INVESTOR,
+  [UserRole.BUSINESS]: Permission.LOGIN_AS_BUSINESS,
+};
 
 const RESET_TTL_MS = 15 * 60 * 1000;
 const FORGOT_GENERIC =
   'If an account exists for that email, a reset code has been issued.';
+
+const IMPERSONATABLE = new Set<UserRole>([
+  UserRole.USER,
+  UserRole.BUSINESS,
+  UserRole.INVESTOR,
+]);
 
 @Injectable()
 export class AuthService {
@@ -35,6 +58,8 @@ export class AuthService {
     private usersRepo: UsersRepository,
     private businessService: BusinessService,
     private jwtService: JwtService,
+    private config: ConfigService,
+    private auditService: AuditService,
   ) {}
 
   async register(dto: RegisterDto) {
@@ -211,6 +236,120 @@ export class AuthService {
     const user = await this.usersRepo.findById(userId);
     if (!user) throw new UnauthorizedException('User not found');
     return this.generateToken(user);
+  }
+
+  /**
+   * Admin/sub-admin: login as user / investor / business owner.
+   * Business: login as their linked end-users only.
+   */
+  async impersonate(actor: AuthenticatedUser, targetUserId: string) {
+    const target = await this.usersRepo.findById(targetUserId);
+    if (!target) throw new NotFoundException('User not found');
+    if (target.status !== UserStatus.ACTIVE) {
+      throw new BadRequestException('Target account is not active');
+    }
+    if (!IMPERSONATABLE.has(target.role)) {
+      throw new ForbiddenException('Cannot login as this role');
+    }
+    if (target._id.toString() === actor.userId) {
+      throw new BadRequestException('Already logged in as this account');
+    }
+
+    if (actor.role === UserRole.ADMIN || actor.role === UserRole.SUB_ADMIN) {
+      if (actor.role === UserRole.SUB_ADMIN) {
+        const need = LOGIN_AS_PERM[target.role];
+        if (!need || !(actor.permissions ?? []).includes(need)) {
+          throw new ForbiddenException(
+            `Not allowed to login as ${target.role}. Ask admin for login_as permission.`,
+          );
+        }
+        if (target.role === UserRole.USER) {
+          const allowed = subAdminBusinessIdsOrEmpty(actor) || [];
+          const bizId = target.referredByBusiness?.toString();
+          if (!bizId || !allowed.includes(bizId)) {
+            throw new ForbiddenException('User is outside your assigned businesses');
+          }
+        }
+        if (target.role === UserRole.BUSINESS) {
+          const allowed = subAdminBusinessIdsOrEmpty(actor) || [];
+          const biz = await this.businessService
+            .findDocumentByOwner(target._id.toString())
+            .catch(() => null);
+          if (!biz || !allowed.includes(biz._id.toString())) {
+            throw new ForbiddenException('Business is outside your assigned scope');
+          }
+        }
+      }
+    } else if (actor.role === UserRole.BUSINESS) {
+      if (target.role !== UserRole.USER) {
+        throw new ForbiddenException('Business can only login as linked users');
+      }
+      const biz = await this.businessService.findDocumentByOwner(actor.userId);
+      if (target.referredByBusiness?.toString() !== biz._id.toString()) {
+        throw new ForbiddenException('User is not linked to your business');
+      }
+    } else {
+      throw new ForbiddenException('Not allowed to impersonate');
+    }
+
+    const session = this.generateToken(target);
+    const panelUrl = this.panelUrlForRole(target.role);
+    const loginUrl = `${panelUrl.replace(/\/$/, '')}/impersonate?token=${encodeURIComponent(session.accessToken)}`;
+
+    await this.auditService.log({
+      actorId: actor.userId,
+      actorEmail: actor.email,
+      action: 'auth.impersonate',
+      resource: 'user',
+      resourceId: target._id.toString(),
+      metadata: {
+        targetEmail: target.email,
+        targetRole: target.role,
+        actorRole: actor.role,
+      },
+    });
+
+    return {
+      ...session,
+      panelUrl,
+      loginUrl,
+      impersonatedBy: { userId: actor.userId, email: actor.email, role: actor.role },
+    };
+  }
+
+  /** Admin shortcut: open business panel as the business owner. */
+  async impersonateBusinessOwner(actor: AuthenticatedUser, businessId: string) {
+    if (actor.role !== UserRole.ADMIN && actor.role !== UserRole.SUB_ADMIN) {
+      throw new ForbiddenException('Only admin can login as a business');
+    }
+    if (
+      actor.role === UserRole.SUB_ADMIN &&
+      !(actor.permissions ?? []).includes(Permission.LOGIN_AS_BUSINESS)
+    ) {
+      throw new ForbiddenException(
+        'Not allowed to login as business. Ask admin for login_as.business permission.',
+      );
+    }
+    const business = await this.businessService.findDocumentById(businessId);
+    if (actor.role === UserRole.SUB_ADMIN) {
+      const allowed = subAdminBusinessIdsOrEmpty(actor) || [];
+      if (!allowed.includes(business._id.toString())) {
+        throw new ForbiddenException('Business is outside your assigned scope');
+      }
+    }
+    const ownerId = business.ownerId?.toString();
+    if (!ownerId) throw new BadRequestException('Business has no owner');
+    return this.impersonate(actor, ownerId);
+  }
+
+  private panelUrlForRole(role: UserRole): string {
+    if (role === UserRole.BUSINESS) {
+      return this.config.get<string>('app.businessAppUrl') || 'http://localhost:5180';
+    }
+    if (role === UserRole.INVESTOR) {
+      return this.config.get<string>('app.investorAppUrl') || 'http://localhost:7194';
+    }
+    return this.config.get<string>('app.userAppUrl') || 'http://localhost:4761';
   }
 
   private generateToken(user: {

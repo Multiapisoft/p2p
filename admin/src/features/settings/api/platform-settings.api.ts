@@ -18,6 +18,12 @@ export interface PlatformSettings {
   investorReferralFirstJoinerPercent: number;
   investorReferralNextReferrerPercent: number;
   investorReferralNextJoinerPercent: number;
+  investorReferralPeriodFromDate?: string | null;
+  investorReferralPeriodToDate?: string | null;
+  investorReferralPeriodFirstReferrerPercent?: number;
+  investorReferralPeriodFirstJoinerPercent?: number;
+  investorReferralPeriodNextReferrerPercent?: number;
+  investorReferralPeriodNextJoinerPercent?: number;
 }
 
 export type UpdatePlatformSettingsPayload = Partial<PlatformSettings>;

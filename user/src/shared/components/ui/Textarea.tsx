@@ -8,19 +8,19 @@ interface TextareaProps extends TextareaHTMLAttributes<HTMLTextAreaElement> {
 export function Textarea({ label, className, id, ...props }: TextareaProps) {
   const inputId = id ?? label?.toLowerCase().replace(/\s+/g, '-');
   return (
-    <div>
+    <div className="flex flex-col gap-0.5 sm:gap-1">
       {label && (
-        <label htmlFor={inputId} className="mb-1.5 block text-sm font-semibold">
+        <label htmlFor={inputId} className="text-xs font-semibold sm:text-sm">
           {label}
         </label>
       )}
       <textarea
         id={inputId}
         className={cn(
-          'w-full rounded-lg border border-outline-variant bg-surface-container-lowest px-3 py-2.5 text-sm outline-none focus:border-secondary focus:ring-2 focus:ring-secondary/20 sm:px-4',
+          'w-full rounded-lg border border-outline-variant bg-surface-container-lowest px-2.5 py-2 text-sm outline-none focus:border-secondary focus:ring-2 focus:ring-secondary/20 sm:px-3 sm:py-2.5',
           className,
         )}
-        rows={4}
+        rows={3}
         {...props}
       />
     </div>

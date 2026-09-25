@@ -251,6 +251,17 @@ export interface SupportTicket {
   status: string;
   priority: string;
   category?: string;
+  relatedPaymentId?: string;
+  relatedWithdrawalId?: string;
+  relatedPayment?: {
+    _id: string;
+    amount: number;
+    currency?: string;
+    status?: string;
+    disputedAt?: string;
+    referenceId?: string;
+    amountBeforeResolve?: number;
+  };
   userId?: string | UserSummary;
   attachments?: TicketAttachment[];
   replies?: {

@@ -1,1 +1,5 @@
-export { CommissionsPage as default } from '@/features/commissions/pages/CommissionsPage';
+import { redirect } from 'next/navigation';
+
+export default function CommissionsRemovedPage() {
+  redirect('/businesses');
+}

@@ -15,13 +15,13 @@ export function Pagination({ page, totalPages, total, limit, onPageChange }: Pag
   const to = total && limit ? Math.min(page * limit, total) : null;
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-outline-variant pt-3 sm:gap-3 sm:pt-4">
-      <p className="text-xs text-on-surface-variant sm:text-sm">
+    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-outline-variant pt-2.5 sm:pt-3">
+      <p className="text-[11px] text-on-surface-variant sm:text-xs">
         {from != null && to != null && total != null
           ? `Showing ${from}–${to} of ${total}`
           : `Page ${page} of ${Math.max(totalPages, 1)}`}
       </p>
-      <div className="flex gap-1.5 sm:gap-2">
+      <div className="flex gap-1.5">
         <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => onPageChange(page - 1)}>
           Prev
         </Button>

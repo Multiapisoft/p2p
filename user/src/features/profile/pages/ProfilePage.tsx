@@ -74,13 +74,13 @@ export function ProfilePage() {
   const hasBusinessMeta = !!(businessName || businessReferralCode || profile?.businessUserCode);
 
   return (
-    <div className="mx-auto max-w-2xl space-y-4 sm:space-y-6">
+    <div className="mx-auto max-w-2xl space-y-3 sm:space-y-4">
       <div>
-        <h1 className="font-[family-name:var(--font-headline)] text-xl font-bold sm:text-2xl">Profile</h1>
+        <h1 className="font-[family-name:var(--font-headline)] text-lg font-bold sm:text-xl">Profile</h1>
       </div>
 
       <Card title="Account Info">
-        <dl className="mb-4 space-y-2.5 text-sm sm:mb-6 sm:space-y-3">
+        <dl className="mb-3 space-y-2 text-sm">
           <div className="flex flex-col gap-0.5 sm:flex-row sm:justify-between">
             <dt className="text-on-surface-variant">Email</dt>
             <dd className="break-all font-medium">{profile?.email ?? authUser?.email}</dd>
@@ -126,7 +126,7 @@ export function ProfilePage() {
         </dl>
 
         <form
-          className="space-y-4 border-t border-outline-variant pt-4 sm:pt-6"
+          className="space-y-3 border-t border-outline-variant pt-3 sm:pt-4"
           onSubmit={(e) => {
             e.preventDefault();
             const pMsg = phoneError(phone, true);
@@ -155,7 +155,7 @@ export function ProfilePage() {
               {formError}
             </div>
           )}
-          <Button type="submit" loading={update.isPending} className="w-full sm:w-auto">
+          <Button type="submit" loading={update.isPending} className="min-h-10 w-full sm:w-auto">
             Save Changes
           </Button>
           {update.isSuccess && (
@@ -168,7 +168,7 @@ export function ProfilePage() {
 
       {!linked && (
         <Card title="Join a business">
-          <p className="mb-4 text-sm text-on-surface-variant">
+          <p className="mb-3 text-sm text-on-surface-variant">
             Enter a business code to link your account. Your withdrawals will then wait
             for that business (or admin) to approve them for the Platform Payment list.
           </p>

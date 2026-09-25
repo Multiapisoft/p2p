@@ -34,8 +34,10 @@ describe('business ledger hide (fee once on pay-limit)', () => {
       (c) => c.referenceType && typeof c.referenceType === 'object',
     ) as { referenceType: { $nin: string[] } };
     expect(refClause.referenceType.$nin).toEqual(
-      expect.arrayContaining(['withdrawal_list_fee_refund']),
+      expect.arrayContaining(['withdrawal_unlist', 'withdrawal_reject', 'withdrawal_cancel']),
     );
+    expect(refClause.referenceType.$nin).not.toContain('withdrawal_list_fee_refund');
+    expect(refClause.referenceType.$nin).not.toContain('withdrawal_reject_refund');
     expect(refClause.referenceType.$nin).not.toContain('withdrawal_payment_fee');
     expect(refClause.referenceType.$nin).not.toContain('withdrawal_payment_deposit_fee');
   });

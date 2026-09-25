@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { businessesApi } from '../api/businesses.api';
 import { commissionsApi } from '@/features/commissions/api/commissions.api';
@@ -15,11 +15,17 @@ import { Modal } from '@/shared/components/ui/Modal';
 import { Input } from '@/shared/components/ui/Input';
 import { StatusBadge } from '@/shared/components/ui/Badge';
 import { Pagination } from '@/shared/components/ui/Pagination';
-import { LoadingScreen, EmptyState } from '@/shared/components/ui/Icon';
-import { formatCurrency } from '@/shared/lib/utils';
+import { LoadingScreen, EmptyState } from '@/shared/components/ui/State';
+import { formatCurrency, cn } from '@/shared/lib/utils';
 import { getApiErrorMessage } from '@/shared/lib/api-error';
 import { fetchAllPages } from '@/shared/lib/csv';
 import { CsvDownloadButton } from '@/shared/components/CsvDownloadButton';
+import {
+  authImpersonateApi,
+  openImpersonateSession,
+} from '@/features/auth/api/impersonate.api';
+import { usePermissions } from '@/shared/hooks/usePermissions';
+import { PERMISSIONS } from '@/shared/constants/permissions';
 import type { Business, CommissionRuleInput } from '@/shared/types/api.types';
 
 const STATUS_FILTERS = [
@@ -51,11 +57,167 @@ function toggleMethod(list: string[], value: string, checked: boolean) {
   return list.filter((m) => m !== value);
 }
 
+type MenuAction = {
+  key: string;
+  label: string;
+  onClick: () => void;
+  danger?: boolean;
+};
+
+function RowActionsMenu({
+  open,
+  onOpenChange,
+  actions,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  actions: MenuAction[];
+}) {
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ top: number; right: number } | null>(null);
+
+  useLayoutEffect(() => {
+    if (!open) {
+      setPos(null);
+      return;
+    }
+    const update = () => {
+      const el = rootRef.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      const menuH = Math.min(actions.length * 40 + 8, 320);
+      const spaceBelow = window.innerHeight - r.bottom;
+      const openUp = spaceBelow < menuH && r.top > menuH;
+      setPos({
+        top: openUp ? Math.max(8, r.top - menuH - 4) : r.bottom + 4,
+        right: Math.max(8, window.innerWidth - r.right),
+      });
+    };
+    update();
+    window.addEventListener('resize', update);
+    window.addEventListener('scroll', update, true);
+    return () => {
+      window.removeEventListener('resize', update);
+      window.removeEventListener('scroll', update, true);
+    };
+  }, [open, actions.length]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (!rootRef.current?.contains(e.target as Node)) onOpenChange(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onOpenChange(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDoc);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open, onOpenChange]);
+
+  if (!actions.length) return null;
+
+  return (
+    <div className="relative shrink-0" ref={rootRef}>
+      <button
+        type="button"
+        aria-label="Actions"
+        aria-expanded={open}
+        aria-haspopup="menu"
+        onClick={(e) => {
+          e.stopPropagation();
+          onOpenChange(!open);
+        }}
+        className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-outline-variant bg-surface-container-lowest text-on-surface hover:bg-surface-container-high"
+      >
+        <span className="material-symbols-outlined text-[20px]">more_vert</span>
+      </button>
+      {open && pos ? (
+        <div
+          role="menu"
+          style={{ top: pos.top, right: pos.right }}
+          className="fixed z-[100] max-h-80 min-w-[12rem] overflow-y-auto rounded-lg border border-outline-variant bg-surface py-1 shadow-lg"
+        >
+          {actions.map((a) => (
+            <button
+              key={a.key}
+              type="button"
+              role="menuitem"
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenChange(false);
+                a.onClick();
+              }}
+              className={cn(
+                'flex w-full items-center px-3 py-2 text-left text-sm font-medium transition-colors',
+                a.danger
+                  ? 'text-error hover:bg-error-container/30'
+                  : 'text-on-surface hover:bg-surface-container-high',
+              )}
+            >
+              {a.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function statusAccent(status: string) {
+  switch (status) {
+    case 'active':
+      return 'border-l-emerald-500';
+    case 'pending':
+      return 'border-l-amber-500';
+    case 'suspended':
+      return 'border-l-red-500';
+    default:
+      return 'border-l-outline-variant';
+  }
+}
+
+function initials(name: string) {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return 'B';
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return `${parts[0][0] ?? ''}${parts[1][0] ?? ''}`.toUpperCase();
+}
+
+function MetricChip({
+  label,
+  value,
+  sub,
+}: {
+  label: string;
+  value: string | number;
+  sub?: string;
+}) {
+  return (
+    <div className="rounded-md border border-outline-variant/60 bg-surface-container-low/60 px-2 py-1">
+      <p className="text-[9px] font-bold uppercase tracking-wide text-on-surface-variant">
+        {label}
+      </p>
+      <p className="text-[12px] font-semibold tabular-nums text-on-surface">{value}</p>
+      {sub ? <p className="text-[10px] text-on-surface-variant">{sub}</p> : null}
+    </div>
+  );
+}
+
 export function BusinessesPage() {
+  const { has } = usePermissions();
+  const canLoginAsBusiness = has(PERMISSIONS.LOGIN_AS_BUSINESS);
   const [statsTarget, setStatsTarget] = useState<Business | null>(null);
+  const [highlightTarget, setHighlightTarget] = useState<Business | null>(null);
+  const [highlightDraft, setHighlightDraft] = useState('0');
+  const [highlightError, setHighlightError] = useState('');
   const [commissionTarget, setCommissionTarget] = useState<Business | null>(null);
   const [txnFlagsTarget, setTxnFlagsTarget] = useState<Business | null>(null);
   const [txnFlagsError, setTxnFlagsError] = useState('');
+  const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
   const [businessTakeDeposit, setBusinessTakeDeposit] = useState<CommissionRuleInput[]>([
     emptyRule({ percentage: 2 }),
   ]);
@@ -143,6 +305,28 @@ export function BusinessesPage() {
   const approve = useMutation({
     mutationFn: (id: string) => businessesApi.approve(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['businesses'] }),
+  });
+
+  const saveHighlight = useMutation({
+    mutationFn: async () => {
+      const hl = Number(highlightDraft);
+      if (!Number.isFinite(hl) || hl < 0 || !Number.isInteger(hl)) {
+        throw new Error('Highlight limit must be a whole number ≥ 0');
+      }
+      return businessesApi.setHighlightLimit(highlightTarget!._id, hl);
+    },
+    onSuccess: () => {
+      setHighlightTarget(null);
+      setHighlightError('');
+      qc.invalidateQueries({ queryKey: ['businesses'] });
+      qc.invalidateQueries({ queryKey: ['business-stats'] });
+    },
+    onError: (err) => setHighlightError(getApiErrorMessage(err, 'Could not save highlight limit')),
+  });
+
+  const loginAsBusiness = useMutation({
+    mutationFn: (businessId: string) => authImpersonateApi.asBusiness(businessId),
+    onSuccess: (data) => openImpersonateSession(data),
   });
 
   const saveTxnFlags = useMutation({
@@ -320,91 +504,206 @@ export function BusinessesPage() {
         ) : !items.length ? (
           <EmptyState message="No businesses match your filters" icon="business_center" />
         ) : (
-          <div className={`space-y-3 ${isFetching ? 'opacity-70' : ''}`}>
-            <div className="grid gap-3 sm:gap-4 md:grid-cols-2">
-              {items.map((b) => (
-                <div key={b._id} className="rounded-xl border border-outline-variant p-3 sm:p-4">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <h3 className="text-base font-semibold sm:text-lg">{b.name}</h3>
-                      <p className="truncate text-sm text-on-surface-variant">/{b.slug}</p>
-                    </div>
-                    <StatusBadge status={b.status} />
-                  </div>
-                  <div className="mt-3 grid grid-cols-2 gap-2 text-sm sm:mt-4 sm:gap-3">
-                    <div>
-                      <p className="text-xs text-on-surface-variant sm:text-sm">Total Deposits</p>
-                      <p className="font-semibold">{formatCurrency(b.totalDeposits)}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-on-surface-variant sm:text-sm">Users</p>
-                      <p className="font-semibold">{b.totalUsers}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-on-surface-variant sm:text-sm">Commission rate</p>
-                      <p className="font-semibold">{b.commissionRate ?? 0}%</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-on-surface-variant sm:text-sm">Pay limit</p>
-                      <p className="font-semibold">
-                        {formatCurrency(b.p2pPayLimit ?? 0)}
-                      </p>
-                      <p className="text-[11px] text-on-surface-variant">
-                        Left {formatCurrency(b.p2pPayRemaining ?? 0)}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-on-surface-variant sm:text-sm">Highlight / mo</p>
-                      <p className="font-semibold">{b.highlightLimitPerMonth ?? 0}</p>
-                      <p className="text-[11px] text-on-surface-variant">
-                        Left {b.highlightRemainingThisMonth ?? 0}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="mt-3 flex flex-wrap gap-2 sm:mt-4">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="flex-1 sm:flex-none"
-                      onClick={() => setStatsTarget(b)}
+          <div className={`space-y-2 ${isFetching ? 'opacity-70' : ''}`}>
+            {items.map((b) => {
+              const actions: MenuAction[] = [
+                {
+                  key: 'stats',
+                  label: 'View Stats',
+                  onClick: () => setStatsTarget(b),
+                },
+                {
+                  key: 'commissions',
+                  label: 'Commissions',
+                  onClick: () => setCommissionTarget(b),
+                },
+                {
+                  key: 'txn-flags',
+                  label: 'Txn flags',
+                  onClick: () => setTxnFlagsTarget(b),
+                },
+                {
+                  key: 'highlight',
+                  label: 'Highlight limit',
+                  onClick: () => {
+                    setHighlightDraft(String(b.highlightLimitPerMonth ?? 0));
+                    setHighlightError('');
+                    setHighlightTarget(b);
+                  },
+                },
+              ];
+              if (b.status === 'active' && canLoginAsBusiness) {
+                actions.push({
+                  key: 'login',
+                  label: 'Login as business',
+                  onClick: () => loginAsBusiness.mutate(b._id),
+                });
+              }
+              if (b.status === 'pending') {
+                actions.push({
+                  key: 'approve',
+                  label: 'Approve',
+                  onClick: () => approve.mutate(b._id),
+                });
+              }
+
+              return (
+                <article
+                  key={b._id}
+                  className={cn(
+                    'rounded-xl border border-outline-variant/70 border-l-[3px] bg-surface-container-lowest px-3 py-2.5 transition hover:border-secondary/40 hover:shadow-sm',
+                    statusAccent(b.status),
+                  )}
+                >
+                  <div className="flex items-start gap-2.5 sm:items-center">
+                    <div
+                      className={cn(
+                        'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-xs font-bold',
+                        b.status === 'active'
+                          ? 'bg-emerald-500/15 text-emerald-800'
+                          : b.status === 'pending'
+                            ? 'bg-amber-500/15 text-amber-900'
+                            : b.status === 'suspended'
+                              ? 'bg-error/10 text-error'
+                              : 'bg-primary/10 text-primary',
+                      )}
+                      aria-hidden
                     >
-                      View Stats
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="flex-1 sm:flex-none"
-                      onClick={() => setCommissionTarget(b)}
-                    >
-                      Commissions
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="flex-1 sm:flex-none"
-                      onClick={() => setTxnFlagsTarget(b)}
-                    >
-                      Txn flags
-                    </Button>
-                    {b.status === 'pending' && (
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        className="flex-1 sm:flex-none"
-                        loading={approve.isPending}
-                        onClick={() => approve.mutate(b._id)}
-                      >
-                        Approve
-                      </Button>
-                    )}
+                      {initials(b.name)}
+                    </div>
+
+                    <div className="min-w-0 flex-1 space-y-2">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <h3 className="truncate text-sm font-bold tracking-tight text-on-surface">
+                          {b.name}
+                        </h3>
+                        <StatusBadge status={b.status} />
+                        <span className="truncate rounded bg-surface-container-high px-1.5 py-px font-mono text-[10px] text-on-surface-variant">
+                          /{b.slug}
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3 lg:grid-cols-5">
+                        <MetricChip
+                          label="Deposits"
+                          value={formatCurrency(b.totalDeposits)}
+                        />
+                        <MetricChip label="Users" value={b.totalUsers} />
+                        <MetricChip label="Commission" value={`${b.commissionRate ?? 0}%`} />
+                        <MetricChip
+                          label="Pay limit"
+                          value={formatCurrency(b.p2pPayLimit ?? 0)}
+                          sub={`Left ${formatCurrency(b.p2pPayRemaining ?? 0)}`}
+                        />
+                        <MetricChip
+                          label="Highlight / mo"
+                          value={b.highlightLimitPerMonth ?? 0}
+                          sub={`Left ${b.highlightRemainingThisMonth ?? 0}`}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex shrink-0 items-center gap-1.5">
+                      {b.status === 'pending' ? (
+                        <Button
+                          size="sm"
+                          className="!h-8 !min-h-0 !px-2.5 !py-0 text-[11px]"
+                          loading={approve.isPending}
+                          onClick={() => approve.mutate(b._id)}
+                        >
+                          Approve
+                        </Button>
+                      ) : null}
+                      {b.status === 'active' && canLoginAsBusiness ? (
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          className="!h-8 !min-h-0 !px-2.5 !py-0 text-[11px] hidden sm:inline-flex"
+                          loading={loginAsBusiness.isPending}
+                          onClick={() => loginAsBusiness.mutate(b._id)}
+                        >
+                          Login
+                        </Button>
+                      ) : null}
+                      <RowActionsMenu
+                        open={menuOpenId === b._id}
+                        onOpenChange={(open) => setMenuOpenId(open ? b._id : null)}
+                        actions={actions}
+                      />
+                    </div>
                   </div>
-                </div>
-              ))}
+                </article>
+              );
+            })}
+            <div className="pt-1">
+              <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
             </div>
-            <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
           </div>
         )}
       </Card>
+
+      <Modal
+        open={!!highlightTarget}
+        onClose={() => {
+          setHighlightTarget(null);
+          setHighlightError('');
+        }}
+        title={`Monthly highlight limit — ${highlightTarget?.name ?? ''}`}
+      >
+        <form
+          className="space-y-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            setHighlightError('');
+            saveHighlight.mutate();
+          }}
+        >
+          <p className="text-sm text-on-surface-variant">
+            Monthly pin quota for pay lists. 0 = highlighting off.
+          </p>
+          <div className="grid grid-cols-2 gap-3 text-sm">
+            <div>
+              <p className="text-xs text-on-surface-variant">Used this month</p>
+              <p className="font-semibold">{highlightTarget?.highlightUsedThisMonth ?? 0}</p>
+            </div>
+            <div>
+              <p className="text-xs text-on-surface-variant">Remaining</p>
+              <p className="font-semibold">
+                {highlightTarget?.highlightRemainingThisMonth ?? 0}
+              </p>
+            </div>
+          </div>
+          <Input
+            label="Highlights per month"
+            type="number"
+            min={0}
+            step="1"
+            value={highlightDraft}
+            onChange={(e) => setHighlightDraft(e.target.value)}
+            required
+          />
+          {highlightError ? (
+            <p className="rounded-lg bg-error-container px-3 py-2 text-sm text-on-error-container">
+              {highlightError}
+            </p>
+          ) : null}
+          <div className="flex justify-end gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setHighlightTarget(null);
+                setHighlightError('');
+              }}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" loading={saveHighlight.isPending}>
+              Save
+            </Button>
+          </div>
+        </form>
+      </Modal>
 
       <Modal open={!!statsTarget} onClose={() => setStatsTarget(null)} title={`${statsTarget?.name} Stats`}>
         {loadingStats ? (
@@ -594,71 +893,6 @@ export function BusinessesPage() {
             ))}
 
             <div className="space-y-1">
-              <label className="text-sm font-medium" htmlFor="partial-pay-mode">
-                Allow partial / split payments
-              </label>
-              <select
-                id="partial-pay-mode"
-                className="w-full rounded-lg border border-outline-variant bg-surface-container-lowest px-2.5 py-2 text-sm"
-                value={
-                  txnFlagsTarget.allowPartialPay === true
-                    ? 'on'
-                    : txnFlagsTarget.allowPartialPay === false
-                      ? 'off'
-                      : 'inherit'
-                }
-                onChange={(e) => {
-                  const v = e.target.value;
-                  setTxnFlagsTarget({
-                    ...txnFlagsTarget,
-                    allowPartialPay:
-                      v === 'on' ? true : v === 'off' ? false : undefined,
-                  });
-                }}
-              >
-                <option value="inherit">Use platform default</option>
-                <option value="on">Enabled for this business</option>
-                <option value="off">Disabled for this business</option>
-              </select>
-              <p className="text-xs text-on-surface-variant">
-                Admin-only. Controls whether payers can split-pay this business&apos;s user
-                withdrawals.
-              </p>
-            </div>
-
-            <div className="space-y-1">
-              <label className="text-sm font-medium" htmlFor="min-partial-pay">
-                Minimum split pay (₹)
-              </label>
-              <input
-                id="min-partial-pay"
-                type="number"
-                min={0}
-                step={100}
-                className="w-full rounded-lg border border-outline-variant bg-surface-container-lowest px-2.5 py-2 text-sm"
-                value={
-                  txnFlagsTarget.minPartialPayInr && txnFlagsTarget.minPartialPayInr > 0
-                    ? String(txnFlagsTarget.minPartialPayInr)
-                    : ''
-                }
-                onChange={(e) =>
-                  setTxnFlagsTarget({
-                    ...txnFlagsTarget,
-                    minPartialPayInr: e.target.value.trim()
-                      ? Math.max(0, Number(e.target.value))
-                      : 0,
-                  })
-                }
-                placeholder="5000 (platform default)"
-                disabled={txnFlagsTarget.allowPartialPay === false}
-              />
-              <p className="text-xs text-on-surface-variant">
-                Admin-only. Empty / 0 = platform default ₹5,000. Applies only when partial pay is
-                allowed.
-              </p>
-            </div>
-
-            <div className="space-y-1">
               <label className="text-sm font-medium" htmlFor="mobile-upi-mode">
                 Allow mobile number as UPI
               </label>
@@ -789,6 +1023,7 @@ export function BusinessesPage() {
                     depositsEnabled: txnFlagsTarget.depositsEnabled !== false,
                     withdrawalsEnabled: txnFlagsTarget.withdrawalsEnabled !== false,
                     b2bMatchingEnabled: txnFlagsTarget.b2bMatchingEnabled !== false,
+                    // Keep existing partial-pay settings (controls removed from UI).
                     allowPartialPayMode:
                       txnFlagsTarget.allowPartialPay === true
                         ? 'on'

@@ -255,7 +255,7 @@ export function StatementCards({
             type="button"
             onClick={onRowClick ? () => onRowClick(t) : undefined}
             className={cn(
-              'w-full rounded-xl border border-outline-variant bg-surface-container-lowest p-2.5 text-left',
+              'w-full rounded-lg border border-outline-variant bg-surface-container-lowest px-2.5 py-2 text-left',
               onRowClick && 'active:bg-surface-container-low',
             )}
           >

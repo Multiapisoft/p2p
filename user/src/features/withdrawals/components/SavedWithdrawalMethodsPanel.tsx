@@ -224,7 +224,7 @@ export function SavedWithdrawalMethodsPanel({
           ))}
         </div>
         {items.length === 0 ? (
-          <p className="rounded-lg border border-dashed border-outline-variant px-3 py-4 text-center text-sm text-on-surface-variant">
+          <p className="rounded-lg border border-dashed border-outline-variant px-2.5 py-3 text-center text-sm text-on-surface-variant">
             No saved methods.
           </p>
         ) : (
@@ -232,7 +232,7 @@ export function SavedWithdrawalMethodsPanel({
             {items.map((m) => (
               <li
                 key={m._id}
-                className="flex flex-wrap items-start justify-between gap-2 rounded-xl border border-outline-variant bg-surface-container-low px-3 py-2.5"
+                className="flex flex-wrap items-start justify-between gap-2 rounded-lg border border-outline-variant bg-surface-container-low px-2.5 py-2"
               >
                 <div className="min-w-0">
                   <p className="text-sm font-semibold">

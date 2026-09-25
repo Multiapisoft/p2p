@@ -38,10 +38,10 @@ function DepositsPageInner() {
   }, [searchParams]);
 
   return (
-    <div className="mx-auto max-w-5xl space-y-4 sm:space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
+    <div className="mx-auto max-w-5xl space-y-3 sm:space-y-4">
+      <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <h1 className="font-[family-name:var(--font-headline)] text-xl font-bold tracking-tight sm:text-2xl">
+          <h1 className="font-[family-name:var(--font-headline)] text-lg font-bold tracking-tight sm:text-xl">
             Deposits
           </h1>
         </div>

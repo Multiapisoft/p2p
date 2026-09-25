@@ -64,7 +64,18 @@ export const supportApi = {
       message,
       attachments: attachments?.length ? attachments : undefined,
     }),
-  updateStatus: (ticketId: string, status: string) =>
-    apiPatch<SupportTicket>(`/support/tickets/${ticketId}`, { status }),
+  updateStatus: (
+    ticketId: string,
+    status: string,
+    opts?: {
+      disputeOutcome?: 'received' | 'not_received';
+      receivedAmount?: number;
+    },
+  ) =>
+    apiPatch<SupportTicket>(`/support/tickets/${ticketId}`, {
+      status,
+      ...(opts?.disputeOutcome ? { disputeOutcome: opts.disputeOutcome } : {}),
+      ...(opts?.receivedAmount != null ? { receivedAmount: opts.receivedAmount } : {}),
+    }),
   uploadAttachment,
 };

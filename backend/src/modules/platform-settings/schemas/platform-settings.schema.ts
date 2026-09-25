@@ -73,6 +73,30 @@ export class PlatformSettings {
   /** Investor referral: % to joiner on subsequent completed pays (default 0). */
   @Prop({ default: 0 })
   investorReferralNextJoinerPercent!: number;
+
+  /** Optional bonus window start (inclusive calendar day). */
+  @Prop({ type: Date, default: null })
+  investorReferralPeriodFromDate?: Date | null;
+
+  /** Optional bonus window end (inclusive calendar day). */
+  @Prop({ type: Date, default: null })
+  investorReferralPeriodToDate?: Date | null;
+
+  /** Period override: first pay — referrer %. */
+  @Prop({ default: 0 })
+  investorReferralPeriodFirstReferrerPercent!: number;
+
+  /** Period override: first pay — joiner %. */
+  @Prop({ default: 0 })
+  investorReferralPeriodFirstJoinerPercent!: number;
+
+  /** Period override: next pays — referrer %. */
+  @Prop({ default: 0 })
+  investorReferralPeriodNextReferrerPercent!: number;
+
+  /** Period override: next pays — joiner %. */
+  @Prop({ default: 0 })
+  investorReferralPeriodNextJoinerPercent!: number;
 }
 
 export const PlatformSettingsSchema = SchemaFactory.createForClass(PlatformSettings);

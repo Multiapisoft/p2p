@@ -106,13 +106,15 @@ function formatWindowLeft(endsAt?: number) {
   return `${h}h ${m}m left to dispute`;
 }
 
-function DestinationLine({ w }: { w: Withdrawal }) {
+function DestinationLine({ w, prefix = '' }: { w: Withdrawal; prefix?: string }) {
   if (w.method === 'upi' && w.upiDetails?.upiId) {
     const name = w.upiDetails.payerName?.trim();
     return (
-      <p className="text-xs text-on-surface-variant">
-        {name ? `NAME ${name} · ` : ''}UPI {w.upiDetails.upiId}
-      </p>
+      <span className="truncate text-[10px] text-on-surface-variant">
+        {prefix}
+        {name ? `${name} · ` : ''}
+        {w.upiDetails.upiId}
+      </span>
     );
   }
   if (w.method === 'bank') {
@@ -120,19 +122,24 @@ function DestinationLine({ w }: { w: Withdrawal }) {
     if (!accountNumber) return null;
     const b = w.bankDetails;
     const parts = [
-      b?.accountHolderName ? `NAME ${b.accountHolderName}` : null,
-      `A/C ****${accountNumber.slice(-4)}`,
-      b?.ifscCode ? `IFSC ${b.ifscCode}` : null,
-      b?.bankName ? `BANK ${b.bankName}` : null,
+      b?.accountHolderName || null,
+      `****${accountNumber.slice(-4)}`,
+      b?.ifscCode || null,
     ].filter(Boolean);
-    return <p className="text-xs text-on-surface-variant">{parts.join(' · ')}</p>;
+    return (
+      <span className="truncate text-[10px] text-on-surface-variant">
+        {prefix}
+        {parts.join(' · ')}
+      </span>
+    );
   }
   if (w.method === 'usdt' && w.usdtDetails?.walletAddress) {
     const addr = w.usdtDetails.walletAddress;
     return (
-      <p className="break-all text-xs text-on-surface-variant">
-        USDT · {addr.slice(0, 10)}…{addr.slice(-6)}
-      </p>
+      <span className="truncate text-[10px] text-on-surface-variant">
+        {prefix}
+        {addr.slice(0, 8)}…{addr.slice(-4)}
+      </span>
     );
   }
   return null;
@@ -568,20 +575,18 @@ export function WithdrawalsPage() {
   };
 
   return (
-    <div className="mx-auto max-w-5xl space-y-4 sm:space-y-6">
-      <div className="relative overflow-hidden rounded-2xl border border-outline-variant bg-gradient-to-br from-surface-container-lowest via-surface-container-low/50 to-secondary-container/20 p-4 sm:p-5">
-        <div className="pointer-events-none absolute -right-8 -top-10 h-32 w-32 rounded-full bg-secondary/10 blur-2xl" />
-        <div className="relative flex flex-wrap items-start justify-between gap-3">
+    <div className="mx-auto max-w-5xl space-y-3 sm:space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-outline-variant bg-surface-container-lowest px-3 py-2.5 sm:px-4">
         <div className="min-w-0">
-          <p className="mb-1 inline-flex items-center gap-1.5 rounded-full bg-secondary/15 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-secondary">
-            <span className="material-symbols-outlined text-sm">north_east</span>
+          <h1 className="font-[family-name:var(--font-headline)] text-lg font-bold tracking-tight sm:text-xl">
             Withdrawals
-          </p>
-          <h1 className="font-[family-name:var(--font-headline)] text-xl font-bold tracking-tight sm:text-2xl">
-            Withdrawal requests
           </h1>
+          <p className="text-[11px] text-on-surface-variant sm:text-xs">
+            {balance?.source === 'partner' ? 'Partner wallet' : 'FairPlay wallet'} ·{' '}
+            {formatCurrency(balance?.availableBalance ?? 0, displayCurrency)} available
+          </p>
         </div>
-        <div className="flex w-full flex-col gap-2 sm:w-auto">
+        <div className="flex flex-wrap items-center gap-2">
           <CsvDownloadButton<Withdrawal>
             title="My withdrawals"
             filename="withdrawals"
@@ -600,56 +605,50 @@ export function WithdrawalsPage() {
             }
           />
           <Button
-          className="w-full sm:w-auto"
-          onClick={() => {
-            if (showForm) {
-              setShowForm(false);
-              resetForm();
-            } else {
-              setShowForm(true);
-              setFormError('');
-            }
-          }}
-        >
-          {showForm ? 'Close form' : 'New withdrawal'}
-        </Button>
-        </div>
+            size="sm"
+            onClick={() => {
+              if (showForm) {
+                setShowForm(false);
+                resetForm();
+              } else {
+                setShowForm(true);
+                setFormError('');
+              }
+            }}
+          >
+            {showForm ? 'Close' : 'New withdrawal'}
+          </Button>
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-2 sm:gap-3">
-        <div className="rounded-xl border border-outline-variant bg-surface-container-lowest p-2.5 sm:rounded-2xl sm:p-4">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-on-surface-variant sm:text-xs">
+      <div className="grid grid-cols-3 gap-1.5 sm:gap-2">
+        <div className="rounded-lg border border-outline-variant bg-surface-container-lowest px-2.5 py-2 sm:px-3">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-on-surface-variant">
             Balance
           </p>
-          <p className="mt-1 text-sm font-bold leading-tight sm:mt-2 sm:text-2xl">
+          <p className="mt-0.5 text-sm font-bold tabular-nums leading-tight sm:text-base">
             {formatCurrency(balance?.availableBalance ?? 0, displayCurrency)}
           </p>
-          <p className="mt-0.5 hidden text-xs text-on-surface-variant sm:block">
-            {balance?.source === 'partner' ? 'Partner wallet' : 'FairPlay wallet'}
-          </p>
-          {walletIsUsdt && (
-            <p className="mt-1 text-[10px] leading-snug text-on-surface-variant sm:mt-2 sm:text-xs">
+          {walletIsUsdt ? (
+            <p className="mt-0.5 text-[10px] text-on-surface-variant">
               Rate {usdtInrRate}
               {typeof maxInr === 'number' ? ` · ~${formatCurrency(maxInr, 'INR')}` : ''}
             </p>
-          )}
+          ) : null}
         </div>
-        <div className="rounded-xl border border-outline-variant bg-surface-container-lowest p-2.5 sm:rounded-2xl sm:p-4">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-on-surface-variant sm:text-xs">
+        <div className="rounded-lg border border-outline-variant bg-surface-container-lowest px-2.5 py-2 sm:px-3">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-on-surface-variant">
             Open
           </p>
-          <p className="mt-1 text-lg font-bold sm:mt-2 sm:text-2xl">
+          <p className="mt-0.5 text-sm font-bold sm:text-base">
             {items.filter((w) => w.status === 'pending' || w.status === 'processing').length}
           </p>
-          <p className="mt-0.5 hidden text-xs text-on-surface-variant sm:block">On this page</p>
         </div>
-        <div className="rounded-xl border border-outline-variant bg-surface-container-lowest p-2.5 sm:rounded-2xl sm:p-4">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-on-surface-variant sm:text-xs">
+        <div className="rounded-lg border border-outline-variant bg-surface-container-lowest px-2.5 py-2 sm:px-3">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-on-surface-variant">
             Total
           </p>
-          <p className="mt-1 text-lg font-bold sm:mt-2 sm:text-2xl">{total}</p>
-          <p className="mt-0.5 hidden text-xs text-on-surface-variant sm:block">Matching filters</p>
+          <p className="mt-0.5 text-sm font-bold sm:text-base">{total}</p>
         </div>
       </div>
 
@@ -792,7 +791,7 @@ export function WithdrawalsPage() {
               </p>
             )}
 
-            {method === 'upi' && (
+            {method === 'upi' && !selectedSavedMethodId && (
               <div className="space-y-3">
                 <div className="rounded-xl border border-dashed border-outline-variant bg-surface-container-low/50 px-3 py-3">
                   <p className="text-sm font-semibold">Upload UPI QR</p>
@@ -858,7 +857,7 @@ export function WithdrawalsPage() {
               </div>
             )}
 
-            {method === 'bank' && (
+            {method === 'bank' && !selectedSavedMethodId && (
               <div className="grid gap-4 sm:grid-cols-2">
                 <Input
                   label="Account number"
@@ -884,7 +883,7 @@ export function WithdrawalsPage() {
               </div>
             )}
 
-            {method === 'usdt' && (
+            {method === 'usdt' && !selectedSavedMethodId && (
               <div className="grid gap-4 sm:grid-cols-2">
                 <Input
                   label="Wallet address"
@@ -942,11 +941,8 @@ export function WithdrawalsPage() {
       )}
 
       <Card title="My withdrawals">
-        <p className="mb-4 text-[11px] text-on-surface-variant sm:text-xs">
-          Once approved (verified for payout), you cannot cancel. Contact business/admin.
-        </p>
-        <div className="mb-4 space-y-3 sm:mb-5 sm:space-y-4">
-          <div className="flex flex-col gap-2.5 lg:flex-row lg:items-end lg:gap-3">
+        <div className="mb-3 space-y-2">
+          <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:gap-2">
             <div className="min-w-0 flex-1">
               <Input
                 label="Search"
@@ -956,8 +952,8 @@ export function WithdrawalsPage() {
                 onChange={(e) => setSearchInput(e.target.value)}
               />
             </div>
-            <div className="grid grid-cols-3 gap-2 sm:gap-3 lg:w-[420px]">
-              <label className="flex flex-col gap-1 text-xs font-semibold sm:text-sm">
+            <div className="grid grid-cols-3 gap-1.5 sm:gap-2 lg:w-[380px]">
+              <label className="flex flex-col gap-0.5 text-[11px] font-semibold sm:text-xs">
                 Sort
                 <select
                   value={sort}
@@ -965,7 +961,7 @@ export function WithdrawalsPage() {
                     setSort(e.target.value);
                     setPage(1);
                   }}
-                  className="rounded-lg border border-outline-variant bg-surface-container-lowest px-2 py-2 text-sm font-normal focus:border-secondary focus:outline-none focus:ring-2 focus:ring-secondary/20 sm:px-3 sm:py-2.5"
+                  className="rounded-lg border border-outline-variant bg-surface-container-lowest px-2 py-1.5 text-xs font-normal focus:border-secondary focus:outline-none focus:ring-2 focus:ring-secondary/20 sm:text-sm"
                 >
                   {SORT_OPTIONS.map((o) => (
                     <option key={o.value} value={o.value}>
@@ -974,7 +970,7 @@ export function WithdrawalsPage() {
                   ))}
                 </select>
               </label>
-              <label className="flex flex-col gap-1 text-xs font-semibold sm:text-sm">
+              <label className="flex flex-col gap-0.5 text-[11px] font-semibold sm:text-xs">
                 Method
                 <select
                   value={methodFilter}
@@ -982,7 +978,7 @@ export function WithdrawalsPage() {
                     setMethodFilter(e.target.value);
                     setPage(1);
                   }}
-                  className="rounded-lg border border-outline-variant bg-surface-container-lowest px-2 py-2 text-sm font-normal focus:border-secondary focus:outline-none focus:ring-2 focus:ring-secondary/20 sm:px-3 sm:py-2.5"
+                  className="rounded-lg border border-outline-variant bg-surface-container-lowest px-2 py-1.5 text-xs font-normal focus:border-secondary focus:outline-none focus:ring-2 focus:ring-secondary/20 sm:text-sm"
                 >
                   <option value="all">All</option>
                   {enabledMethods.map((m) => (
@@ -992,7 +988,7 @@ export function WithdrawalsPage() {
                   ))}
                 </select>
               </label>
-              <label className="flex flex-col gap-1 text-xs font-semibold sm:text-sm">
+              <label className="flex flex-col gap-0.5 text-[11px] font-semibold sm:text-xs">
                 Page
                 <select
                   value={limit}
@@ -1000,7 +996,7 @@ export function WithdrawalsPage() {
                     setLimit(Number(e.target.value));
                     setPage(1);
                   }}
-                  className="rounded-lg border border-outline-variant bg-surface-container-lowest px-2 py-2 text-sm font-normal focus:border-secondary focus:outline-none focus:ring-2 focus:ring-secondary/20 sm:px-3 sm:py-2.5"
+                  className="rounded-lg border border-outline-variant bg-surface-container-lowest px-2 py-1.5 text-xs font-normal focus:border-secondary focus:outline-none focus:ring-2 focus:ring-secondary/20 sm:text-sm"
                 >
                   {PAGE_SIZES.map((n) => (
                     <option key={n} value={n}>
@@ -1021,7 +1017,7 @@ export function WithdrawalsPage() {
                   setStatus(s.value);
                   setPage(1);
                 }}
-                className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition sm:px-3.5 sm:py-1.5 sm:text-xs ${
+                className={`rounded-full px-2 py-0.5 text-[11px] font-semibold transition sm:px-2.5 sm:py-1 ${
                   status === s.value
                     ? 'bg-primary text-on-primary'
                     : 'border border-outline-variant bg-surface-container-lowest hover:bg-surface-container-low'
@@ -1036,11 +1032,11 @@ export function WithdrawalsPage() {
         {isLoading ? (
           <LoadingScreen />
         ) : isError ? (
-          <div className="rounded-2xl border border-error/30 bg-error-container/40 px-4 py-8 text-center">
+          <div className="rounded-xl border border-error/30 bg-error-container/40 px-3 py-6 text-center">
             <p className="text-sm font-medium text-on-surface">
               {withdrawalErrorMessage(error) || 'Could not load withdrawals'}
             </p>
-            <Button type="button" className="mt-4" onClick={() => refetch()}>
+            <Button type="button" size="sm" className="mt-3" onClick={() => refetch()}>
               Retry
             </Button>
           </div>
@@ -1055,7 +1051,7 @@ export function WithdrawalsPage() {
           />
         ) : (
           <>
-            <div className={`space-y-3 sm:space-y-4 ${isFetching ? 'opacity-70' : ''}`}>
+            <div className={`space-y-2 ${isFetching ? 'opacity-70' : ''}`}>
               {items.map((w) => {
                 const paid = w.paidAmount ?? 0;
                 const remaining = w.remainingAmount ?? Math.max(0, w.amount - paid);
@@ -1080,7 +1076,7 @@ export function WithdrawalsPage() {
                   <article
                     key={w._id}
                     className={cn(
-                      'overflow-hidden rounded-2xl border border-outline-variant/80 border-l-4 bg-surface-container-lowest shadow-sm sm:rounded-2xl',
+                      'overflow-hidden rounded-lg border border-outline-variant/80 border-l-[3px] bg-surface-container-lowest',
                       w.status === 'pending'
                         ? 'border-l-amber-500'
                         : w.status === 'processing'
@@ -1092,25 +1088,23 @@ export function WithdrawalsPage() {
                               : 'border-l-outline-variant',
                     )}
                   >
-                    <div className="flex flex-wrap items-start justify-between gap-2 p-3 sm:gap-3 sm:p-5">
-                      <div className="min-w-0 flex-1 space-y-0.5 sm:space-y-1">
-                        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
-                          <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                            <span className="material-symbols-outlined text-[18px]">
-                              {w.method === 'upi'
-                                ? 'qr_code_2'
-                                : w.method === 'bank'
-                                  ? 'account_balance'
-                                  : 'currency_bitcoin'}
-                            </span>
+                    <div className="flex items-center gap-2 px-2 py-1.5 sm:px-2.5">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-1">
+                          <span className="material-symbols-outlined text-[14px] text-primary">
+                            {w.method === 'upi'
+                              ? 'qr_code_2'
+                              : w.method === 'bank'
+                                ? 'account_balance'
+                                : 'currency_bitcoin'}
                           </span>
-                          <h3 className="text-base font-bold tabular-nums text-error sm:text-lg">
+                          <span className="text-[13px] font-bold tabular-nums text-error">
                             {formatCurrency(w.amount, w.currency)}
-                          </h3>
+                          </span>
                           <StatusBadge status={w.status as TransactionStatus} />
                           {(w.status === 'pending' || w.status === 'processing') && (
                             <span
-                              className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                              className={`rounded px-1 py-px text-[9px] font-semibold leading-tight ${
                                 w.p2pListStatus === 'listed'
                                   ? 'bg-secondary/15 text-secondary'
                                   : w.p2pListStatus === 'rejected'
@@ -1121,207 +1115,200 @@ export function WithdrawalsPage() {
                               {w.p2pListStatus === 'listed'
                                 ? 'Approved'
                                 : w.p2pListStatus === 'rejected'
-                                  ? 'Approval rejected'
-                                  : 'Awaiting approval'}
+                                  ? 'Rejected'
+                                  : 'Awaiting'}
                             </span>
                           )}
-                        </div>
-                        <p className="break-all font-mono text-[11px] font-semibold text-primary sm:text-xs">
-                          {w.referenceId}
-                        </p>
-                        <p className="text-[11px] text-on-surface-variant sm:text-xs">
-                          {w.method.toUpperCase()} · {formatDate(w.createdAt)}
-                        </p>
-                        {w.sourceAmount != null && w.sourceCurrency && w.exchangeRate != null && (
-                          <p className="text-[11px] text-on-surface-variant sm:text-xs">
-                            Debited {w.sourceAmount} {w.sourceCurrency} @ {w.exchangeRate}
-                          </p>
-                        )}
-                        <DestinationLine w={w} />
-                        {(w.status === 'pending' || w.status === 'processing') &&
+                          {(w.status === 'pending' || w.status === 'processing') &&
                           canCancel &&
-                          tatLeft > 0 && (
-                            <p className="text-[11px] font-medium text-secondary sm:text-xs">
-                              You can cancel for {formatSecondsMmSs(tatLeft)}
-                            </p>
-                          )}
-                        {(w.status === 'pending' || w.status === 'processing') && !canCancel && (
-                          <p className="text-[11px] text-on-surface-variant sm:text-xs">
-                            {w.p2pListStatus === 'listed'
-                              ? 'Once approved (verified for payout), you cannot cancel. Contact business/admin.'
-                              : 'Cancel window is over. Business or admin can cancel if needed.'}
-                          </p>
-                        )}
+                          tatLeft > 0 ? (
+                            <span className="text-[10px] font-medium text-secondary">
+                              · {formatSecondsMmSs(tatLeft)}
+                            </span>
+                          ) : null}
+                        </div>
+                        <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-1 gap-y-0 text-[10px] leading-snug text-on-surface-variant">
+                          <span className="truncate font-mono font-medium text-primary">
+                            {w.referenceId}
+                          </span>
+                          <span aria-hidden>·</span>
+                          <span className="uppercase">{w.method}</span>
+                          <span aria-hidden>·</span>
+                          <span>{formatDate(w.createdAt)}</span>
+                          <DestinationLine w={w} prefix=" · " />
+                          {w.sourceAmount != null && w.sourceCurrency && w.exchangeRate != null ? (
+                            <span className="shrink-0">
+                              · {w.sourceAmount} {w.sourceCurrency} @ {w.exchangeRate}
+                            </span>
+                          ) : null}
+                        </div>
                       </div>
 
-                      <div className="flex w-full flex-wrap items-center gap-1.5 sm:w-auto sm:gap-2">
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          className="flex-1 sm:flex-none"
-                          onClick={() => setExpandedId(expanded ? null : w._id)}
-                        >
-                          {expanded ? 'Hide' : 'Details'}
-                        </Button>
-                        {canCancel && tatLeft > 0 && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="flex-1 sm:flex-none"
-                              loading={cancel.isPending}
-                              onClick={async () => {
-                                const ok = await confirmDialog({
-                                  title: 'Cancel withdrawal?',
-                                  description: `Cancel ${w.referenceId} for ${formatCurrency(w.amount, w.currency)}? Locked balance will be released.`,
-                                  confirmLabel: 'Yes, cancel',
-                                  cancelLabel: 'Keep request',
-                                  variant: 'danger',
-                                });
-                                if (ok) cancel.mutate(w._id);
-                              }}
-                            >
-                              Cancel
-                            </Button>
-                        )}
+                      <div className="flex shrink-0 items-center gap-1">
+                        {payments.length > 0 ? (
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            className="!h-7 !min-h-0 !px-2 !py-0 text-[11px]"
+                            onClick={() => setExpandedId(expanded ? null : w._id)}
+                          >
+                            {expanded ? 'Hide' : 'Details'}
+                          </Button>
+                        ) : null}
+                        {canCancel && tatLeft > 0 ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="!h-7 !min-h-0 !px-2 !py-0 text-[11px]"
+                            loading={cancel.isPending}
+                            onClick={async () => {
+                              const ok = await confirmDialog({
+                                title: 'Cancel withdrawal?',
+                                description: `Cancel ${w.referenceId} for ${formatCurrency(w.amount, w.currency)}? Locked balance will be released.`,
+                                confirmLabel: 'Yes, cancel',
+                                cancelLabel: 'Keep request',
+                                variant: 'danger',
+                              });
+                              if (ok) cancel.mutate(w._id);
+                            }}
+                          >
+                            Cancel
+                          </Button>
+                        ) : null}
                       </div>
                     </div>
 
-                    <div className="border-t border-outline-variant/70 px-3 pb-3 pt-2.5 sm:px-5 sm:pb-4 sm:pt-3">
-                      <div className="mb-1.5 flex flex-wrap items-center justify-between gap-1 text-[11px] sm:mb-2 sm:text-xs">
-                        <span className="text-on-surface-variant">
-                          Paid {formatCurrency(paid, w.currency)} · Left{' '}
-                          {formatCurrency(remaining, w.currency)}
-                        </span>
-                        <span className="font-semibold">{pct}%</span>
-                      </div>
-                      <div className="h-1.5 overflow-hidden rounded-full bg-surface-container-high sm:h-2">
+                    <div className="flex items-center gap-1.5 border-t border-outline-variant/50 px-2 py-1 sm:px-2.5">
+                      <div className="h-0.5 min-w-0 flex-1 overflow-hidden rounded-full bg-surface-container-high">
                         <div
                           className="h-full rounded-full bg-secondary transition-all"
                           style={{ width: `${pct}%` }}
                         />
                       </div>
-                      <p className="mt-1.5 text-[11px] text-on-surface-variant sm:mt-2 sm:text-xs">
-                        {completedPays.length} completed
-                        {pendingPays.length ? ` · ${pendingPays.length} pending` : ''}
-                        {disputedPays.length ? ` · ${disputedPays.length} disputed` : ''}
-                        {payments.length === 0 ? ' · No payments yet' : ''}
-                      </p>
+                      <span className="shrink-0 text-[10px] font-semibold tabular-nums text-on-surface-variant">
+                        {pct}% · Paid {formatCurrency(paid, w.currency)} · Left{' '}
+                        {formatCurrency(remaining, w.currency)}
+                        {payments.length
+                          ? ` · ${completedPays.length} done${
+                              pendingPays.length ? ` · ${pendingPays.length} pending` : ''
+                            }${disputedPays.length ? ` · ${disputedPays.length} disputed` : ''}`
+                          : ''}
+                      </span>
                     </div>
 
-                    {expanded && (
-                      <div className="border-t border-outline-variant bg-surface-container-low/50 px-3 py-3 sm:px-5 sm:py-4">
-                        {actionError && (
-                          <p className="mb-2 rounded-lg border border-error/30 bg-error-container/30 px-2.5 py-2 text-xs text-error sm:mb-3 sm:px-3">
+                    {expanded && payments.length > 0 ? (
+                      <div className="border-t border-outline-variant bg-surface-container-low/40 px-2 py-1.5 sm:px-2.5">
+                        {actionError ? (
+                          <p className="mb-1.5 rounded-md border border-error/30 bg-error-container/30 px-2 py-1 text-[11px] text-error">
                             {actionError}
                           </p>
-                        )}
-                        {payments.length > 0 && (
-                          <div className="space-y-2">
-                            <p className="text-sm font-semibold">
-                              {payments.length <= 1 ? 'Payment' : 'Payments'}
-                            </p>
-                            <p className="text-[11px] text-on-surface-variant sm:text-xs">
-                              Tap Received if you got the money, or Dispute within 24 hours. After
-                              that it auto-confirms.
-                            </p>
-                            {payments.map((p) => {
-                              const acts = paymentCanAct(p);
-                              const windowLabel = formatWindowLeft(acts.endsAt);
-                              return (
-                                <div
-                                  key={p._id}
-                                  className="flex flex-col gap-2 rounded-lg border border-outline-variant bg-surface-container-lowest px-2.5 py-2.5 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-3 sm:rounded-xl sm:px-3 sm:py-3"
-                                >
-                                  <div className="min-w-0 flex-1">
-                                    <p className="text-sm font-semibold sm:text-base">
+                        ) : null}
+                        <div className="space-y-1">
+                          <p className="text-[10px] text-on-surface-variant">
+                            Received or dispute within 24h
+                          </p>
+                          {payments.map((p) => {
+                            const acts = paymentCanAct(p);
+                            const windowLabel = formatWindowLeft(acts.endsAt);
+                            return (
+                              <div
+                                key={p._id}
+                                className="flex flex-col gap-1 rounded-md border border-outline-variant bg-surface-container-lowest px-2 py-1 sm:flex-row sm:items-center sm:justify-between sm:gap-2"
+                              >
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex flex-wrap items-center gap-1">
+                                    <span className="text-[13px] font-semibold tabular-nums">
                                       {formatCurrency(p.amount, p.currency || w.currency)}
-                                    </p>
-                                    <p className="mt-0.5 break-all text-[11px] text-on-surface-variant">
-                                      {p.referenceId}
-                                      {p.utr ? ` · UTR ${p.utr}` : ''}
-                                      {p.createdAt ? ` · ${formatDate(p.createdAt)}` : ''}
-                                    </p>
-                                    {p.status === 'pending' && windowLabel && !p.disputedAt && (
-                                      <p className="mt-1 text-[11px] text-secondary">{windowLabel}</p>
-                                    )}
-                                    {p.disputedAt && (
-                                      <p className="mt-1 text-[11px] text-error">
-                                        Support ticket{' '}
-                                        <span className="font-mono">{p.disputeTicketId || '—'}</span>
-                                        {p.notes?.includes('. ')
-                                          ? ` · ${p.notes.split('. ').slice(1).join('. ').trim()}`
-                                          : ''}
-                                      </p>
-                                    )}
-                                    {p.status === 'rejected' && p.rejectionReason && (
-                                      <p className="mt-1 text-[11px] text-error">{p.rejectionReason}</p>
-                                    )}
+                                    </span>
+                                    <StatusBadge
+                                      status={p.disputedAt ? 'disputed' : p.status}
+                                    />
+                                    {p.status === 'pending' && windowLabel && !p.disputedAt ? (
+                                      <span className="text-[10px] text-secondary">{windowLabel}</span>
+                                    ) : null}
                                   </div>
-                                  <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
-                                    {p.proofImageUrl && (
-                                      <a
-                                        href={p.proofImageUrl}
-                                        target="_blank"
-                                        rel="noreferrer"
-                                        className="text-xs font-semibold text-secondary underline"
-                                      >
-                                        Proof
-                                      </a>
-                                    )}
-                                    <StatusBadge status={p.disputedAt ? 'disputed' : p.status} />
-                                    {acts.received && (
-                                      <Button
-                                        type="button"
-                                        size="sm"
-                                        variant="secondary"
-                                        loading={
-                                          confirmReceived.isPending &&
-                                          confirmReceived.variables === p._id
-                                        }
-                                        onClick={async () => {
-                                          setActionError('');
-                                          const ok = await confirmDialog({
-                                            title: 'Confirm payment received?',
-                                            description: `Confirm you received ${formatCurrency(p.amount, p.currency || w.currency)}.`,
-                                            confirmLabel: 'Yes, I received it',
-                                            cancelLabel: 'Not yet',
-                                            variant: 'secondary',
-                                          });
-                                          if (ok) confirmReceived.mutate(p._id);
-                                        }}
-                                      >
-                                        Received
-                                      </Button>
-                                    )}
-                                    {acts.dispute && (
-                                      <Button
-                                        type="button"
-                                        size="sm"
-                                        variant="outline"
-                                        onClick={() => {
-                                          setActionError('');
-                                          setDisputeFor(p);
-                                          setDisputeReason('');
-                                          setDisputeFiles([]);
-                                        }}
-                                      >
-                                        Dispute
-                                      </Button>
-                                    )}
-                                  </div>
+                                  <p className="truncate text-[10px] text-on-surface-variant">
+                                    {p.referenceId}
+                                    {p.utr ? ` · UTR ${p.utr}` : ''}
+                                    {p.createdAt ? ` · ${formatDate(p.createdAt)}` : ''}
+                                  </p>
+                                  {p.disputedAt ? (
+                                    <p className="text-[10px] text-error">
+                                      Ticket {p.disputeTicketId || '—'}
+                                      {p.notes?.includes('. ')
+                                        ? ` · ${p.notes.split('. ').slice(1).join('. ').trim()}`
+                                        : ''}
+                                    </p>
+                                  ) : null}
+                                  {p.status === 'rejected' && p.rejectionReason ? (
+                                    <p className="text-[10px] text-error">{p.rejectionReason}</p>
+                                  ) : null}
                                 </div>
-                              );
-                            })}
-                          </div>
-                        )}
+                                <div className="flex flex-wrap items-center gap-1">
+                                  {p.proofImageUrl ? (
+                                    <a
+                                      href={p.proofImageUrl}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="px-1 text-[11px] font-semibold text-secondary underline"
+                                    >
+                                      Proof
+                                    </a>
+                                  ) : null}
+                                  {acts.received ? (
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      variant="secondary"
+                                      className="!h-7 !min-h-0 !px-2 !py-0 text-[11px]"
+                                      loading={
+                                        confirmReceived.isPending &&
+                                        confirmReceived.variables === p._id
+                                      }
+                                      onClick={async () => {
+                                        setActionError('');
+                                        const ok = await confirmDialog({
+                                          title: 'Confirm payment received?',
+                                          description: `Confirm you received ${formatCurrency(p.amount, p.currency || w.currency)}.`,
+                                          confirmLabel: 'Yes, I received it',
+                                          cancelLabel: 'Not yet',
+                                          variant: 'secondary',
+                                        });
+                                        if (ok) confirmReceived.mutate(p._id);
+                                      }}
+                                    >
+                                      Received
+                                    </Button>
+                                  ) : null}
+                                  {acts.dispute ? (
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      variant="outline"
+                                      className="!h-7 !min-h-0 !px-2 !py-0 text-[11px]"
+                                      onClick={() => {
+                                        setActionError('');
+                                        setDisputeFor(p);
+                                        setDisputeReason('');
+                                        setDisputeFiles([]);
+                                      }}
+                                    >
+                                      Dispute
+                                    </Button>
+                                  ) : null}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
                       </div>
-                    )}
+                    ) : null}
                   </article>
                 );
               })}
             </div>
 
-            <div className="mt-5">
+            <div className="mt-3">
               <Pagination
                 page={page}
                 totalPages={totalPages}

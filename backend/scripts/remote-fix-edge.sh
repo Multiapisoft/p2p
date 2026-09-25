@@ -1,13 +1,13 @@
 #!/bin/bash
 set -e
-cd /opt/apps/mix/p2p
-git pull --ff-only origin master || true
-# keep broken orphan from coming back
-docker rm -f p2p-caddy 2>/dev/null || true
+for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
+  h=$(docker inspect p2p-backend --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}')
+  echo "health=$h"
+  [ "$h" = "healthy" ] && break
+  sleep 4
+done
 docker network connect shared-db p2p-backend 2>/dev/null || true
 docker network connect edge p2p-backend 2>/dev/null || true
-echo -n 'nets='
-docker inspect p2p-backend --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}'
+docker exec edge-caddy wget -qO- --timeout=5 http://p2p-backend:9091/api/v1/health
 echo
-docker exec edge-caddy wget -qO- --timeout=5 http://p2p-backend:9091/api/v1/health >/dev/null
-curl -sS -o /dev/null -w 'public:%{http_code}\n' --connect-timeout 10 https://dev.payment.fairplayoffical.com/api/v1/health
+curl -sS -o /dev/null -w 'public:%{http_code}\n' https://dev.payment.fairplayoffical.com/api/v1/health

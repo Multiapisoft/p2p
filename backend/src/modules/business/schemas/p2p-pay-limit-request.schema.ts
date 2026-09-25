@@ -44,6 +44,10 @@ export class P2pPayLimitRequest {
   @Prop({ maxlength: 500 })
   rejectReason?: string;
 
+  /** Admin notes on approve / reject. */
+  @Prop({ maxlength: 500 })
+  reviewNotes?: string;
+
   /** Seed snapshot at request time (for UI). */
   @Prop({ default: 0 })
   seedAtRequest?: number;

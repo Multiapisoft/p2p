@@ -6,6 +6,7 @@ import { NAV_ITEMS } from '@/shared/constants/navigation';
 import { useAuthStore } from '@/features/auth/store/auth.store';
 import { usePermissions } from '@/shared/hooks/usePermissions';
 import { NotificationBell } from '@/features/notifications/components/NotificationBell';
+import { HeaderProfile } from '@/shared/components/layout/HeaderProfile';
 import { cn } from '@/shared/lib/utils';
 import { useState, type ReactNode } from 'react';
 
@@ -62,18 +63,6 @@ export function AppLayout({ children }: { children: ReactNode }) {
             );
           })}
         </nav>
-        <div className="shrink-0 border-t border-outline-variant p-4">
-          <p className="truncate text-sm font-medium">{user?.name || user?.email}</p>
-          <p className="truncate text-xs text-on-surface-variant">{user?.email}</p>
-          <p className="text-xs capitalize text-on-surface-variant">{user?.role?.replace('_', ' ')}</p>
-          <button
-            onClick={handleLogout}
-            className="mt-3 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-error hover:bg-error-container/30"
-          >
-            <span className="material-symbols-outlined text-lg">logout</span>
-            Logout
-          </button>
-        </div>
       </aside>
 
       {/* Content column — header fixed, main scrolls */}
@@ -90,14 +79,14 @@ export function AppLayout({ children }: { children: ReactNode }) {
           <div className="hidden text-sm text-on-surface-variant md:block">
             {visibleNav.find((n) => pathname === n.to || (n.to !== '/' && pathname.startsWith(n.to)))?.label ?? 'Admin'}
           </div>
-          <div className="flex shrink-0 items-center gap-1 sm:gap-2">
+          <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
             <NotificationBell />
-            <button
-              onClick={handleLogout}
-              className="material-symbols-outlined rounded-lg p-1.5 text-on-surface-variant hover:bg-surface-container-high md:hidden sm:p-2"
-            >
-              logout
-            </button>
+            <HeaderProfile
+              name={user?.name}
+              email={user?.email}
+              roleLabel={user?.role?.replace('_', ' ')}
+              onLogout={handleLogout}
+            />
           </div>
         </header>
 

@@ -25,7 +25,6 @@ const ROUTE_PERMISSIONS: { prefix: string; permission: string | null }[] = [
   { prefix: '/users', permission: PERMISSIONS.USERS },
   { prefix: '/businesses', permission: PERMISSIONS.BUSINESS },
   { prefix: '/wallet', permission: PERMISSIONS.WALLET },
-  { prefix: '/commissions', permission: PERMISSIONS.COMMISSIONS },
   { prefix: '/audit', permission: PERMISSIONS.AUDIT },
   { prefix: '/support', permission: PERMISSIONS.SUPPORT },
   { prefix: '/payments', permission: PERMISSIONS.PAYMENT_CONFIG },
@@ -100,7 +99,6 @@ describe('admin route permission gates — complex nav scenarios', () => {
     expect(canOpenRoute('/support', ops)).toBe(true);
     expect(canOpenRoute('/businesses', ops)).toBe(true);
     expect(canOpenRoute('/deposits', ops)).toBe(false);
-    expect(canOpenRoute('/commissions', ops)).toBe(false);
     expect(canOpenRoute('/wallet', ops)).toBe(false);
   });
 });

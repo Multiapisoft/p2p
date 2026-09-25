@@ -31,18 +31,14 @@ describe('withdrawal-visibility.util (#8 #24)', () => {
   });
 
   describe('who can see withdrawal', () => {
-    it('business filter hides rows created after cutoff (still in TAT)', () => {
+    it('business filter no longer hides rows during TAT (approve still waits)', () => {
       const cutoff = tatCutoffDate(now, tatMs);
-      expect(businessWithdrawalVisibilityFilter(cutoff)).toEqual({
-        $or: [{ createdAt: { $lte: cutoff } }, { origin: 'business' }],
-      });
+      expect(businessWithdrawalVisibilityFilter(cutoff)).toEqual({});
     });
 
-    it('admin filter hides user WDs still in TAT (same as business)', () => {
+    it('admin filter matches business (show immediately)', () => {
       const cutoff = tatCutoffDate(now, tatMs);
-      expect(adminWithdrawalVisibilityFilter(cutoff)).toEqual({
-        $or: [{ createdAt: { $lte: cutoff } }, { origin: 'business' }],
-      });
+      expect(adminWithdrawalVisibilityFilter(cutoff)).toEqual({});
     });
 
     it('available-for-payment is listed-only (business WD needs admin verify)', () => {

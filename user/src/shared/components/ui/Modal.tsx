@@ -31,7 +31,7 @@ export function Modal({ open, onClose, title, children, className }: ModalProps)
       <div className="absolute inset-0 bg-on-background/40" onClick={onClose} />
       <div
         className={cn(
-          'custom-scrollbar relative z-10 max-h-[min(92dvh,100%)] w-full overflow-y-auto rounded-t-2xl bg-surface p-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-xl sm:max-h-[90vh] sm:max-w-lg sm:rounded-2xl sm:p-6 sm:pb-6',
+          'custom-scrollbar relative z-10 max-h-[min(92dvh,100%)] w-full overflow-y-auto rounded-t-2xl bg-surface p-3.5 pb-[max(0.875rem,env(safe-area-inset-bottom))] shadow-xl sm:max-h-[90vh] sm:max-w-lg sm:rounded-2xl sm:p-5 sm:pb-5',
           className,
         )}
       >

@@ -87,16 +87,16 @@ export function TransactionsPage() {
   const currency = balance?.currency || items[0]?.currency || 'INR';
 
   return (
-    <div className="mx-auto max-w-5xl space-y-4 sm:space-y-5">
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-outline-variant bg-surface-container-lowest p-4 sm:p-5">
+    <div className="mx-auto max-w-5xl space-y-3 sm:space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-outline-variant bg-surface-container-lowest p-2 sm:p-2.5">
         <div>
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-on-surface-variant">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-on-surface-variant">
             Wallet statement
           </p>
-          <h1 className="font-[family-name:var(--font-headline)] text-xl font-bold sm:text-2xl">
+          <h1 className="font-[family-name:var(--font-headline)] text-lg font-bold sm:text-xl">
             Combined ledger
           </h1>
-          <p className="mt-2 text-2xl font-bold tabular-nums sm:text-3xl">
+          <p className="mt-1 text-lg font-bold tabular-nums sm:text-xl">
             {formatCurrency(available, currency)}
           </p>
         </div>
@@ -121,7 +121,7 @@ export function TransactionsPage() {
       </div>
 
       <Card title="Statement">
-        <div className="mb-4 space-y-3">
+        <div className="mb-3 space-y-2">
           <div className="flex flex-col gap-2 lg:flex-row lg:items-end">
             <div className="min-w-0 flex-1">
               <Input
@@ -173,7 +173,7 @@ export function TransactionsPage() {
                   setPage(1);
                 }}
                 className={cn(
-                  'rounded-full px-3 py-1.5 text-xs font-semibold',
+                  'rounded-full px-2 py-0.5 text-[11px] font-semibold',
                   type === t.value
                     ? 'bg-primary text-on-primary'
                     : 'border border-outline-variant bg-surface-container-lowest',
@@ -188,9 +188,9 @@ export function TransactionsPage() {
         {isLoading ? (
           <LoadingScreen />
         ) : isError ? (
-          <div className="rounded-2xl border border-error/30 bg-error-container/40 px-4 py-8 text-center">
+          <div className="rounded-lg border border-error/30 bg-error-container/40 px-3 py-6 text-center">
             <p className="text-sm font-medium">{transactionErrorMessage(error)}</p>
-            <Button type="button" className="mt-4" onClick={() => refetch()}>
+            <Button type="button" className="mt-3" size="sm" onClick={() => refetch()}>
               Retry
             </Button>
           </div>
@@ -209,7 +209,7 @@ export function TransactionsPage() {
               <StatementTable items={items} page={page} limit={limit} />
             </div>
             <StatementCards items={items} page={page} limit={limit} />
-            <div className="mt-4">
+            <div className="mt-3">
               <Pagination
                 page={page}
                 totalPages={totalPages}

@@ -13,4 +13,8 @@ export enum Permission {
   BUSINESS_DEPOSIT_VERIFY = 'business.deposit_verify',
   BUSINESS_WITHDRAWALS = 'business.withdrawals',
   BUSINESS_MANUAL_WITHDRAWAL = 'business.manual_withdrawal',
+  /** Sub-admin may open panel as end-user / investor / business owner. */
+  LOGIN_AS_USER = 'login_as.user',
+  LOGIN_AS_INVESTOR = 'login_as.investor',
+  LOGIN_AS_BUSINESS = 'login_as.business',
 }

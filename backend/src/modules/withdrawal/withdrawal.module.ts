@@ -41,7 +41,7 @@ import { UsersModule } from '../users/users.module';
     NotificationModule,
     WebhookModule,
     AuditModule,
-    SupportModule,
+    forwardRef(() => SupportModule),
     PlatformSettingsModule,
     UsersModule,
     forwardRef(() => IntegrationModule),

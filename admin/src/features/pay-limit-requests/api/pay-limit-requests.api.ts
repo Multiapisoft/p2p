@@ -18,6 +18,7 @@ export type PayLimitRequest = {
   requestedBy?: string | { _id: string; name?: string; email?: string; role?: string };
   reviewedBy?: string | { _id: string; name?: string; email?: string; role?: string };
   reviewedAt?: string;
+  reviewNotes?: string;
   rejectReason?: string;
   createdAt: string;
 };
@@ -48,7 +49,7 @@ export const payLimitRequestsApi = {
     body: {
       p2pPayLimit: number;
       mode?: PayLimitMode;
-      notes?: string;
+      notes: string;
       proofImageKey?: string;
       proofImageUrl?: string;
       applyNow?: boolean;
@@ -57,12 +58,14 @@ export const payLimitRequestsApi = {
     `/business/${businessId}/p2p-pay-limit-requests`,
     body,
   ),
-  approve: (requestId: string) =>
+  approve: (requestId: string, notes?: string) =>
     apiPatch<{ request: PayLimitRequest }>(
       `/business/p2p-pay-limit-requests/${requestId}/approve`,
+      notes?.trim() ? { notes: notes.trim() } : {},
     ),
-  reject: (requestId: string, reason?: string) =>
+  reject: (requestId: string, notes?: string) =>
     apiPatch<PayLimitRequest>(`/business/p2p-pay-limit-requests/${requestId}/reject`, {
-      reason,
+      notes: notes?.trim() || undefined,
+      reason: notes?.trim() || undefined,
     }),
 };

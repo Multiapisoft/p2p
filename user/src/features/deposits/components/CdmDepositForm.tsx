@@ -62,7 +62,7 @@ export function CdmDepositForm() {
   const items = myCdm?.items ?? [];
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       {!open ? (
         <Card>
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -152,7 +152,7 @@ export function CdmDepositForm() {
                 {error}
               </div>
             ) : null}
-            <Button type="submit" className="w-full" loading={create.isPending}>
+            <Button type="submit" className="min-h-10 w-full sm:w-auto" loading={create.isPending}>
               Submit CDM request
             </Button>
           </form>
@@ -161,10 +161,10 @@ export function CdmDepositForm() {
 
       {items.length > 0 ? (
         <Card>
-          <p className="mb-3 text-sm font-semibold">My CDM requests</p>
+          <p className="mb-2 text-sm font-semibold">My CDM requests</p>
           <ul className="divide-y divide-outline-variant/60">
             {items.map((d) => (
-              <li key={d._id} className="flex flex-wrap items-center justify-between gap-2 py-2.5">
+              <li key={d._id} className="flex flex-wrap items-center justify-between gap-2 py-2">
                 <div className="min-w-0">
                   <p className="font-medium">
                     {formatCurrency(d.amount, d.currency)}

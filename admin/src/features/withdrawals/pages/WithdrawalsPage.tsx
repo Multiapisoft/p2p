@@ -154,6 +154,17 @@ export function WithdrawalsPage() {
     onError: (err) => setActionError(getApiErrorMessage(err, 'Unassign failed')),
   });
 
+  const setPriority = useMutation({
+    mutationFn: ({ id, priority }: { id: string; priority: boolean }) =>
+      withdrawalsApi.setPriority(id, priority),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['withdrawals'] });
+      qc.invalidateQueries({ queryKey: ['withdrawal-admin'] });
+      setActionError('');
+    },
+    onError: (err) => setActionError(getApiErrorMessage(err, 'Highlight failed')),
+  });
+
   const markPaid = useMutation({
     mutationFn: ({
       id,
@@ -218,12 +229,35 @@ export function WithdrawalsPage() {
 
   function p2pListLabel(w: WithdrawalRow) {
     const s = w.p2pListStatus || 'awaiting';
-    if (w.origin === 'business' && s === 'awaiting') return 'Waiting admin verify';
+    if (w.origin === 'business' && s === 'awaiting') return 'Needs verify';
     if (w.origin === 'business' && s === 'listed') return 'On pay list';
     if (s === 'listed') return 'Approved';
-    if (s === 'over_limit') return 'Over limit — admin approval';
-    if (s === 'rejected') return 'Approval rejected';
-    return 'Awaiting Platform Payment';
+    if (s === 'over_limit') return 'Over limit';
+    if (s === 'rejected') return 'Rejected';
+    return 'Awaiting';
+  }
+
+  function destinationShort(w: WithdrawalRow): string {
+    if (w.method === 'upi' && w.upiDetails?.upiId) {
+      const name = w.upiDetails.payerName?.trim();
+      return name ? `${name} · ${w.upiDetails.upiId}` : w.upiDetails.upiId;
+    }
+    if (w.method === 'bank') {
+      const acct = w.bankDetails?.accountNumber ?? '';
+      if (!acct) return '';
+      const b = w.bankDetails!;
+      return [b.accountHolderName, `****${acct.slice(-4)}`, b.ifscCode]
+        .filter(Boolean)
+        .join(' · ');
+    }
+    if (w.method === 'usdt' && w.usdtDetails?.walletAddress) {
+      const a = w.usdtDetails.walletAddress;
+      return `${a.slice(0, 8)}…${a.slice(-4)}${w.usdtDetails.network ? ` · ${w.usdtDetails.network}` : ''}`;
+    }
+    if (w.method === 'cdm') {
+      return w.cdmDetails?.payerName || 'CDM';
+    }
+    return '';
   }
 
   function assigneeName(w: WithdrawalRow) {
@@ -506,95 +540,60 @@ export function WithdrawalsPage() {
               />
             ) : (
               <>
-                <div className={`space-y-3 ${isFetching ? 'opacity-70' : ''}`}>
+                <div className={`space-y-1.5 ${isFetching ? 'opacity-70' : ''}`}>
                   {items.map((w) => {
                     const person = asPerson(w.userId);
+                    const biz =
+                      typeof w.businessId === 'object' && w.businessId
+                        ? w.businessId
+                        : null;
                     const remaining = Math.max(0, w.amount - (w.paidAmount || 0));
+                    const dest = destinationShort(w);
+                    const canManage =
+                      w.status === 'pending' || w.status === 'processing';
+                    const listStatus = w.p2pListStatus || 'awaiting';
+                    const notListed = listStatus !== 'listed';
+                    const hasRemaining = remaining > 0;
+                    const btn =
+                      '!h-7 !min-h-0 !px-2 !py-0 text-[11px] font-semibold';
+
                     return (
                       <article
                         key={w._id}
                         className={cn(
-                          'overflow-hidden rounded-2xl border border-outline-variant/80 border-l-4 bg-surface-container-lowest shadow-sm transition hover:border-secondary/35 hover:shadow-md',
+                          'overflow-hidden rounded-lg border border-outline-variant/80 border-l-[3px] bg-surface-container-lowest',
                           statusAccent(w.status),
                         )}
                       >
-                        <div className="flex flex-col gap-3 p-3 sm:p-4 lg:flex-row lg:items-stretch lg:justify-between">
-                          <div className="min-w-0 flex-1 space-y-2.5">
-                            <div className="flex flex-wrap items-start gap-2.5">
-                              <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                                <span className="material-symbols-outlined text-[22px]">
-                                  {methodIcon(w.method)}
-                                </span>
+                        <div className="flex items-start gap-2 px-2 py-1.5 sm:items-center sm:px-2.5">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-1">
+                              <span className="material-symbols-outlined text-[14px] text-primary">
+                                {methodIcon(w.method)}
                               </span>
-                              <div className="min-w-0 flex-1">
-                                <p className="truncate font-mono text-sm font-bold tracking-tight text-primary sm:text-base">
-                                  {w.referenceId}
-                                </p>
-                                <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-on-surface-variant">
-                                  <span className="font-semibold uppercase">{w.method}</span>
-                                  <span>·</span>
-                                  <span>{formatDate(w.createdAt)}</span>
-                                  {w.paidAmount ? (
-                                    <>
-                                      <span>·</span>
-                                      <span className="text-secondary">
-                                        Paid {formatCurrency(w.paidAmount, w.currency)}
-                                      </span>
-                                    </>
-                                  ) : null}
-                                </p>
-                              </div>
-                            </div>
-
-                            <div className="grid gap-2 rounded-xl border border-outline-variant/70 bg-surface-container-low/40 px-3 py-2.5 text-xs sm:grid-cols-2">
-                              <div>
-                                <p className="text-[10px] font-bold uppercase tracking-wide text-on-surface-variant">
-                                  User
-                                </p>
-                                <p className="mt-0.5 font-medium text-on-surface">
-                                  {person?.name || '—'}
-                                  {person?.role ? (
-                                    <span className="font-normal text-on-surface-variant">
-                                      {' '}
-                                      · {person.role}
-                                    </span>
-                                  ) : null}
-                                </p>
-                                {person?.email ? (
-                                  <p className="truncate text-on-surface-variant">{person.email}</p>
-                                ) : null}
-                              </div>
-                              <div>
-                                <p className="text-[10px] font-bold uppercase tracking-wide text-on-surface-variant">
-                                  Destination
-                                </p>
-                                <p className="mt-0.5 text-on-surface">
-                                  {destinationLines(w).join(' · ') || '—'}
-                                </p>
-                              </div>
-                            </div>
-
-                            <div className="flex flex-wrap items-center gap-1.5">
+                              <span className="text-[13px] font-bold tabular-nums text-error">
+                                {formatCurrency(w.amount, w.currency)}
+                              </span>
                               <StatusBadge status={w.status} />
                               {w.priority ? (
-                                <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-900">
+                                <span className="rounded bg-amber-100 px-1 py-px text-[9px] font-bold uppercase text-amber-900">
                                   Highlighted
                                 </span>
                               ) : null}
                               {w.origin === 'business' ? (
-                                <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
+                                <span className="rounded bg-primary/10 px-1 py-px text-[9px] font-semibold text-primary">
                                   Business req
                                 </span>
                               ) : null}
                               {showP2pListChip(w) ? (
                                 <span
                                   className={cn(
-                                    'rounded-full px-2 py-0.5 text-[10px] font-semibold',
-                                    (w.p2pListStatus || 'awaiting') === 'listed'
+                                    'rounded px-1 py-px text-[9px] font-semibold',
+                                    listStatus === 'listed'
                                       ? 'bg-secondary/15 text-secondary'
-                                      : (w.p2pListStatus || 'awaiting') === 'rejected'
+                                      : listStatus === 'rejected'
                                         ? 'bg-error/10 text-error'
-                                        : w.p2pListStatus === 'over_limit'
+                                        : listStatus === 'over_limit'
                                           ? 'bg-amber-500/15 text-amber-900'
                                           : 'bg-outline-variant/40 text-on-surface-variant',
                                   )}
@@ -602,136 +601,183 @@ export function WithdrawalsPage() {
                                   {p2pListLabel(w)}
                                 </span>
                               ) : null}
-                              {assigneeName(w) ? (
-                                <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
-                                  Assigned: {assigneeName(w)}
+                              {(w.paidAmount || 0) > 0 ? (
+                                <span className="text-[10px] text-secondary">
+                                  · Paid {formatCurrency(w.paidAmount || 0, w.currency)}
+                                  {hasRemaining
+                                    ? ` · Left ${formatCurrency(remaining, w.currency)}`
+                                    : ''}
                                 </span>
                               ) : null}
-                              {remaining > 0 && (w.paidAmount || 0) > 0 ? (
-                                <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
-                                  Left {formatCurrency(remaining, w.currency)}
-                                </span>
+                            </div>
+
+                            <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-1 gap-y-0 text-[10px] leading-snug text-on-surface-variant">
+                              <span className="truncate font-mono font-medium text-primary">
+                                {w.referenceId}
+                              </span>
+                              <span aria-hidden>·</span>
+                              <span className="uppercase">{w.method}</span>
+                              <span aria-hidden>·</span>
+                              <span>{formatDate(w.createdAt)}</span>
+                            </div>
+
+                            <div className="mt-1 rounded-md border border-outline-variant/60 bg-surface-container-low/50 px-2 py-1 text-[11px] leading-snug">
+                              {biz?.name ? (
+                                <p className="truncate font-semibold text-on-surface">
+                                  {biz.name}
+                                  {biz.referralCode ? (
+                                    <span className="ml-1 font-normal text-on-surface-variant">
+                                      · {biz.referralCode}
+                                    </span>
+                                  ) : null}
+                                </p>
+                              ) : null}
+                              {(person?.name || person?.email) && (
+                                <p className="truncate text-on-surface-variant">
+                                  {person?.name || '—'}
+                                  {person?.role ? ` · ${person.role}` : ''}
+                                  {person?.email ? ` · ${person.email}` : ''}
+                                </p>
+                              )}
+                              {dest ? (
+                                <p className="truncate text-on-surface">{dest}</p>
+                              ) : null}
+                              {assigneeName(w) ? (
+                                <p className="truncate text-primary">
+                                  Assigned → {assigneeName(w)}
+                                </p>
                               ) : null}
                             </div>
                           </div>
 
-                          <div className="flex shrink-0 flex-col gap-3 border-t border-outline-variant/60 pt-3 lg:w-[220px] lg:border-l lg:border-t-0 lg:pl-4 lg:pt-0">
-                            <div className="text-left lg:text-right">
-                              <p className="text-[10px] font-bold uppercase tracking-wide text-on-surface-variant">
-                                Amount
-                              </p>
-                              <p className="text-xl font-bold tabular-nums text-error sm:text-2xl">
-                                {formatCurrency(w.amount, w.currency)}
-                              </p>
-                            </div>
-                            <div className="flex flex-wrap gap-2 lg:justify-end">
-                              <Button size="sm" variant="secondary" onClick={() => setDetail(w)}>
-                                Details
+                          <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">
+                            {canManage && notListed ? (
+                              <Button
+                                size="sm"
+                                className={btn}
+                                loading={listForP2p.isPending}
+                                onClick={() => listForP2p.mutate(w._id)}
+                              >
+                                {w.origin === 'business'
+                                  ? 'Verify'
+                                  : listStatus === 'over_limit'
+                                    ? 'Approve OL'
+                                    : 'Approve'}
                               </Button>
-                              {(w.status === 'pending' || w.status === 'processing') &&
-                                (w.p2pListStatus || 'awaiting') !== 'listed' && (
-                                  <Button
-                                    size="sm"
-                                    loading={listForP2p.isPending}
-                                    onClick={() => listForP2p.mutate(w._id)}
-                                  >
-                                    {w.origin === 'business'
-                                      ? 'Verify'
-                                      : w.p2pListStatus === 'over_limit'
-                                        ? 'Approve over limit'
-                                        : 'Approve'}
-                                  </Button>
-                                )}
-                              {(w.status === 'pending' || w.status === 'processing') &&
-                                (w.paidAmount || 0) <= 0 && (
-                                  <Button
-                                    size="sm"
-                                    variant="danger"
-                                    onClick={() => {
-                                      setRejectTarget(w);
-                                      setRejectReason('');
-                                      setActionError('');
-                                    }}
-                                  >
-                                    Reject
-                                  </Button>
-                                )}
-                              {(w.status === 'pending' || w.status === 'processing') &&
-                                w.p2pListStatus === 'listed' && (
+                            ) : null}
+                            {canManage && hasRemaining ? (
+                              <Button
+                                size="sm"
+                                variant="danger"
+                                className={btn}
+                                onClick={() => {
+                                  setRejectTarget(w);
+                                  setRejectReason('');
+                                  setActionError('');
+                                }}
+                              >
+                                {(w.paidAmount || 0) > 0 ? 'Reject rem.' : 'Reject'}
+                              </Button>
+                            ) : null}
+                            {canManage && listStatus === 'listed' ? (
+                              <>
+                                {w.origin === 'business' ? (
                                   <>
-                                    {w.origin === 'business' ? (
-                                      <>
-                                        <Button
-                                          size="sm"
-                                          onClick={() => {
-                                            setPayTarget(w);
-                                            setPayAmount(
-                                              String(w.amount - (w.paidAmount || 0)),
-                                            );
-                                            setPayUtr('');
-                                            setActionError('');
-                                          }}
-                                        >
-                                          Pay
-                                        </Button>
-                                        <Button
-                                          size="sm"
-                                          variant="secondary"
-                                          onClick={() => {
-                                            setMarkPaidTarget(w);
-                                            setMarkPaidUtr('');
-                                            setMarkPaidTxHash('');
-                                            setMarkPaidProofKey('');
-                                            setMarkPaidProofUrl('');
-                                            setActionError('');
-                                          }}
-                                        >
-                                          Mark paid
-                                        </Button>
-                                      </>
-                                    ) : null}
+                                    <Button
+                                      size="sm"
+                                      className={btn}
+                                      onClick={() => {
+                                        setPayTarget(w);
+                                        setPayAmount(String(remaining));
+                                        setPayUtr('');
+                                        setActionError('');
+                                      }}
+                                    >
+                                      Pay
+                                    </Button>
                                     <Button
                                       size="sm"
                                       variant="secondary"
-                                      loading={unlistForP2p.isPending}
-                                      onClick={() => unlistForP2p.mutate(w._id)}
+                                      className={btn}
+                                      onClick={() => {
+                                        setMarkPaidTarget(w);
+                                        setMarkPaidUtr('');
+                                        setMarkPaidTxHash('');
+                                        setMarkPaidProofKey('');
+                                        setMarkPaidProofUrl('');
+                                        setActionError('');
+                                      }}
                                     >
-                                      Unlist
+                                      Mark paid
                                     </Button>
                                   </>
-                                )}
-                              {(w.status === 'pending' || w.status === 'processing') &&
-                              Math.max(0, w.amount - (w.paidAmount || 0)) > 0 ? (
+                                ) : null}
                                 <Button
                                   size="sm"
-                                  variant="outline"
-                                  onClick={() => {
-                                    setAssignTarget(w);
-                                    setActionError('');
-                                  }}
+                                  variant="secondary"
+                                  className={btn}
+                                  loading={unlistForP2p.isPending}
+                                  onClick={() => unlistForP2p.mutate(w._id)}
                                 >
-                                  {assigneeName(w) ? 'Reassign' : 'Assign'}
+                                  Unlist
                                 </Button>
-                              ) : null}
-                              {assigneeName(w) &&
-                              (w.status === 'pending' || w.status === 'processing') ? (
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  loading={unassignPayer.isPending}
-                                  onClick={() => unassignPayer.mutate(w._id)}
-                                >
-                                  Unassign
-                                </Button>
-                              ) : null}
-                            </div>
-                            {w.status === 'pending' && (w.paidAmount || 0) > 0 && (
-                              <p className="text-[11px] text-on-surface-variant lg:text-right">
-                                Use Split Payments to approve proofs
-                              </p>
-                            )}
+                              </>
+                            ) : null}
+                            {canManage && hasRemaining ? (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className={btn}
+                                onClick={() => {
+                                  setAssignTarget(w);
+                                  setActionError('');
+                                }}
+                              >
+                                {assigneeName(w) ? 'Reassign' : 'Assign'}
+                              </Button>
+                            ) : null}
+                            {assigneeName(w) && canManage ? (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className={btn}
+                                loading={unassignPayer.isPending}
+                                onClick={() => unassignPayer.mutate(w._id)}
+                              >
+                                Unassign
+                              </Button>
+                            ) : null}
+                            {canManage && hasRemaining ? (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className={btn}
+                                loading={setPriority.isPending}
+                                onClick={() =>
+                                  setPriority.mutate({
+                                    id: w._id,
+                                    priority: !w.priority,
+                                  })
+                                }
+                              >
+                                {w.priority ? 'Unhighlight' : 'Highlight'}
+                              </Button>
+                            ) : null}
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className={btn}
+                              onClick={() => setDetail(w)}
+                            >
+                              Details
+                            </Button>
                           </div>
                         </div>
+                        {w.status === 'pending' && (w.paidAmount || 0) > 0 ? (
+                          <p className="border-t border-outline-variant/50 px-2 py-1 text-[10px] text-on-surface-variant sm:px-2.5">
+                            Use Split Payments to approve proofs
+                          </p>
+                        ) : null}
                       </article>
                     );
                   })}
@@ -1048,8 +1094,25 @@ export function WithdrawalsPage() {
             }}
           >
             <p className="text-sm text-on-surface-variant">
-              Cancels request <span className="font-mono font-semibold">{rejectTarget.referenceId}</span>{' '}
-              and unlocks the user wallet. This cannot be undone.
+              {(rejectTarget.paidAmount || 0) > 0 ? (
+                <>
+                  Confirmed pays stay. Remaining{' '}
+                  <span className="font-semibold text-on-surface">
+                    {formatCurrency(
+                      Math.max(0, rejectTarget.amount - (rejectTarget.paidAmount || 0)),
+                      rejectTarget.currency,
+                    )}
+                  </span>{' '}
+                  is cancelled — unused pay-limit and fee refund to the business (fee also
+                  deducted from admin).
+                </>
+              ) : (
+                <>
+                  Cancels request{' '}
+                  <span className="font-mono font-semibold">{rejectTarget.referenceId}</span>{' '}
+                  and unlocks the user wallet. This cannot be undone.
+                </>
+              )}
             </p>
             <Input
               label="Reason"

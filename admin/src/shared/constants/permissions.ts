@@ -9,4 +9,7 @@ export const PERMISSIONS = {
   AUDIT: 'audit.view',
   WALLET: 'wallet.adjust',
   PLATFORM_SETTINGS: 'platform_settings.manage',
+  LOGIN_AS_USER: 'login_as.user',
+  LOGIN_AS_INVESTOR: 'login_as.investor',
+  LOGIN_AS_BUSINESS: 'login_as.business',
 } as const;

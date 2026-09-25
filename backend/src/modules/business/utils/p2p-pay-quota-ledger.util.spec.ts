@@ -81,12 +81,28 @@ describe('p2pPayQuotaLedgerDescription', () => {
     ).toBe('P2P list reserve ₹5000 (withdrawal listed). Remaining ₹10000 → ₹5000');
   });
 
-  it('writes list_reserve on Approve; skips only list_release churn', () => {
+  it('writes list_reserve on Approve; skips only list_release churn; reject_refund visible', () => {
     expect(shouldSkipInProcessQuotaLedger('list_reserve')).toBe(false);
     expect(shouldSkipInProcessQuotaLedger('list_release')).toBe(true);
+    expect(shouldSkipInProcessQuotaLedger('reject_refund')).toBe(false);
     expect(shouldSkipInProcessQuotaLedger('wd_fee')).toBe(false);
     expect(isInProcessP2pQuotaLedgerRef('withdrawal_list')).toBe(false);
     expect(isInProcessP2pQuotaLedgerRef('withdrawal_payment')).toBe(false);
+    expect(isInProcessP2pQuotaLedgerRef('withdrawal_reject_refund')).toBe(false);
+  });
+
+  it('describes reject/unlist remaining refund', () => {
+    expect(
+      p2pPayQuotaLedgerDescription({
+        action: 'release',
+        amount: 10_000,
+        remainingBefore: 0,
+        remainingAfter: 10_000,
+        reason: 'reject_refund',
+      }),
+    ).toBe(
+      'P2P pay limit refunded ₹10000 (remaining after reject/unlist). Remaining ₹0 → ₹10000',
+    );
   });
 
   it('describes quota deduct', () => {

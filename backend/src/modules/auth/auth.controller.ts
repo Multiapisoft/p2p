@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Get } from '@nestjs/common';
+import { Controller, Post, Body, Get, Param } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import {
   LoginDto,
@@ -12,6 +12,8 @@ import {
 import { Public } from '../../common/decorators/public.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../../common/interfaces/jwt-payload.interface';
+import { Roles } from '../../common/decorators/roles.decorator';
+import { UserRole } from '../../common/enums/role.enum';
 
 @Controller('auth')
 export class AuthController {
@@ -27,6 +29,24 @@ export class AuthController {
   @Post('login')
   login(@Body() dto: LoginDto) {
     return this.authService.login(dto);
+  }
+
+  @Post('impersonate/business/:businessId')
+  @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN)
+  impersonateBusiness(
+    @Param('businessId') businessId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.authService.impersonateBusinessOwner(user, businessId);
+  }
+
+  @Post('impersonate/:userId')
+  @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN, UserRole.BUSINESS)
+  impersonate(
+    @Param('userId') userId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.authService.impersonate(user, userId);
   }
 
   @Public()

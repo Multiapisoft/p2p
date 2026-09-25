@@ -24,9 +24,9 @@ export function Button({
     danger: 'bg-error text-on-error hover:opacity-90',
   };
   const sizes = {
-    sm: 'px-3 py-1.5 text-sm',
-    md: 'px-4 py-2.5 text-sm font-semibold',
-    lg: 'px-6 py-3.5 text-base font-semibold',
+    sm: 'min-h-8 px-2.5 py-1 text-xs sm:text-sm',
+    md: 'min-h-10 px-3.5 py-2 text-sm font-semibold',
+    lg: 'min-h-11 px-5 py-2.5 text-sm font-semibold sm:text-base',
   };
 
   return (

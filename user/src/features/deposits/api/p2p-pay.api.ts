@@ -64,6 +64,8 @@ export interface AvailableWithdrawalsResponse extends Paginated<AvailableWithdra
   claimLockMinutes?: number;
   paySubmitMinutes?: number;
   needsAmount?: boolean;
+  waitingForMatch?: boolean;
+  sequentialMode?: boolean;
   matchAmount?: number | null;
   allowedDepositMethods?: PaymentMethod[];
 }

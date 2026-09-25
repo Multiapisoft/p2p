@@ -86,6 +86,10 @@ export class WithdrawalPayment {
 
   @Prop()
   disputeTicketId?: string;
+
+  /** Original submit amount when dispute resolve verifies a smaller received amount. */
+  @Prop()
+  amountBeforeResolve?: number;
 }
 
 export const WithdrawalPaymentSchema = SchemaFactory.createForClass(WithdrawalPayment);

@@ -41,6 +41,8 @@ export const withdrawalsApi = {
   assignPayer: (id: string, assigneeId: string) =>
     apiPatch<Withdrawal>(`/withdrawals/${id}/assign`, { assigneeId }),
   unassignPayer: (id: string) => apiPatch<Withdrawal>(`/withdrawals/${id}/unassign`, {}),
+  setPriority: (id: string, priority: boolean) =>
+    apiPatch<Withdrawal>(`/withdrawals/${id}/priority`, { priority }),
   payAsAdmin: (id: string, body: { amount: number; utr: string }) =>
     apiPost(`/withdrawal-payments/withdrawal/${id}`, body),
   createPlatformCommission: (payload: {

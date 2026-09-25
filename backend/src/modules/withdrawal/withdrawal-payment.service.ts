@@ -3,6 +3,8 @@ import {
   BadRequestException,
   NotFoundException,
   ForbiddenException,
+  Inject,
+  forwardRef,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
@@ -32,6 +34,7 @@ import { UsersService } from '../users/users.service';
 import { UserRole } from '../../common/enums/role.enum';
 import { TransactionStatus } from '../../common/enums/transaction-status.enum';
 import { paymentApproveClaimFilter } from './utils/payment-approve-claim.util';
+import { normalizeDisputeReceivedAmount } from './utils/dispute-received-amount.util';
 import type { AuthenticatedUser } from '../../common/interfaces/jwt-payload.interface';
 import { CommissionTarget } from '../../common/enums/commission-target.enum';
 import {
@@ -83,10 +86,14 @@ import {
 } from '../commission/utils/investor-commission-visibility.util';
 import { P2pRealtimeService } from '../realtime/p2p-realtime.service';
 import {
-  referralPercentsForPay,
   referralRewardAmount,
+  resolveReferralPercents,
 } from './utils/investor-referral-reward.util';
 import { investorQueueShownMaxPayable } from './utils/investor-pay-queue.util';
+import {
+  pickBestUserDepositMatch,
+  userDepositMatchesOpen,
+} from './utils/user-deposit-match.util';
 import {
   isListedQuotaHoldActive,
   withdrawalOwnerBusinessIdForRates,
@@ -121,6 +128,7 @@ export class WithdrawalPaymentService {
     private webhookService: WebhookService,
     private auditService: AuditService,
     private exchangeRateService: ExchangeRateService,
+    @Inject(forwardRef(() => SupportService))
     private supportService: SupportService,
     private partnerApiService: PartnerApiService,
     private platformSettingsService: PlatformSettingsService,
@@ -750,14 +758,28 @@ export class WithdrawalPaymentService {
                 ],
               }
             : (() => {
-                // User deposit amount is always INR. Never compare raw USDT open
-                // (e.g. 22 USDT) to an INR budget (e.g. ₹2000) — that falsely
-                // shows tiny USDT WDs and hides real UPI/Bank listings.
+                // User deposit amount is always INR. Show exact open ≈ amount
+                // or higher opens (partial) — never smaller WDs than the deposit.
                 const minUsdtPartialInr =
                   Math.round(MIN_PARTIAL_USDT * usdtInrRate * 100) / 100;
                 return {
                   $or: [
-                    { $lte: [remainingInrExpr, matchAmount] },
+                    {
+                      $and: [
+                        {
+                          $gte: [
+                            remainingInrExpr,
+                            { $subtract: [matchAmount, 0.05] },
+                          ],
+                        },
+                        {
+                          $lte: [
+                            remainingInrExpr,
+                            { $add: [matchAmount, 0.05] },
+                          ],
+                        },
+                      ],
+                    },
                     {
                       $and: [
                         isUsdtDoc,
@@ -880,6 +902,9 @@ export class WithdrawalPaymentService {
 
     const filter = { $and: and };
     const investorSequential = isInvestor && hasAmount;
+    /** Users: one best match (exact, else closest higher) after entering deposit amount. */
+    const userSequential = isUserPayer && matchAmount != null;
+    const sequentialList = investorSequential || userSequential;
     // Priority first; investors: FIFO (oldest) for one-by-one queue; users: oldest when matching.
     const sortSpec: Record<string, 1 | -1> =
       matchAmount != null && (!opts.sort || opts.sort === 'newest' || opts.sort === 'oldest')
@@ -894,8 +919,8 @@ export class WithdrawalPaymentService {
             status: { priority: -1, status: 1, createdAt: -1 },
           });
 
-    const queryLimit = investorSequential ? Math.max(limit, 100) : limit;
-    const querySkip = investorSequential ? 0 : skip;
+    const queryLimit = sequentialList ? Math.max(limit, 100) : limit;
+    const querySkip = sequentialList ? 0 : skip;
 
     const [rawItems, totalMatched] = await Promise.all([
       this.withdrawalModel.find(filter).skip(querySkip).limit(queryLimit).sort(sortSpec).exec(),
@@ -912,13 +937,12 @@ export class WithdrawalPaymentService {
       }
     }
 
-    // Pending payment totals for accurate locked/remaining (read-only — no DB writes on list).
+    // Pending (incl. disputed) totals — disputed pays keep WD slot + pay-limit locked.
     const pendingByWd = await this.paymentModel.aggregate<{ _id: Types.ObjectId; total: number }>([
       {
         $match: {
           withdrawalId: { $in: items.map((w) => w._id) },
           status: TransactionStatus.PENDING,
-          $or: [{ disputedAt: { $exists: false } }, { disputedAt: null }],
         },
       },
       { $group: { _id: '$withdrawalId', total: { $sum: '$amount' } } },
@@ -982,6 +1006,8 @@ export class WithdrawalPaymentService {
             maxPayable: 0,
             p2pPayRemainingInr: null,
             creditIfPayFull: null,
+            allowPartialPay: false,
+            minPartialPay: MIN_PARTIAL_INR,
           };
         }
         const wdBusinessId = w.businessId?.toString();
@@ -1018,6 +1044,8 @@ export class WithdrawalPaymentService {
             maxPayable: 0,
             p2pPayRemainingInr,
             creditIfPayFull: null,
+            allowPartialPay: false,
+            minPartialPay: MIN_PARTIAL_INR,
           };
         }
 
@@ -1149,22 +1177,74 @@ export class WithdrawalPaymentService {
         noMatchReason = tail ? 'tail_no_wd' : 'no_open_wd';
         total = 0;
       }
+    } else if (userSequential && matchAmount != null) {
+      const assigned = itemsPayable.filter((i) => !!i.assignedToMe);
+      if (assigned.length) {
+        itemsWithCreditOut = [assigned[0]];
+        total = 1;
+      } else {
+        const usdtInrRate = this.exchangeRateService.getUsdtInrRate();
+        const minUsdtPartialInr =
+          Math.round(MIN_PARTIAL_USDT * usdtInrRate * 100) / 100;
+        const candidates = itemsPayable.filter((i) => {
+          if ((i.maxPayable ?? 0) <= 0 && !i.assignedToMe) return false;
+          const cap = Math.max(0, Number(i.maxPayable) || 0);
+          const isUsdt =
+            (i.currency || '').toUpperCase() === Currency.USDT ||
+            i.method === PaymentMethod.USDT;
+          const openInr = isUsdt
+            ? this.openAmountInr(i, Math.max(cap, i.remainingAmount || 0))
+            : Math.max(cap, i.remainingAmount || 0);
+          const matches = userDepositMatchesOpen({
+            matchAmountInr: matchAmount,
+            openInr,
+            isUsdt,
+            minPartialInr: Number(i.minPartialPay) || MIN_PARTIAL_INR,
+            minUsdtPartialInr,
+          });
+          if (!matches) return false;
+          // Higher (non-exact) needs partial pay allowed — amount field is locked to deposit.
+          const exact = Math.abs(openInr - matchAmount) <= 0.05;
+          if (!exact && i.allowPartialPay === false) return false;
+          return true;
+        });
+        const best = pickBestUserDepositMatch(candidates, {
+          matchAmountInr: matchAmount,
+          openInrOf: (i) => {
+            const cap = Math.max(0, Number(i.maxPayable) || 0);
+            const isUsdt =
+              (i.currency || '').toUpperCase() === Currency.USDT ||
+              i.method === PaymentMethod.USDT;
+            return isUsdt
+              ? this.openAmountInr(i, Math.max(cap, i.remainingAmount || 0))
+              : Math.max(cap, i.remainingAmount || 0);
+          },
+        });
+        if (best) {
+          itemsWithCreditOut = [best];
+          total = 1;
+        } else {
+          itemsWithCreditOut = [];
+          total = 0;
+          noMatchReason = 'no_open_wd';
+        }
+      }
     }
 
     return {
       items: itemsWithCreditOut,
       total,
-      page: investorSequential ? 1 : page,
-      limit: investorSequential ? Math.max(itemsWithCreditOut.length, 1) : limit,
-      totalPages: investorSequential ? 1 : Math.max(1, Math.ceil(total / limit) || 1),
+      page: sequentialList ? 1 : page,
+      limit: sequentialList ? Math.max(itemsWithCreditOut.length, 1) : limit,
+      totalPages: sequentialList ? 1 : Math.max(1, Math.ceil(total / limit) || 1),
       needsLimit: false,
       needsPlan: false,
       needsAmount: false,
       waitingForMatch: hasAmount && itemsWithCreditOut.length === 0,
       matchAmount,
-      sequentialMode: investorSequential,
+      sequentialMode: sequentialList,
       queueTotal: investorSequential ? total : undefined,
-      noMatchReason: investorSequential ? noMatchReason : undefined,
+      noMatchReason: sequentialList ? noMatchReason : undefined,
       lots: limitView?.lots ?? [],
       limitRemaining: limitView?.remaining ?? null,
       limitAdded: limitView?.added ?? null,
@@ -1476,10 +1556,11 @@ export class WithdrawalPaymentService {
       withdrawalId: withdrawal._id,
       payerUserId: new Types.ObjectId(payerUserId),
       status: TransactionStatus.PENDING,
-      $or: [{ disputedAt: { $exists: false } }, { disputedAt: null }],
     });
     if (pendingExists) {
-      throw new BadRequestException('You already have a pending payment on this withdrawal');
+      throw new BadRequestException(
+        'You already have a pending/disputed payment on this withdrawal',
+      );
     }
 
     const isUsdtPayout = withdrawal.method === PaymentMethod.USDT;
@@ -2329,11 +2410,10 @@ export class WithdrawalPaymentService {
     );
     const balanceBefore = payerWallet.balance;
 
-    // Dispute frees P2P quota so others can pay — reclaim it when admin resolves as approved.
     // Business deposit-as-payer never consumes / restores P2P pay quota.
     const skipP2pPayQuota = isBusinessPayer;
 
-    // Dispute no longer releases list-quota — nothing to re-reserve on approve.
+    // Disputed pays keep list reservedAmount locked until settle — reclaim investor limit on approve.
     if (payment.disputedAt && isInvestor) {
       try {
         await this.usersService.consumeInvestorLimit(
@@ -2870,7 +2950,7 @@ export class WithdrawalPaymentService {
       `Payer user ID: ${payment.payerUserId.toString()}`,
       `Payer: ${payer?.name || 'n/a'} <${payer?.email || 'n/a'}>`,
       '',
-      'Note: Auto-receive paused until dispute is resolved by admin.',
+      'Note: Auto-receive paused. WD open amount + pay-limit stay locked until admin resolves this dispute.',
     ]
       .filter(Boolean)
       .join('\n');
@@ -2898,23 +2978,11 @@ export class WithdrawalPaymentService {
     payment.notes = `Dispute raised — ticket ${ticket.ticketId}. ${userReason}`;
     await payment.save();
 
-    // Free withdrawal open slot so new pays can proceed while support resolves.
-    // P2P pay-limit was reserved at list-for-P2P — keep it until approve / unlist.
+    // Keep WD reservedAmount + list p2pPayUsed locked until admin resolves the dispute.
+    // Freeing the open slot would let others complete that principal and unblock limit early.
     await this.restoreInvestorPayLimit(payment.payerUserId.toString(), payment);
 
-    withdrawal.reservedAmount = Math.max(
-      0,
-      (withdrawal.reservedAmount || 0) - payment.amount,
-    );
-    const hasActivePending = await this.paymentModel.exists({
-      withdrawalId: withdrawal._id,
-      status: TransactionStatus.PENDING,
-      $or: [{ disputedAt: { $exists: false } }, { disputedAt: null }],
-    });
-    const hasApproved = (withdrawal.paidAmount || 0) > 0;
-    if (!hasActivePending && !hasApproved && withdrawal.status === TransactionStatus.PROCESSING) {
-      withdrawal.status = TransactionStatus.PENDING;
-    }
+    // Disputed pending still holds reservedAmount — stay PROCESSING.
     await withdrawal.save();
 
     await this.notificationService.send(
@@ -2969,6 +3037,129 @@ export class WithdrawalPaymentService {
     };
   }
 
+  /**
+   * Admin dispute resolution:
+   * - received → verify/approve (optional receivedAmount ≤ disputed; shortfall unlocks WD reserved)
+   * - not_received → cancel deposit, free WD reserved slot
+   */
+  async resolveDisputeOutcome(
+    paymentId: string,
+    outcome: 'received' | 'not_received',
+    actor: AuthenticatedUser,
+    receivedAmount?: number,
+  ) {
+    const payment = await this.paymentModel.findById(paymentId).exec();
+    if (!payment) throw new NotFoundException('Payment not found');
+    if (!payment.disputedAt) {
+      return { outcome, payment, skipped: true as const };
+    }
+    if (payment.status !== TransactionStatus.PENDING) {
+      return { outcome, payment, skipped: true as const };
+    }
+
+    const processedBy = actor.email || actor.userId;
+    if (outcome === 'received') {
+      let adjust: ReturnType<typeof normalizeDisputeReceivedAmount>;
+      try {
+        adjust = normalizeDisputeReceivedAmount(payment.amount, receivedAmount);
+      } catch (err) {
+        throw new BadRequestException(err instanceof Error ? err.message : 'Invalid received amount');
+      }
+
+      if (adjust.unlockAmount > 0) {
+        payment.amountBeforeResolve = adjust.originalAmount;
+        payment.amount = adjust.approveAmount;
+        payment.notes = [
+          payment.notes,
+          `Dispute partial receive: verified ₹${adjust.approveAmount} of ₹${adjust.originalAmount} (unlocked ₹${adjust.unlockAmount})`,
+        ]
+          .filter(Boolean)
+          .join(' | ');
+        await payment.save();
+
+        const withdrawal = await this.withdrawalModel.findById(payment.withdrawalId).exec();
+        if (withdrawal) {
+          withdrawal.reservedAmount = Math.max(
+            0,
+            (withdrawal.reservedAmount || 0) - adjust.unlockAmount,
+          );
+          await withdrawal.save();
+        }
+      }
+
+      const approved = await this.approvePayment(
+        paymentId,
+        processedBy,
+        actor.userId,
+        adjust.unlockAmount > 0
+          ? `Dispute resolved: received ₹${adjust.approveAmount} of ₹${adjust.originalAmount} — verified`
+          : 'Dispute resolved: amount received — payment verified',
+        actor,
+      );
+      await this.auditService.log({
+        actorId: actor.userId,
+        actorEmail: actor.email,
+        action: 'withdrawal_payment.dispute_resolve',
+        resource: 'withdrawal_payment',
+        resourceId: paymentId,
+        metadata: {
+          outcome: 'received',
+          ticketId: payment.disputeTicketId || null,
+          originalAmount: adjust.originalAmount,
+          receivedAmount: adjust.approveAmount,
+          unlockedAmount: adjust.unlockAmount,
+        },
+      });
+      return { outcome: 'received' as const, payment: approved, skipped: false as const };
+    }
+
+    const rejected = await this.rejectPayment(
+      paymentId,
+      { reason: 'Dispute resolved: amount not received — deposit cancelled' },
+      processedBy,
+      actor,
+    );
+    await this.auditService.log({
+      actorId: actor.userId,
+      actorEmail: actor.email,
+      action: 'withdrawal_payment.dispute_resolve',
+      resource: 'withdrawal_payment',
+      resourceId: paymentId,
+      metadata: { outcome: 'not_received', ticketId: payment.disputeTicketId || null },
+    });
+    return { outcome: 'not_received' as const, payment: rejected, skipped: false as const };
+  }
+
+  async getDisputePaymentSummary(paymentId: string) {
+    if (!Types.ObjectId.isValid(paymentId)) return null;
+    const payment = await this.paymentModel
+      .findById(paymentId)
+      .select('amount currency status disputedAt referenceId amountBeforeResolve')
+      .lean()
+      .exec();
+    if (!payment) return null;
+    return {
+      _id: payment._id.toString(),
+      amount: payment.amount,
+      currency: payment.currency,
+      status: payment.status,
+      disputedAt: payment.disputedAt,
+      referenceId: payment.referenceId,
+      amountBeforeResolve: payment.amountBeforeResolve,
+    };
+  }
+
+  /** True when related payment still needs received / not_received decision. */
+  async isDisputedPending(paymentId: string): Promise<boolean> {
+    if (!Types.ObjectId.isValid(paymentId)) return false;
+    const payment = await this.paymentModel
+      .findById(paymentId)
+      .select('status disputedAt')
+      .lean()
+      .exec();
+    return !!payment?.disputedAt && payment.status === TransactionStatus.PENDING;
+  }
+
   async rejectPayment(
     paymentId: string,
     dto: RejectWithdrawalPaymentDto,
@@ -2996,7 +3187,8 @@ export class WithdrawalPaymentService {
     payment.processedBy = processedBy;
     await payment.save();
 
-    // Disputed pays already freed reservedAmount in raiseDispute.
+    // Dispute already restored investor pay-limit in raiseDispute.
+    // ReservedAmount stays locked through dispute — free it here on reject.
     // List-time P2P quota stays until payment approve (release+fees) or unlist.
     if (!wasDisputed) {
       await this.restoreInvestorPayLimit(payment.payerUserId.toString(), payment);
@@ -3004,17 +3196,14 @@ export class WithdrawalPaymentService {
 
     const withdrawal = await this.withdrawalModel.findById(payment.withdrawalId).exec();
     if (withdrawal) {
-      if (!wasDisputed) {
-        withdrawal.reservedAmount = Math.max(
-          0,
-          (withdrawal.reservedAmount || 0) - payment.amount,
-        );
-      }
+      withdrawal.reservedAmount = Math.max(
+        0,
+        (withdrawal.reservedAmount || 0) - payment.amount,
+      );
 
       const hasPending = await this.paymentModel.exists({
         withdrawalId: withdrawal._id,
         status: TransactionStatus.PENDING,
-        $or: [{ disputedAt: { $exists: false } }, { disputedAt: null }],
       });
       const hasApproved = (withdrawal.paidAmount || 0) > 0;
       if (!hasPending && !hasApproved && withdrawal.status === TransactionStatus.PROCESSING) {
@@ -3256,12 +3445,19 @@ export class WithdrawalPaymentService {
     });
 
     const settings = await this.platformSettingsService.get();
-    const { referrerPercent, joinerPercent } = referralPercentsForPay({
+    const { referrerPercent, joinerPercent } = resolveReferralPercents({
       priorCompletedPays: priorCompleted,
+      now: new Date(),
       firstReferrerPercent: settings.investorReferralFirstReferrerPercent ?? 2,
       firstJoinerPercent: settings.investorReferralFirstJoinerPercent ?? 1,
       nextReferrerPercent: settings.investorReferralNextReferrerPercent ?? 1,
       nextJoinerPercent: settings.investorReferralNextJoinerPercent ?? 0,
+      periodFromDate: settings.investorReferralPeriodFromDate,
+      periodToDate: settings.investorReferralPeriodToDate,
+      periodFirstReferrerPercent: settings.investorReferralPeriodFirstReferrerPercent,
+      periodFirstJoinerPercent: settings.investorReferralPeriodFirstJoinerPercent,
+      periodNextReferrerPercent: settings.investorReferralPeriodNextReferrerPercent,
+      periodNextJoinerPercent: settings.investorReferralPeriodNextJoinerPercent,
     });
 
     const referrerAmt = referralRewardAmount(opts.principalCredit, referrerPercent);
