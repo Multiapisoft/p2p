@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { businessesApi } from '../api/businesses.api';
 import { commissionsApi } from '@/features/commissions/api/commissions.api';
-import { usePermissions } from '@/shared/hooks/usePermissions';
 import {
   CommissionRulesEditor,
   emptyRule,
@@ -53,7 +52,6 @@ function toggleMethod(list: string[], value: string, checked: boolean) {
 }
 
 export function BusinessesPage() {
-  const { isAdmin } = usePermissions();
   const [statsTarget, setStatsTarget] = useState<Business | null>(null);
   const [commissionTarget, setCommissionTarget] = useState<Business | null>(null);
   const [txnFlagsTarget, setTxnFlagsTarget] = useState<Business | null>(null);
@@ -183,7 +181,6 @@ export function BusinessesPage() {
         businessTakeDeposit,
         businessTakeWithdrawal,
         investorBonus,
-        ...(isAdmin ? { p2pPayLimit: Number(p2pPayLimit) || 0 } : {}),
       });
     },
     onSuccess: () => {
@@ -473,31 +470,18 @@ export function BusinessesPage() {
             </p>
 
             <div className="space-y-2 rounded-xl border border-outline-variant bg-surface-container-low/40 p-3">
-              <label className="text-sm font-semibold" htmlFor="p2p-pay-limit">
-                Platform Payment pay limit (₹)
-              </label>
+              <p className="text-sm font-semibold">Platform Payment pay limit (₹)</p>
               <p className="text-xs text-on-surface-variant">
                 Earned: {formatCurrency(businessCommission?.p2pPayEarned ?? 0)} · Used:{' '}
                 {formatCurrency(businessCommission?.p2pPayUsed ?? 0)}
                 {` · Remaining: ${formatCurrency(businessCommission?.p2pPayRemaining ?? 0)}`}
               </p>
-              {isAdmin ? (
-                <Input
-                  id="p2p-pay-limit"
-                  type="number"
-                  min={0}
-                  step="1"
-                  value={p2pPayLimit}
-                  onChange={(e) => setP2pPayLimit(e.target.value)}
-                />
-              ) : (
-                <p className="text-sm font-semibold">
-                  {formatCurrency(Number(p2pPayLimit) || 0)}{' '}
-                  <span className="text-xs font-normal text-on-surface-variant">
-                    (change via Limit Requests page)
-                  </span>
-                </p>
-              )}
+              <p className="text-sm font-semibold">
+                {formatCurrency(Number(p2pPayLimit) || 0)}{' '}
+                <span className="text-xs font-normal text-on-surface-variant">
+                  (change via Limit Requests)
+                </span>
+              </p>
             </div>
 
             <div className="grid gap-3 rounded-xl border border-outline-variant bg-surface-container-low/40 p-3 sm:grid-cols-2">

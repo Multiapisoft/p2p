@@ -56,10 +56,8 @@ export class CommissionController {
     @Body() dto: UpsertBusinessCommissionsDto,
   ) {
     assertSubAdminBusinessAccess(user.role, user.assignedBusinessIds, businessId);
-    // Sub-admins cannot apply pay-limit via commissions — use approval requests.
-    if (user.role === UserRole.SUB_ADMIN) {
-      delete (dto as { p2pPayLimit?: number }).p2pPayLimit;
-    }
+    // Pay-limit changes go through Limit Requests (proof + approval), not commissions.
+    delete (dto as { p2pPayLimit?: number }).p2pPayLimit;
     return this.commissionService.upsertBusinessCommissions(businessId, dto);
   }
 
